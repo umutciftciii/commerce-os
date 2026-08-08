@@ -2004,6 +2004,89 @@ export const recoveryActionRequestSchema = z.object({
 });
 export const manualOpenCaseRequestSchema = z.object({ reviewId: z.string().min(1) });
 
+/**
+ * TD-174B-1 — Store-admin SİPARİŞ DETAYI "Sipariş Deneyimi" kartı için TEK-SİPARİŞ
+ * özeti. Review yoksa endpoint 200 + `null` döner (kart gizlenir). `recovery` yalnız
+ * case açıldıysa dolu (1-2★ auto / 3★ manuel). `goodwillCreditMinor` bu case'e bağlı
+ * RECOVERY_GOODWILL ledger toplamı (yoksa "0"). Internal note TAŞINMAZ.
+ */
+export const orderExperienceSummarySchema = z.object({
+  reviewId: z.string(),
+  rating: z.number().int().min(1).max(5),
+  comment: z.string().nullable(),
+  reviewCreatedAt: z.string(),
+  recovery: z
+    .object({
+      caseId: z.string(),
+      status: recoveryCaseStatusSchema,
+      priority: recoveryPrioritySchema,
+      assigneePlatformUserId: z.string().nullable(),
+      dueAt: z.string(),
+      overdue: z.boolean(),
+      resolvedAt: z.string().nullable(),
+      resolutionType: z.string().nullable(),
+    })
+    .nullable(),
+  goodwillCreditMinor: canonicalMinorAmountString,
+});
+export type OrderExperienceSummaryDto = z.infer<typeof orderExperienceSummarySchema>;
+
+/**
+ * TD-174B-2 — Recovery raporlama (Sipariş Deneyimi > Raporlar). experienceKpi'nın
+ * ÜSTÜNE trend + zamanlama + outcome dağılımı ekler; storeId-scoped, bounded aralık.
+ * Süreler dakika (integer, null=veri yok). Oranlar 0..1. Goodwill tutarı BigInt-string.
+ */
+export const recoveryRatingTrendPointSchema = z.object({
+  date: z.string(), // YYYY-MM-DD (mağaza tz)
+  count: z.number().int().nonnegative(),
+  averageRating: z.number(),
+  lowCount: z.number().int().nonnegative(), // 1-2★
+});
+export const recoveryOutcomeSliceSchema = z.object({
+  outcome: z.string(),
+  count: z.number().int().nonnegative(),
+});
+export const recoveryReportSchema = z.object({
+  range: z.object({ dateFrom: z.string(), dateTo: z.string(), timezone: z.string() }),
+  totals: z.object({
+    totalReviews: z.number().int().nonnegative(),
+    lowRatingCount: z.number().int().nonnegative(),
+    highRatingCount: z.number().int().nonnegative(),
+    averageRating: z.number(),
+    openCases: z.number().int().nonnegative(),
+    resolvedCases: z.number().int().nonnegative(),
+    closedCases: z.number().int().nonnegative(),
+  }),
+  ratingTrend: z.array(recoveryRatingTrendPointSchema),
+  avgFirstContactMinutes: z.number().int().nonnegative().nullable(),
+  avgResolutionMinutes: z.number().int().nonnegative().nullable(),
+  contactSuccessRatio: z.number(),
+  outcomeDistribution: z.array(recoveryOutcomeSliceSchema),
+  goodwill: z.object({ totalMinor: canonicalMinorAmountString, caseCount: z.number().int().nonnegative() }),
+});
+export type RecoveryReportDto = z.infer<typeof recoveryReportSchema>;
+
+/**
+ * TD-174B-2 — Alışveriş bakiyesi (store credit) FİNANSAL raporu (Finans > Raporlar).
+ * `outstandingLiabilityMinor` NOKTA-ANLIK (şu an canlı lot Σ remaining, expiresAt>now).
+ * Diğer bucket'lar aralık içi ledger hareket toplamı (issued/spent/restored/expired/
+ * adjustments). Tümü BigInt minor-string; storeId-scoped. Kaynak = append-only ledger.
+ */
+export const creditReportSchema = z.object({
+  range: z.object({ dateFrom: z.string(), dateTo: z.string(), timezone: z.string() }),
+  currency: currencySchema,
+  outstandingLiabilityMinor: canonicalMinorAmountString,
+  activeLotCount: z.number().int().nonnegative(),
+  customersWithBalance: z.number().int().nonnegative(),
+  issuedMinor: canonicalMinorAmountString,
+  goodwillIssuedMinor: canonicalMinorAmountString,
+  spentMinor: canonicalMinorAmountString,
+  restoredMinor: canonicalMinorAmountString,
+  expiredMinor: canonicalMinorAmountString,
+  adjustmentsNetMinor: canonicalMinorAmountString, // adjustment CREDIT − DEBIT
+});
+export type CreditReportDto = z.infer<typeof creditReportSchema>;
+
 export type ExperienceListResponse = z.infer<typeof experienceListResponseSchema>;
 export type ExperienceListRow = z.infer<typeof experienceListRowSchema>;
 export type ExperienceKpiDto = z.infer<typeof experienceKpiSchema>;
@@ -5285,6 +5368,26 @@ export const orderCancellationReasonSchema = z.enum([
 ]);
 export type OrderCancellationReasonValue = z.infer<typeof orderCancellationReasonSchema>;
 
+/**
+ * TD-174B-1 — Store-admin sipariş detayı ÖDEME DAĞILIMI (allocation). BUG-CART-005
+ * `buildPaymentAllocations` projeksiyonu ile birebir aynı gövde (müşteri-facing
+ * `customerOrderPaymentAllocationSchema` ile hizalı; o şema bu satırın ALTINDA
+ * tanımlı olduğundan TDZ nedeniyle burada tekrar edilir). Kaynak = settled
+ * (PAID/AUTHORIZED) PaymentAttempt; toplam = sipariş captured toplamı (invariant).
+ * Ham PAN/provider payload TAŞINMAZ; STORE_CREDIT = "Mağaza bakiyesi" satırı.
+ */
+export const orderPaymentAllocationSchema = z.object({
+  sourceType: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK", "STORE_CREDIT"]),
+  amountMinor: z.number().int().nonnegative(),
+  currency: currencySchema,
+  cardBrand: z.string().nullable(),
+  cardLast4: z.string().nullable(),
+  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]).nullable(),
+  installmentCount: z.number().int().positive(),
+  paidAt: z.string().datetime().nullable(),
+});
+export type OrderPaymentAllocation = z.infer<typeof orderPaymentAllocationSchema>;
+
 export const orderSchema = z.object({
   id: z.string().min(1),
   storeId: z.string().min(1),
@@ -5316,6 +5419,9 @@ export const orderSchema = z.object({
   reservations: z.array(inventoryReservationSchema).default([]),
   events: z.array(orderEventSchema).default([]),
   paymentAttempts: z.array(orderPaymentAttemptSchema).default([]),
+  // TD-174B-1 — Ödeme dağılımı (settled attempt'lerden türetilir; BUG-CART-005
+  // projeksiyonu). Legacy/pending-only siparişlerde boş dizi. Snapshot değildir.
+  paymentAllocations: z.array(orderPaymentAllocationSchema).default([]),
   // TODO-125 — Sipariş anında seçilen kargo sağlayıcı/seçenek özeti (store-admin
   // sipariş detayı görünümü). Eski siparişlerde null/yok olabilir (geri uyum).
   shippingSelection: orderShippingSelectionSchema.nullable().default(null),

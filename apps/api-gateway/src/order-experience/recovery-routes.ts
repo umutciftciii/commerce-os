@@ -11,18 +11,23 @@ import {
   experienceKpiSchema,
   experienceListResponseSchema,
   manualOpenCaseRequestSchema,
+  orderExperienceSummarySchema,
   recoveryActionRequestSchema,
   recoveryCaseDetailSchema,
+  recoveryReportSchema,
 } from "@commerce-os/contracts";
 import { prisma } from "@commerce-os/db";
 import {
   experienceKpi,
+  getOrderExperienceForOrder,
   getRecoveryCaseDetail,
   listExperienceReviews,
+  recoveryReport,
   resolveReviewForManualCase,
   type ExperienceListFilters,
 } from "./recovery-read.js";
 import { applyRecoveryAction, openRecoveryCaseForReview, type RecoveryErrorCode } from "./recovery-service.js";
+import { resolveFinanceRange, type FinancePeriodPreset } from "../finance/date-range.js";
 
 interface StoreAdminAccess {
   actorUserId: string;
@@ -37,11 +42,21 @@ export interface RecoveryAdminRoutesDeps {
     entityId: string;
     metadata?: Record<string, unknown>;
   }) => Promise<void> | void;
+  /** TD-174B-2 — Recovery raporu tarih aralığı için mağaza tz'si. */
+  getStoreTimezone: (storeId: string) => Promise<string>;
+  /** Test enjeksiyonu; default Date.now. */
+  now?: () => number;
 }
 
 const errorBody = (code: string, message: string) => ({ error: { code, message } });
 const storeParam = z.object({ storeId: z.string().min(1) });
 const caseParam = z.object({ storeId: z.string().min(1), caseId: z.string().min(1) });
+const orderParam = z.object({ storeId: z.string().min(1), orderId: z.string().min(1) });
+const reportQuery = z.object({
+  period: z.enum(["today", "yesterday", "last7", "last30", "thisMonth", "lastMonth", "thisYear", "custom"]).optional(),
+  dateFrom: z.string().optional(),
+  dateTo: z.string().optional(),
+});
 
 const listQuery = z.object({
   dateFrom: z.string().datetime().optional(),
@@ -102,6 +117,35 @@ export function registerRecoveryAdminRoutes(app: FastifyInstance, deps: Recovery
       dateTo: query.dateTo ? new Date(query.dateTo) : undefined,
     });
     await reply.send(experienceKpiSchema.parse(kpi));
+  });
+
+  // TD-174B-2 — Recovery raporu (trend + zamanlama + outcome + goodwill; bounded aralık).
+  app.get("/stores/:storeId/order-experience/report", async (request, reply) => {
+    const params = storeParam.parse(request.params);
+    const query = reportQuery.parse(request.query);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const timezone = await deps.getStoreTimezone(params.storeId);
+    const preset: FinancePeriodPreset = query.period ?? (query.dateFrom || query.dateTo ? "custom" : "last30");
+    const range = resolveFinanceRange({
+      preset,
+      timezone,
+      nowMs: deps.now ? deps.now() : Date.now(),
+      dateFrom: query.dateFrom,
+      dateTo: query.dateTo,
+    });
+    const report = await recoveryReport(params.storeId, range.current);
+    await reply.send(recoveryReportSchema.parse(report));
+  });
+
+  // TD-174B-1 — Tek-sipariş "Sipariş Deneyimi" özeti (store-admin sipariş detayı kartı).
+  // Review yoksa 200 + null (kart gizlenir). Cross-store 404 requireStoreAdmin ile.
+  app.get("/stores/:storeId/order-experience/orders/:orderId", async (request, reply) => {
+    const params = orderParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const summary = await getOrderExperienceForOrder(params.storeId, params.orderId);
+    await reply.send(summary ? orderExperienceSummarySchema.parse(summary) : null);
   });
 
   // Case detay.

@@ -1459,6 +1459,24 @@ export const trStoreAdmin = {
       // TD-FR-7 — Yalnız SUCCEEDED OrderRefund toplamı; net tahsilat = captured − succeeded refund.
       paymentRefunded: "Gerçekleşen iade",
       paymentNetCollected: "İade sonrası net tahsilat",
+      // TD-174B-1 — Ödeme dağılımı (settled attempt'lerden). Ham enum gösterilmez.
+      paymentAllocationTitle: "Ödeme dağılımı",
+      paymentAllocationStoreCredit: "Mağaza bakiyesi",
+      paymentAllocationCard: "Kredi/banka kartı",
+      paymentAllocationBankTransfer: "Havale/EFT",
+      paymentAllocationCod: "Kapıda ödeme",
+      paymentAllocationPaymentLink: "Ödeme bağlantısı",
+      // TD-174B-1 — Sipariş Deneyimi kartı (rating + yorum + recovery + goodwill).
+      experienceTitle: "Sipariş deneyimi",
+      experienceRatingLabel: "Puan",
+      experienceCommentLabel: "Yorum",
+      experienceRecoveryStatusLabel: "Geri kazanım durumu",
+      experienceAssigneeLabel: "Atanan",
+      experienceUnassigned: "Atanmadı",
+      experienceGoodwillLabel: "Tanımlanan iyi niyet bakiyesi",
+      experienceOverdue: "SLA gecikti",
+      experienceViewCase: "Geri kazanım detayını aç",
+      experienceNoCase: "Bu değerlendirme için geri kazanım case'i yok.",
       salesSummaryTitle: "Satış özeti",
       salesSummarySubtitle:
         "Sipariş anındaki fiyat/KDV/maliyet snapshot'larından hesaplanır; güncel ürün verisinden etkilenmez.",

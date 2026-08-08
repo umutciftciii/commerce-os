@@ -446,7 +446,7 @@ import {
 // TODO-159F (ADR-095..100) — Order Payment Recovery & Collection.
 import { registerPaymentRecoveryRoutes } from "./payments/recovery-routes.js";
 import { createLogPaymentNotificationDispatcher } from "./payments/notification.js";
-import { resolveOrderPaymentTransition } from "./payments/payment-state.js";
+import { buildPaymentAllocations, resolveOrderPaymentTransition } from "./payments/payment-state.js";
 import {
   consumeOrderReservations,
   releaseOrderReservations,
@@ -2113,6 +2113,31 @@ function serializeOrder(order: OrderRecord) {
       failedAt: attempt.failedAt?.toISOString() ?? null,
       createdAt: attempt.createdAt.toISOString(),
       updatedAt: attempt.updatedAt.toISOString(),
+    })),
+    // TD-174B-1 — Odeme dagilimi (settled attempt'lerden BUG-CART-005 projeksiyonu ile
+    // turetilir; snapshot degildir). STORE_CREDIT = "Magaza bakiyesi" satiri. Toplam =
+    // captured toplami (invariant). Ham PAN/provider payload TASINMAZ.
+    paymentAllocations: buildPaymentAllocations(
+      (order.paymentAttempts ?? []).map((attempt) => ({
+        status: attempt.status,
+        method: attempt.method,
+        amount: attempt.amount,
+        currency: attempt.currency,
+        cardBrand: attempt.cardBrand ?? null,
+        cardLast4: attempt.cardLast4 ?? null,
+        provider: attempt.provider ?? null,
+        installmentCount: attempt.installmentCount,
+        paidAt: attempt.paidAt ?? null,
+      })),
+    ).map((allocation) => ({
+      sourceType: allocation.sourceType,
+      amountMinor: allocation.amountMinor,
+      currency: allocation.currency,
+      cardBrand: allocation.cardBrand,
+      cardLast4: allocation.cardLast4,
+      provider: allocation.provider,
+      installmentCount: allocation.installmentCount,
+      paidAt: allocation.paidAt ? allocation.paidAt.toISOString() : null,
     })),
     // TODO-125 — Secilen kargo saglayici/secenek ozeti (store-admin siparis detayi).
     shippingSelection: orderShippingSelectionOf(order),
@@ -7873,6 +7898,10 @@ export function createServer(
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+    getStoreTimezone: async (storeId) => {
+      const settings = await prisma.storeSettings.findUnique({ where: { storeId }, select: { timezone: true } });
+      return settings?.timezone || config.COMMERCIAL_AUTOMATION_DEFAULT_TIMEZONE || "Europe/Istanbul";
+    },
   });
 
   // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).

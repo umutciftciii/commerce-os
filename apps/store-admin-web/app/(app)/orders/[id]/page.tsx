@@ -8,6 +8,7 @@ import { format, getDictionary } from "@commerce-os/i18n";
 import type {
   Order,
   OrderFulfillmentDisplay,
+  OrderExperienceSummaryDto,
   AdminOrderReturnsResponse,
 } from "@commerce-os/api-client";
 import { getOrderFulfillmentDisplay } from "@commerce-os/api-client";
@@ -100,6 +101,127 @@ function maskedCardLabel(brand: string | null, last4: string | null): string | n
   if (!last4) return null;
   const prefix = brand && CARD_BRAND_LABEL[brand] ? `${CARD_BRAND_LABEL[brand]} ` : "";
   return `${prefix}•••• ${last4}`;
+}
+
+type PaymentAllocation = Order["paymentAllocations"][number];
+
+/**
+ * TD-174B-1 — Ödeme dağılımı satır etiketi (ham enum GÖSTERİLMEZ). CARD → maskeli
+ * kart (marka + son 4); yoksa jenerik "Kredi/banka kartı". STORE_CREDIT → "Mağaza
+ * bakiyesi". Diğer yöntemler i18n key'inden.
+ */
+function allocationLabel(allocation: PaymentAllocation, d: DetailDict): string {
+  switch (allocation.sourceType) {
+    case "STORE_CREDIT":
+      return d.paymentAllocationStoreCredit;
+    case "CARD":
+      return maskedCardLabel(allocation.cardBrand, allocation.cardLast4) ?? d.paymentAllocationCard;
+    case "BANK_TRANSFER":
+      return d.paymentAllocationBankTransfer;
+    case "CASH_ON_DELIVERY":
+      return d.paymentAllocationCod;
+    case "PAYMENT_LINK":
+      return d.paymentAllocationPaymentLink;
+    default:
+      return d.paymentAllocationCard;
+  }
+}
+
+// TD-174B-1 — Recovery durum tonu/etiketi (order-experience yüzeyiyle tutarlı; ham enum yok).
+const RECOVERY_STATUS_TONE: Record<string, "neutral" | "success" | "warning" | "info" | "danger"> = {
+  OPEN: "warning",
+  ASSIGNED: "info",
+  CONTACT_ATTEMPTED: "info",
+  CUSTOMER_REACHED: "info",
+  ACTION_REQUIRED: "warning",
+  RESOLVED: "success",
+  CLOSED: "neutral",
+  UNREACHABLE: "danger",
+  NO_ACTION_REQUIRED: "neutral",
+};
+
+function recoveryStatusLabel(status: string, tr: boolean): string {
+  const map: Record<string, [string, string]> = {
+    OPEN: ["Açık", "Open"],
+    ASSIGNED: ["Atandı", "Assigned"],
+    CONTACT_ATTEMPTED: ["İletişim denendi", "Contact attempted"],
+    CUSTOMER_REACHED: ["Müşteriye ulaşıldı", "Customer reached"],
+    ACTION_REQUIRED: ["Aksiyon gerekli", "Action required"],
+    RESOLVED: ["Çözüldü", "Resolved"],
+    CLOSED: ["Kapatıldı", "Closed"],
+    UNREACHABLE: ["Ulaşılamadı", "Unreachable"],
+    NO_ACTION_REQUIRED: ["Aksiyon gerekmez", "No action"],
+  };
+  const v = map[status];
+  return v ? (tr ? v[0] : v[1]) : status;
+}
+
+/**
+ * TD-174B-1 — Store-admin sipariş detayı "Sipariş Deneyimi" kartı. Kaynak = tek-sipariş
+ * özeti ucu (review yoksa kart RENDER EDİLMEZ). Rating + yorum + recovery durumu +
+ * atanan + tanımlanan iyi niyet bakiyesi; case varsa geri kazanım detayına köprü.
+ * Internal note TAŞINMAZ (özet ucu zaten göndermez).
+ */
+function OrderExperienceCard({
+  summary,
+  d,
+  locale,
+}: {
+  summary: OrderExperienceSummaryDto;
+  d: DetailDict;
+  locale: string;
+}) {
+  const tr = locale === "tr";
+  const goodwillMinor = Number(summary.goodwillCreditMinor);
+  return (
+    <SurfaceCard title={d.experienceTitle}>
+      <div className="flex items-center justify-between py-1 text-sm">
+        <span className="text-white/45">{d.experienceRatingLabel}</span>
+        <span className="font-medium text-amber-300/90" aria-label={`${summary.rating}/5`}>
+          {"★".repeat(summary.rating)}
+          <span className="text-white/20">{"★".repeat(5 - summary.rating)}</span>
+        </span>
+      </div>
+      {summary.comment ? (
+        <div className="py-1 text-sm">
+          <p className="mb-1 text-white/45">{d.experienceCommentLabel}</p>
+          <p className="rounded-lg bg-white/[0.03] px-3 py-2 text-white/70">{summary.comment}</p>
+        </div>
+      ) : null}
+      {summary.recovery ? (
+        <>
+          <div className="flex items-center justify-between py-1 text-sm">
+            <span className="text-white/45">{d.experienceRecoveryStatusLabel}</span>
+            <span className="flex items-center gap-2">
+              <Badge tone={RECOVERY_STATUS_TONE[summary.recovery.status] ?? "neutral"}>
+                {recoveryStatusLabel(summary.recovery.status, tr)}
+              </Badge>
+              {summary.recovery.overdue ? <Badge tone="danger">{d.experienceOverdue}</Badge> : null}
+            </span>
+          </div>
+          <div className="flex items-center justify-between py-1 text-sm">
+            <span className="text-white/45">{d.experienceAssigneeLabel}</span>
+            <span className="font-medium text-white/70">
+              {summary.recovery.assigneePlatformUserId ?? d.experienceUnassigned}
+            </span>
+          </div>
+          {goodwillMinor > 0 ? (
+            <MoneyRow label={d.experienceGoodwillLabel} value={formatMinor(goodwillMinor, "TRY")} />
+          ) : null}
+          <div className="mt-2 border-t border-white/[0.09] pt-2">
+            <Link
+              href={`/order-experience/${summary.recovery.caseId}`}
+              className="text-sm font-medium text-sky-300/90 hover:text-sky-200"
+            >
+              {d.experienceViewCase} →
+            </Link>
+          </div>
+        </>
+      ) : (
+        <p className="pt-1 text-sm text-white/30">{d.experienceNoCase}</p>
+      )}
+    </SurfaceCard>
+  );
 }
 
 /**
@@ -264,6 +386,21 @@ function PaymentSummaryPanel({
             <span className="font-semibold text-white/90">{formatMinor(netCollectedMinor, currency)}</span>
           </div>
         </>
+      ) : null}
+      {/* TD-174B-1 — Ödeme dağılımı (settled attempt'ler). STORE_CREDIT = "Mağaza
+          bakiyesi". Toplam = captured toplamı (invariant). Ham PAN gösterilmez. */}
+      {order.paymentAllocations.length > 0 ? (
+        <div className="mt-2 space-y-1 border-t border-white/[0.09] pt-2">
+          <p className="text-[11px] uppercase tracking-wide text-white/35">{d.paymentAllocationTitle}</p>
+          {order.paymentAllocations.map((allocation, index) => (
+            <div key={index} className="flex items-center justify-between text-sm">
+              <span className="text-white/45">{allocationLabel(allocation, d)}</span>
+              <span className="font-medium text-white/70">
+                {formatMinor(allocation.amountMinor, allocation.currency)}
+              </span>
+            </div>
+          ))}
+        </div>
       ) : null}
     </SurfaceCard>
   );
@@ -760,6 +897,24 @@ export default function OrderDetailPage() {
     };
   }, [orderId]);
 
+  // TD-174B-1 — Sipariş Deneyimi kartı verisi (tek-sipariş özeti). Fail-open: alınamazsa
+  // veya review yoksa (null) kart gizlenir; sipariş görünümü bozulmaz.
+  const [orderExperience, setOrderExperience] = useState<OrderExperienceSummaryDto | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void storeApi
+      .getOrderExperienceForOrder(orderId)
+      .then((res) => {
+        if (!cancelled) setOrderExperience(res);
+      })
+      .catch(() => {
+        if (!cancelled) setOrderExperience(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [orderId]);
+
   const order = state.status === "ready" ? state.order : null;
 
   const activeReservations = useMemo(
@@ -1023,6 +1178,11 @@ export default function OrderDetailPage() {
                 />
 
                 <PaymentPanel order={order} d={d} />
+
+                {/* TD-174B-1 — Sipariş Deneyimi kartı (review varsa). Fail-open: null → gizli. */}
+                {orderExperience ? (
+                  <OrderExperienceCard summary={orderExperience} d={d} locale={locale} />
+                ) : null}
 
                 <OrderShipmentSummary order={order} locale={locale as "tr" | "en"} />
 

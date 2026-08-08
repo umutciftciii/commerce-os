@@ -1451,6 +1451,24 @@ export const enStoreAdmin: StoreAdminDictionary = {
       // TD-FR-7 — Only SUCCEEDED OrderRefund total; net collected = captured − succeeded refund.
       paymentRefunded: "Realized refund",
       paymentNetCollected: "Net collected after refund",
+      // TD-174B-1 — Payment allocation (from settled attempts). Raw enums never shown.
+      paymentAllocationTitle: "Payment allocation",
+      paymentAllocationStoreCredit: "Store balance",
+      paymentAllocationCard: "Credit/debit card",
+      paymentAllocationBankTransfer: "Bank transfer",
+      paymentAllocationCod: "Cash on delivery",
+      paymentAllocationPaymentLink: "Payment link",
+      // TD-174B-1 — Order Experience card (rating + comment + recovery + goodwill).
+      experienceTitle: "Order experience",
+      experienceRatingLabel: "Rating",
+      experienceCommentLabel: "Comment",
+      experienceRecoveryStatusLabel: "Recovery status",
+      experienceAssigneeLabel: "Assignee",
+      experienceUnassigned: "Unassigned",
+      experienceGoodwillLabel: "Goodwill balance issued",
+      experienceOverdue: "SLA overdue",
+      experienceViewCase: "Open recovery detail",
+      experienceNoCase: "No recovery case for this review.",
       salesSummaryTitle: "Sales summary",
       salesSummarySubtitle:
         "Calculated from the price/VAT/cost snapshots taken at order time; not affected by current product data.",

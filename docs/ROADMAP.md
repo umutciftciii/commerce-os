@@ -1410,6 +1410,21 @@ goodwill credit (policy-gated + recovery entegrasyonu), storefront `Alışveriş
 allocation (STORE_CREDIT PaymentAttempt; tam/kısmi credit), cancellation restore (kaynak-bazlı; kart→PSP,
 credit→bakiye). Order Experience Recovery Operations (ADR-283) bu bakiyeyi geri kazanım aksiyonuna bağlar.
 
+**TD-174B-1/2/3 follow-up (2026-08-08) — order-detail görünürlük + raporlama + smoke ✅:** Store Admin sipariş
+detayında **Ödeme dağılımı** (BUG-CART-005 `paymentAllocations` projeksiyonu REUSE; STORE_CREDIT→"Mağaza
+bakiyesi") + **Sipariş Deneyimi kartı** (rating/recovery/atanan/goodwill + geri kazanım köprüsü). **Alışveriş
+bakiyesi finansal raporu** (Finans>Raporlar sekmesi): outstanding liability (nokta-anlık) + issued/spent/
+restored/expired/adjustments. **Recovery raporu** (Sipariş Deneyimi): puan trendi + ilk-temas/çözüm süreleri +
+ulaşma oranı + outcome dağılımı + goodwill. Finansal çekirdek/ledger/migration'a dokunulmadı (yalnız additive
+read/UI). **Order Experience Recovery Operations = ✅ ACTIVE**; **Customer Shopping Balance = ✅ ACTIVE**.
+
+## Refund Destination Choice — NEXT (TODO-175)
+
+Müşterinin iade/iptal bedelini **orijinal ödeme yöntemine mi yoksa mağaza bakiyesine mi** almak istediğini
+seçmesi (ve mağaza politikasının bunu yönlendirmesi) TODO-174B kapsamı DIŞINDA — sıradaki bağımsız faz TODO-175.
+Store-credit foundation (yukarıda) + cancellation restore + refund ledger bu işi hazırlar; seçim UX + politika
+motoru + allocation kararı TODO-175'te ele alınır.
+
 ## Gift Card Purchase / Code Redemption — FUTURE BACKLOG
 
 Hediye kartı satın alma / gift card ürünü / kod üretme / redeem / 3. kişiye hediye / e-posta teslim /

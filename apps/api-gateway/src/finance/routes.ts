@@ -10,6 +10,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import {
   cancellationReportQuerySchema,
   cancellationReportResponseSchema,
+  creditReportSchema,
   financeBreakdownsResponseSchema,
   financeDiscountReportResponseSchema,
   financePaymentReportResponseSchema,
@@ -17,6 +18,7 @@ import {
   financeSummaryResponseSchema,
 } from "@commerce-os/contracts";
 import { prisma } from "@commerce-os/db";
+import { creditReport } from "../customer-credit/report.js";
 import { buildCancellationReport } from "../orders/cancellation-report.js";
 import type { ResolvedRange } from "../influencers/analytics-range.js";
 import { resolveFinanceRange, type FinancePeriodPreset } from "./date-range.js";
@@ -178,6 +180,18 @@ export function registerFinanceRoutes(app: FastifyInstance, deps: FinanceRoutesD
         },
       }),
     );
+  });
+
+  // ── TD-174B-2 — Alışveriş bakiyesi (store credit) finansal raporu ──────────
+  app.get("/stores/:storeId/finance/credit-report", async (request, reply) => {
+    const { storeId } = request.params as { storeId: string };
+    const access = await requireStoreAdmin(request, reply, storeId);
+    if (!access) return;
+    const query = parseQuery(request, reply);
+    if (!query) return;
+    const range = await resolveRangeFor(storeId, query);
+    const report = await creditReport(storeId, range.current, query.currency);
+    return reply.send(creditReportSchema.parse(report));
   });
 
   // ── Kırılımlar (ürün/varyant/kategori/marka/ödeme/kampanya) ────────────────

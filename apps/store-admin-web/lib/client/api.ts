@@ -310,6 +310,10 @@ import type {
   RecoveryCaseDetailDto,
   RecoveryActionRequest,
   ManualOpenCaseRequest,
+  // TD-174B-1/2 — Order-detail experience summary + recovery/credit reporting.
+  OrderExperienceSummaryDto,
+  RecoveryReportDto,
+  CreditReportDto,
   AdminIssueCreditRequest,
   AdminAdjustCreditRequest,
   CustomerCreditBalanceResponse,
@@ -1256,6 +1260,9 @@ export const storeApi = {
     call<FinancePaymentReportResponse>(`/api/finance/payments${financeQueryString(query)}`),
   getFinanceDiscounts: (query?: FinanceReportParams) =>
     call<FinanceDiscountReportResponse>(`/api/finance/discounts${financeQueryString(query)}`),
+  // TD-174B-2 — Alışveriş bakiyesi (store credit) finansal raporu.
+  getCreditReport: (query?: FinanceReportParams) =>
+    call<CreditReportDto>(`/api/finance/credit-report${financeQueryString(query)}`),
   exportFinanceSummary: (query?: FinanceReportParams) =>
     fetchCsv(`/api/finance/summary/export${financeQueryString(query)}`),
   exportFinanceProducts: (query?: FinanceReportParams) =>
@@ -1833,6 +1840,12 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  // TD-174B-2 — Recovery raporu (trend + zamanlama + outcome + goodwill).
+  getRecoveryReport: (query?: FinanceReportParams) =>
+    call<RecoveryReportDto>(`/api/order-experience/report${financeQueryString(query)}`),
+  // TD-174B-1 — Tek-sipariş deneyim özeti (order-detail kartı). Review yoksa null.
+  getOrderExperienceForOrder: (orderId: string) =>
+    call<OrderExperienceSummaryDto | null>(`/api/order-experience/orders/${orderId}`),
 
   // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
   getCustomerCredit: (customerId: string, query?: AdminListRequestQuery) =>
