@@ -220,6 +220,7 @@ export interface CustomerCancellationRowSource {
     cancelReasonCode: OrderCancellationReasonValue | null;
     cancelReasonNote: string | null;
   };
+  refundDestination: RefundDestinationValue | null;
   paymentAttempt: MaskablePaymentAttempt | null;
 }
 
@@ -250,6 +251,7 @@ export function mapCustomerCancellationItem(
     createdAt: r.requestedAt.toISOString(),
     returnStatus: null,
     resolutionType: null,
+    refundDestination: r.refundDestination,
     itemCount: null,
     refund,
     cancellationReasonCode: r.order.cancelReasonCode,

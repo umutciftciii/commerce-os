@@ -166,6 +166,7 @@ describe("mapCustomerCancellationItem", () => {
         cancelReasonCode: "WILL_NOT_ARRIVE_IN_TIME",
         cancelReasonNote: null,
       },
+      refundDestination: "SHOPPING_BALANCE",
       paymentAttempt: { method: "CARD", cardBrand: "Visa", cardLast4: "4242", manualMethod: null },
       ...over,
     };

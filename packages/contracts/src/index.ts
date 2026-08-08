@@ -12448,6 +12448,8 @@ export const customerReturnSummarySchema = z.object({
   orderNumber: z.string(),
   status: returnStatusSchema,
   resolutionType: returnResolutionTypeSchema,
+  // TODO-175 — müşterinin refund hedefi (REFUND çözümünde dolu; REPLACEMENT null). Raw enum gösterilmez.
+  refundDestination: refundDestinationSchema.nullable().default(null),
   itemCount: z.number().int().nonnegative(),
   createdAt: z.string().datetime(),
 });
@@ -12528,6 +12530,8 @@ export const customerRefundVisibilityItemSchema = z.object({
   returnStatus: returnStatusSchema.nullable().default(null),
   resolutionType: returnResolutionTypeSchema.nullable().default(null),
   itemCount: z.number().int().nonnegative().nullable().default(null),
+  // TODO-175 — refund hedefi (iade + iptal; her ikisi de taşıyabilir). Raw enum gösterilmez.
+  refundDestination: refundDestinationSchema.nullable().default(null),
   // Yalnız sipariş iptali (ORDER_CANCELLATION) satırları — MASKELİ refund + insani neden:
   refund: customerRefundSummarySchema.nullable().default(null),
   cancellationReasonCode: orderCancellationReasonSchema.nullable().default(null),
@@ -12951,6 +12955,8 @@ export const adminOrderRefundSchema = z.object({
   completedAt: z.string().datetime().nullable(),
   failedAt: z.string().datetime().nullable(),
   cancelledAt: z.string().datetime().nullable(),
+  // TODO-175 — external legin hedefi (ORIGINAL_PAYMENT: PSP; SHOPPING_BALANCE: INTERNAL_CREDIT). Legacy null.
+  refundDestination: refundDestinationSchema.nullable().default(null),
   version: z.number().int().nonnegative(),
   events: z.array(adminRefundEventSchema),
 });

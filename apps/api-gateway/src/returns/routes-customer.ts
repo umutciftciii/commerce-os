@@ -231,6 +231,7 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
           returnNumber: true,
           status: true,
           resolutionType: true,
+          refundDestination: true,
           createdAt: true,
           order: { select: { orderNumber: true } },
           items: { select: { id: true } },
@@ -249,6 +250,7 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
           totalRefundMinor: true,
           requestedAt: true,
           completedAt: true,
+          refundDestination: true,
           order: {
             select: { orderNumber: true, cancelReasonCode: true, cancelReasonNote: true },
           },
@@ -266,6 +268,7 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
       createdAt: r.createdAt.toISOString(),
       returnStatus: r.status,
       resolutionType: r.resolutionType,
+      refundDestination: r.refundDestination,
       itemCount: r.items.length,
       refund: null,
       cancellationReasonCode: null,
