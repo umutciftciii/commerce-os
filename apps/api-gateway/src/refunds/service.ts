@@ -587,6 +587,7 @@ export async function initiateRefund(input: InitiateInput, deps: RefundServiceDe
           ledgerType: "REFUND_RESTORE",
           description: "credit.returnRefund",
           actor: { type: "SYSTEM", id: null },
+          orderId: intent.orderId,
           idempotencyKey: `return-balance-refund:${intent.returnRequestId}`,
         });
         if (!credit.ok) throw new Error(`return shopping-balance credit failed: ${credit.code}`);
@@ -916,6 +917,7 @@ export async function prepareCancellationRefund(
         ledgerType: "REFUND_RESTORE",
         description: "credit.cancellationRefund",
         actor: { type: "SYSTEM", id: null },
+        orderId: order.id,
         idempotencyKey: `order-cancel-balance-refund:${order.id}`,
       });
       if (!credit.ok) throw new Error(`cancellation shopping-balance credit failed: ${credit.code}`);

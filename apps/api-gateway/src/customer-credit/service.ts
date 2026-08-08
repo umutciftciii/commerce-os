@@ -134,6 +134,8 @@ export interface IssueCreditParams {
   description: string;
   actor: CreditActor;
   idempotencyKey: string;
+  /** TODO-175 — ledger entry order attribution (hareket geçmişinde OS-{orderNumber} çözümlemesi için). */
+  orderId?: string | null;
   /** TODO-175 — expiryDays=null'ı allowlist ile yetkilendirir (SYSTEM aktör + refund-origin sourceType). */
   refundOriginSystemPath?: boolean;
   /** Politika sınırı (minor). null = özellik KAPALI (reddedilir). undefined = politika denetimi atla (sistem). */
@@ -215,6 +217,7 @@ export async function issueCreditInTx(tx: Tx, params: IssueCreditParams): Promis
       currency,
       sourceType: params.sourceType,
       sourceId: params.sourceId ?? null,
+      orderId: params.orderId ?? null,
       description: params.description,
       createdByType: params.actor.type,
       createdById: params.actor.id,
