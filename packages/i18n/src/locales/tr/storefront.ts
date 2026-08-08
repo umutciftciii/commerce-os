@@ -980,6 +980,13 @@ export const trStorefront = {
     register: "Üye Ol",
     greeting: "Merhaba",
     sidebarTitle: "Hesabım",
+    // BUG-CART-004 — Account-domain 404 sınırı (app/account/not-found.tsx). `notFound()`
+    // artık kök ürün-404 metnine değil, hesap-uygun bu ekrana düşer.
+    notFound: {
+      title: "Kayıt bulunamadı",
+      description: "Aradığınız sayfa taşınmış olabilir veya artık mevcut değil.",
+      backToAccount: "Hesabıma dön",
+    },
     menu: {
       orders: "Siparişlerim",
       returns: "İadelerim",
@@ -1202,6 +1209,9 @@ export const trStorefront = {
         billing: "Fatura bilgileri",
         paymentInfo: "Ödeme bilgisi",
         provider: "Sağlayıcı",
+        // BUG-CART-004 — Sağlayıcısız ödeme yöntemleri (store credit) için yöntem satırı.
+        method: "Yöntem",
+        storeCredit: "Mağaza bakiyesi",
         card: "Kart",
         installment: "Taksit",
         singlePayment: "Tek çekim",

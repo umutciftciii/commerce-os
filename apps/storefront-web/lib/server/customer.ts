@@ -78,7 +78,13 @@ export async function listCustomerOrders(): Promise<CustomerOrderSummary[]> {
 /**
  * TODO-079 — Tek sipariş detayı (yalnız kendi siparişi). Başka müşterinin
  * siparişi veya yoksa gateway 404 döner → burada null. Çağıran (detail route)
- * null'da notFound() ile 404 sayfası gösterir.
+ * null'da notFound() ile account-domain 404 (Sipariş bulunamadı) gösterir.
+ *
+ * BUG-CART-004 — Savunma katmanı: SADECE 404 (gerçekten yok / sahiplik yok) null'a
+ * çevrilir. 5xx (ör. sunucu-tarafı serialize hatası) null'a ÇEVRİLMEZ; hata fırlatılır
+ * ki hata sınırında görünsün. Aksi hâlde sunucu hatası sessizce "sipariş yok" gibi
+ * maskelenir — nitekim store-credit serialize 500'ü tam da böyle yanlış ÜRÜN-404
+ * ekranına düşüyordu.
  */
 export async function getCustomerOrderDetail(
   orderNumber: string,
@@ -89,5 +95,15 @@ export async function getCustomerOrderDetail(
     `${customerBasePath()}/orders/${encodeURIComponent(orderNumber)}`,
     token,
   );
-  return result.ok ? result.data.order : null;
+  if (result.ok) return result.data.order;
+  // 404 → sipariş yok/sahiplik yok: sessiz null (route notFound() ile ele alır).
+  // 401/403 → oturum/erişim: sessiz null; getCurrentCustomer zaten oturumsuzu
+  // login'e yönlendiriyor. Veri sızdırmadan güvenli düşüş.
+  if (result.status === 404 || result.status === 401 || result.status === 403) return null;
+  // 5xx ve diğerleri: gerçek sunucu hatası — maskeleme, hata sınırına yükselt.
+  throw new Error(
+    `Sipariş detayı alınamadı (${orderNumber}): gateway ${result.status}${
+      result.code ? ` ${result.code}` : ""
+    }`,
+  );
 }

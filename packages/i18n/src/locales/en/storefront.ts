@@ -948,6 +948,12 @@ export const enStorefront: StorefrontDictionary = {
     register: "Sign up",
     greeting: "Hello",
     sidebarTitle: "My account",
+    // BUG-CART-004 — Account-domain 404 boundary (app/account/not-found.tsx).
+    notFound: {
+      title: "Not found",
+      description: "The page you're looking for may have moved or no longer exists.",
+      backToAccount: "Back to my account",
+    },
     menu: {
       orders: "My orders",
       returns: "My returns",
@@ -1165,6 +1171,9 @@ export const enStorefront: StorefrontDictionary = {
         billing: "Billing details",
         paymentInfo: "Payment info",
         provider: "Provider",
+        // BUG-CART-004 — Method row for provider-less payments (store credit).
+        method: "Method",
+        storeCredit: "Store credit",
         card: "Card",
         installment: "Installments",
         singlePayment: "Single payment",
