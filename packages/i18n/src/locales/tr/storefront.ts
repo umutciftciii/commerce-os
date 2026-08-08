@@ -1405,6 +1405,13 @@ export const trStorefront = {
           "Ödemeniz orijinal ödeme yönteminize iade edilir (onay ve teslim alma sonrası).",
         resolutionReplacementDesc: "Aynı ürün, uygunsa yenisiyle değiştirilir.",
         resolutionMissing: "Lütfen bir çözüm seçin.",
+        // TODO-175 — İade yöntemi alt-seçimi (REFUND çözümü seçilince).
+        refundDestinationTitle: "İade yöntemi",
+        refundDestinationOriginal: "Ödediğim yönteme iade",
+        refundDestinationBalance: "Alışveriş bakiyeme ekle",
+        refundDestinationOriginalDesc: "Uygun tutar kartınıza/ödeme yönteminize iade edilir.",
+        refundDestinationBalanceDesc: "Tüm iade tutarı alışveriş bakiyenize eklenir (süresiz).",
+        refundDestinationMissing: "Lütfen bir iade yöntemi seçin.",
         noteLabel: "Mağazaya not (isteğe bağlı)",
         // Adım 4
         reviewTitle: "Talebinizi gözden geçirin",
@@ -1637,6 +1644,14 @@ export const trStorefront = {
       summaryReason: "İptal nedeni",
       refundLabel: "İade edilecek toplam",
       refundNote: "Siparişiniz iptal edilecek ve ödemeniz otomatik olarak iade edilecektir.",
+      // TODO-175 — İade yöntemi seçimi (yalnız external iade > 0 iken gösterilir).
+      refundDestinationTitle: "İade yöntemi",
+      refundDestinationOriginal: "Ödediğim yönteme iade",
+      refundDestinationBalance: "Alışveriş bakiyeme ekle",
+      refundDestinationOriginalHint: "Uygun tutar kartınıza/ödeme yönteminize iade edilir.",
+      refundDestinationBalanceHint: "Tüm iade tutarı alışveriş bakiyenize eklenir (süresiz).",
+      refundSplitBalanceLabel: "Alışveriş bakiyesi",
+      refundToBalanceLabel: "Alışveriş bakiyenize eklenecek",
       confirmCta: "Siparişi iptal et",
       confirming: "İptal ediliyor…",
       back: "Geri",
