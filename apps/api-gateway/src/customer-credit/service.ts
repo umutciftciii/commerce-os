@@ -24,6 +24,7 @@ import {
   computeExpiresAt,
   isValidExpiryDays,
   planRestore,
+  planReturnRestore,
   type CreditExpiryDays,
   type CreditLotView,
 } from "./ledger-calc.js";
@@ -548,6 +549,211 @@ export async function restoreCreditForOrderInTx(
     });
   }
   return { restoredMinor, skippedExpiredMinor, entriesCreated };
+}
+
+// ---------------------------------------------------------------------------
+// 3b) TODO-175 (ADR-286): Onaylı return credit-origin KISMİ restore. Cancellation'dan FARKLI:
+//     expired original lot değeri SKIP edilmez — cash'e çevrilmeden yeni NON-EXPIRING lot olarak
+//     reissue edilir (değer kaybolmaz, ama STORE_CREDIT değeri de asla cash'e dönmez). Kısmi tutar
+//     (amountMinor = split'in credit-origin bileşeni Rc) order'ın original lot'larına dağıtılır:
+//     önce alive lot'lar revive (provenance/expiry korunur), kalan expired lot'lar reissue.
+//     Per-original-lot cap: spent(ORDER_PAYMENT_DEBIT) − prior RETURN_CREDIT_RESTORE (sourceId=origLot).
+//     Grup idempotency: groupKey `credit-return-restore:<returnId>` — tekrar çağrı no-op (aynı toplam).
+// ---------------------------------------------------------------------------
+
+export interface RestoreCreditAmountParams {
+  storeId: string;
+  customerId: string;
+  currency: string;
+  orderId: string;
+  returnRequestId: string;
+  amountMinor: bigint;
+  actor: CreditActor;
+}
+
+export type RestoreCreditAmountResult =
+  | { ok: true; restoredMinor: bigint; reissuedMinor: bigint; entriesCreated: number; deduped: boolean }
+  | { ok: false; code: "EXCEEDS_RESTORABLE" };
+
+export async function restoreCreditAmountForOrderInTx(
+  tx: Tx,
+  params: RestoreCreditAmountParams,
+): Promise<RestoreCreditAmountResult> {
+  const { storeId, customerId, currency, orderId, returnRequestId, amountMinor } = params;
+  const now = new Date();
+  if (amountMinor <= 0n) return { ok: true, restoredMinor: 0n, reissuedMinor: 0n, entriesCreated: 0, deduped: false };
+  await lockCustomer(tx, storeId, customerId);
+
+  const account = await tx.customerCreditAccount.findUnique({
+    where: { storeId_customerId_currency: { storeId, customerId, currency } },
+    select: { id: true },
+  });
+  if (!account) return { ok: false, code: "EXCEEDS_RESTORABLE" };
+
+  const groupKey = `credit-return-restore:${returnRequestId}`;
+  // Grup-seviyesi idempotency: bu return zaten işlendiyse mevcut satırlardan toplamları türet (no-op).
+  const already = await tx.customerCreditLedgerEntry.findMany({
+    where: { storeId, groupKey },
+    select: { amountMinor: true, idempotencyKey: true },
+  });
+  if (already.length > 0) {
+    let restoredMinor = 0n;
+    let reissuedMinor = 0n;
+    for (const e of already) {
+      if (e.idempotencyKey.startsWith("return-credit-reissue:")) reissuedMinor += e.amountMinor;
+      else restoredMinor += e.amountMinor;
+    }
+    return { ok: true, restoredMinor, reissuedMinor, entriesCreated: 0, deduped: true };
+  }
+
+  // Order'ın credit ödemesi (ORDER_PAYMENT_DEBIT) lot bazında.
+  const debits = await tx.customerCreditLedgerEntry.findMany({
+    where: { storeId, orderId, type: "ORDER_PAYMENT_DEBIT", direction: "DEBIT" },
+    select: { lotId: true, amountMinor: true },
+  });
+  const spentPerLot = new Map<string, bigint>();
+  for (const d of debits) {
+    if (!d.lotId) continue;
+    spentPerLot.set(d.lotId, (spentPerLot.get(d.lotId) ?? 0n) + d.amountMinor);
+  }
+  if (spentPerLot.size === 0) return { ok: false, code: "EXCEEDS_RESTORABLE" };
+
+  // Bu order için önceki return restore/reissue'ları original lot'a (sourceId) göre topla.
+  const priorReturns = await tx.customerCreditLedgerEntry.findMany({
+    where: { storeId, orderId, type: "RETURN_CREDIT_RESTORE", direction: "CREDIT" },
+    select: { sourceId: true, amountMinor: true },
+  });
+  const returnedPerLot = new Map<string, bigint>();
+  for (const r of priorReturns) {
+    if (!r.sourceId) continue;
+    returnedPerLot.set(r.sourceId, (returnedPerLot.get(r.sourceId) ?? 0n) + r.amountMinor);
+  }
+
+  const lotRows = await tx.customerCreditLot.findMany({
+    where: { storeId, id: { in: [...spentPerLot.keys()] } },
+    select: { id: true, expiresAt: true },
+  });
+  const lotById = new Map<string, { expiresAt: Date | null }>(lotRows.map((l) => [l.id, { expiresAt: l.expiresAt }]));
+
+  // Per-lot kalan restorable + alive; alive önce (expiry asc, null en sona), sonra expired.
+  const lotEntries = [...spentPerLot.entries()]
+    .map(([lotId, spent]) => {
+      const remaining = spent - (returnedPerLot.get(lotId) ?? 0n);
+      const exp = lotById.get(lotId)?.expiresAt ?? null;
+      const alive = exp === null || exp.getTime() > now.getTime();
+      return { lotId, remaining: remaining > 0n ? remaining : 0n, exp, alive };
+    })
+    .filter((e) => e.remaining > 0n);
+
+  const totalRemaining = lotEntries.reduce((s, e) => s + e.remaining, 0n);
+  if (amountMinor > totalRemaining) return { ok: false, code: "EXCEEDS_RESTORABLE" };
+
+  lotEntries.sort((a, b) => {
+    if (a.alive !== b.alive) return a.alive ? -1 : 1;
+    const ax = a.exp === null ? Number.POSITIVE_INFINITY : a.exp.getTime();
+    const bx = b.exp === null ? Number.POSITIVE_INFINITY : b.exp.getTime();
+    if (ax !== bx) return ax - bx;
+    return a.lotId < b.lotId ? -1 : a.lotId > b.lotId ? 1 : 0;
+  });
+
+  // amountMinor'ı lot'lara dağıt (kalan restorable ile sınırlı).
+  const candidates: { lotId: string; amountMinor: bigint }[] = [];
+  let remaining = amountMinor;
+  for (const e of lotEntries) {
+    if (remaining <= 0n) break;
+    const take = e.remaining < remaining ? e.remaining : remaining;
+    candidates.push({ lotId: e.lotId, amountMinor: take });
+    remaining -= take;
+  }
+
+  const decisions = planReturnRestore(candidates, lotById, now);
+  let restoredMinor = 0n;
+  let reissuedMinor = 0n;
+  let entriesCreated = 0;
+  for (const dec of decisions) {
+    if (dec.restoreMinor > 0n) {
+      // Alive original lot: aynı lot'a revive (provenance/expiry korunur).
+      await tx.customerCreditLot.updateMany({
+        where: { id: dec.lotId, storeId },
+        data: { remainingAmountMinor: { increment: dec.restoreMinor }, status: "ACTIVE", version: { increment: 1 } },
+      });
+      await tx.customerCreditLedgerEntry.create({
+        data: {
+          storeId,
+          customerId,
+          accountId: account.id,
+          lotId: dec.lotId,
+          type: "RETURN_CREDIT_RESTORE",
+          direction: "CREDIT",
+          amountMinor: dec.restoreMinor,
+          balanceAfterMinor: 0n,
+          currency,
+          sourceType: "ORDER_RETURN",
+          sourceId: dec.lotId, // original lot attribution (per-lot cap için)
+          orderId,
+          groupKey,
+          description: "credit.returnCreditRestore",
+          createdByType: params.actor.type,
+          createdById: params.actor.id,
+          idempotencyKey: `return-credit-restore:${returnRequestId}:${dec.lotId}`,
+        },
+      });
+      restoredMinor += dec.restoreMinor;
+      entriesCreated += 1;
+    }
+    if (dec.reissueMinor > 0n) {
+      // Expired original lot: cash'e çevirmeden yeni NON-EXPIRING lot (değer korunur).
+      const newLot = await tx.customerCreditLot.create({
+        data: {
+          storeId,
+          customerId,
+          accountId: account.id,
+          currency,
+          originalAmountMinor: dec.reissueMinor,
+          remainingAmountMinor: dec.reissueMinor,
+          expiresAt: null,
+          status: "ACTIVE",
+          sourceType: "ORDER_RETURN",
+          sourceId: dec.lotId, // türetildiği original lot
+          issuedByType: params.actor.type,
+          issuedById: params.actor.id,
+        },
+        select: { id: true },
+      });
+      await tx.customerCreditLedgerEntry.create({
+        data: {
+          storeId,
+          customerId,
+          accountId: account.id,
+          lotId: newLot.id,
+          type: "RETURN_CREDIT_RESTORE",
+          direction: "CREDIT",
+          amountMinor: dec.reissueMinor,
+          balanceAfterMinor: 0n,
+          currency,
+          sourceType: "ORDER_RETURN",
+          sourceId: dec.lotId, // original lot attribution (per-lot cap için)
+          orderId,
+          groupKey,
+          description: "credit.returnCreditReissued",
+          createdByType: params.actor.type,
+          createdById: params.actor.id,
+          idempotencyKey: `return-credit-reissue:${returnRequestId}:${dec.lotId}`,
+        },
+      });
+      reissuedMinor += dec.reissueMinor;
+      entriesCreated += 1;
+    }
+  }
+
+  const available = await refreshCache(tx, account.id, storeId, customerId, currency, now);
+  if (entriesCreated > 0) {
+    await tx.customerCreditLedgerEntry.updateMany({
+      where: { storeId, groupKey, balanceAfterMinor: 0n },
+      data: { balanceAfterMinor: available },
+    });
+  }
+  return { ok: true, restoredMinor, reissuedMinor, entriesCreated, deduped: false };
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import {
   expireLotsForStore,
   issueCredit,
   restoreCreditForOrderInTx,
+  restoreCreditAmountForOrderInTx,
   spendCreditInTx,
 } from "../src/customer-credit/service.js";
 
@@ -331,5 +332,87 @@ describe.skipIf(!hasTestDb)("Store Credit ledger (integration)", () => {
       description: "credit.adjustment", actor: { type: "SYSTEM", id: "s" }, idempotencyKey: "a-null-1",
     });
     expect(res).toEqual({ ok: false, code: "INVALID_EXPIRY" });
+  });
+
+  // --- TODO-175: restoreCreditAmountForOrderInTx (partial return restore + reissue) ---
+  async function spendAll(f: Fixture, amount: bigint, expiryDays: 30 | 60 | 120 | 180, key: string, orderId: string) {
+    await issue(f, amount, expiryDays, key);
+    await prisma.$transaction((tx) =>
+      spendCreditInTx(tx, {
+        storeId: f.storeId, customerId: f.customerId, currency: "TRY", requestedMinor: amount,
+        orderId, actor: { type: "CUSTOMER", id: f.customerId }, description: "credit.orderPayment",
+      }),
+    );
+  }
+  const restoreAmount = (f: Fixture, orderId: string, returnRequestId: string, amountMinor: bigint) =>
+    prisma.$transaction((tx) =>
+      restoreCreditAmountForOrderInTx(tx, {
+        storeId: f.storeId, customerId: f.customerId, currency: "TRY", orderId, returnRequestId, amountMinor,
+        actor: { type: "SYSTEM", id: null },
+      }),
+    );
+
+  it("TODO-175: return partial restore revives alive original lot", async () => {
+    const f = await seed();
+    const orderId = `ord-${randomUUID().slice(0, 8)}`;
+    await spendAll(f, 30000n, 60, "cr1", orderId);
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(0n);
+    const r = await restoreAmount(f, orderId, "R1", 6000n);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.restoredMinor).toBe(6000n);
+      expect(r.reissuedMinor).toBe(0n);
+    }
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(6000n);
+    await assertCacheMatchesLots(f);
+  });
+
+  it("TODO-175: return restore REISSUES non-expiring when original lot expired (value preserved)", async () => {
+    const f = await seed();
+    const orderId = `ord-${randomUUID().slice(0, 8)}`;
+    await spendAll(f, 30000n, 30, "cr2", orderId);
+    // Original lot'un süresini geçmişe çek (satın alma sonrası promosyon lot süresi doldu senaryosu).
+    await prisma.customerCreditLot.updateMany({ where: { storeId: f.storeId }, data: { expiresAt: new Date(Date.now() - dayMs) } });
+    const r = await restoreAmount(f, orderId, "R2", 6000n);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.restoredMinor).toBe(0n);
+      expect(r.reissuedMinor).toBe(6000n);
+    }
+    const reissued = await prisma.customerCreditLot.findFirstOrThrow({ where: { storeId: f.storeId, sourceType: "ORDER_RETURN", expiresAt: null } });
+    expect(reissued.remainingAmountMinor).toBe(6000n);
+    // Non-expiring reissue bakiyeye girer.
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(6000n);
+  });
+
+  it("TODO-175: return restore is idempotent per returnRequestId (no duplicate)", async () => {
+    const f = await seed();
+    const orderId = `ord-${randomUUID().slice(0, 8)}`;
+    await spendAll(f, 30000n, 60, "cr3", orderId);
+    await restoreAmount(f, orderId, "R3", 6000n);
+    const second = await restoreAmount(f, orderId, "R3", 6000n);
+    expect(second.ok).toBe(true);
+    if (second.ok) {
+      expect(second.deduped).toBe(true);
+      expect(second.restoredMinor).toBe(6000n);
+    }
+    const entries = await prisma.customerCreditLedgerEntry.count({ where: { storeId: f.storeId, groupKey: "credit-return-restore:R3" } });
+    expect(entries).toBe(1);
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(6000n);
+  });
+
+  it("TODO-175: successive return restores respect per-order restorable cap", async () => {
+    const f = await seed();
+    const orderId = `ord-${randomUUID().slice(0, 8)}`;
+    await spendAll(f, 30000n, 60, "cr4", orderId);
+    const r1 = await restoreAmount(f, orderId, "R4a", 20000n);
+    expect(r1.ok).toBe(true);
+    // Kalan restorable 10000; 20000 talebi reddedilir.
+    const r2 = await restoreAmount(f, orderId, "R4b", 20000n);
+    expect(r2).toEqual({ ok: false, code: "EXCEEDS_RESTORABLE" });
+    // Kalan tam 10000 restore edilebilir.
+    const r3 = await restoreAmount(f, orderId, "R4c", 10000n);
+    expect(r3.ok).toBe(true);
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(30000n);
   });
 });
