@@ -23,18 +23,25 @@ export function computeExpiresAt(now: Date, days: CreditExpiryDays): Date {
   return new Date(now.getTime() + days * DAY_MS);
 }
 
-/** Saf lot görünümü (DB satırının hesaba giren alt kümesi). */
+/** Saf lot görünümü (DB satırının hesaba giren alt kümesi). expiresAt null = non-expiring (TODO-175). */
 export interface CreditLotView {
   id: string;
   remainingAmountMinor: bigint;
-  expiresAt: Date;
+  expiresAt: Date | null;
   status: CreditLotStatus;
   createdAt: Date;
 }
 
-/** Lot şu anda harcanabilir mi? ACTIVE ∧ remaining>0 ∧ henüz süresi dolmamış (expiresAt > now). */
+/**
+ * Lot şu anda harcanabilir mi? ACTIVE ∧ remaining>0 ∧ süresi dolmamış.
+ * TODO-175: expiresAt === null → non-expiring (her zaman geçerli).
+ */
 export function isLotSpendable(lot: CreditLotView, now: Date): boolean {
-  return lot.status === "ACTIVE" && lot.remainingAmountMinor > 0n && lot.expiresAt.getTime() > now.getTime();
+  return (
+    lot.status === "ACTIVE" &&
+    lot.remainingAmountMinor > 0n &&
+    (lot.expiresAt === null || lot.expiresAt.getTime() > now.getTime())
+  );
 }
 
 /** Kullanılabilir bakiye (minor) = Σ spendable lot remaining. Süresi geçen lot HÂRİÇ (worker'dan bağımsız). */
@@ -46,11 +53,14 @@ export function availableBalanceMinor(lots: readonly CreditLotView[], now: Date)
   return sum;
 }
 
-/** FEFO sıralaması: expiresAt ASC → createdAt ASC → id ASC (deterministik). Yeni dizi döner. */
+/**
+ * FEFO sıralaması: expiresAt ASC → createdAt ASC → id ASC (deterministik). Yeni dizi döner.
+ * TODO-175: null expiry (non-expiring) EN SONA sıralanır (en son tüketilir) → +Infinity.
+ */
 export function sortFefo(lots: readonly CreditLotView[]): CreditLotView[] {
   return [...lots].sort((a, b) => {
-    const ae = a.expiresAt.getTime();
-    const be = b.expiresAt.getTime();
+    const ae = a.expiresAt === null ? Number.POSITIVE_INFINITY : a.expiresAt.getTime();
+    const be = b.expiresAt === null ? Number.POSITIVE_INFINITY : b.expiresAt.getTime();
     if (ae !== be) return ae - be;
     const ac = a.createdAt.getTime();
     const bc = b.createdAt.getTime();
@@ -121,21 +131,54 @@ export interface RestoreDecision {
  */
 export function planRestore(
   debits: readonly RestoreCandidate[],
-  lotById: ReadonlyMap<string, { expiresAt: Date }>,
+  lotById: ReadonlyMap<string, { expiresAt: Date | null }>,
   now: Date,
 ): RestoreDecision[] {
   return debits.map((d) => {
     const lot = lotById.get(d.lotId);
-    const alive = lot ? lot.expiresAt.getTime() > now.getTime() : false;
+    const alive = lot ? lot.expiresAt === null || lot.expiresAt.getTime() > now.getTime() : false;
     return alive
       ? { lotId: d.lotId, restoreMinor: d.amountMinor, skippedExpiredMinor: 0n }
       : { lotId: d.lotId, restoreMinor: 0n, skippedExpiredMinor: d.amountMinor };
   });
 }
 
-/** Worker: süresi dolmuş ama hâlâ ACTIVE + remaining>0 olan lot'lar (materialize edilecek). */
+export interface ReturnRestoreDecision {
+  lotId: string;
+  restoreMinor: bigint; // original lot revive (expiry korunur)
+  reissueMinor: bigint; // expired original lot → yeni non-expiring lot (değer kaybolmaz)
+}
+
+/**
+ * TODO-175 (ADR-286) — Onaylı return credit-origin restore planı. Cancellation'dan FARKLI:
+ * original lot süresi GEÇMİŞSE değer SKIP edilmez; reissueMinor olarak yeni non-expiring lot'a
+ * taşınır (STORE_CREDIT değeri asla cash'e dönmez, ama iade hakkı da kaybolmaz). Alive lot → aynı
+ * lot'a restore (expiry korunur; null expiry = alive). Bulunmayan lot → reissue (güvenli).
+ */
+export function planReturnRestore(
+  debits: readonly RestoreCandidate[],
+  lotById: ReadonlyMap<string, { expiresAt: Date | null }>,
+  now: Date,
+): ReturnRestoreDecision[] {
+  return debits.map((d) => {
+    const lot = lotById.get(d.lotId);
+    const alive = lot ? lot.expiresAt === null || lot.expiresAt.getTime() > now.getTime() : false;
+    return alive
+      ? { lotId: d.lotId, restoreMinor: d.amountMinor, reissueMinor: 0n }
+      : { lotId: d.lotId, restoreMinor: 0n, reissueMinor: d.amountMinor };
+  });
+}
+
+/**
+ * Worker: süresi dolmuş ama hâlâ ACTIVE + remaining>0 olan lot'lar (materialize edilecek).
+ * TODO-175: null expiry (non-expiring) ASLA aday değildir.
+ */
 export function expiredSweepCandidates(lots: readonly CreditLotView[], now: Date): CreditLotView[] {
   return lots.filter(
-    (l) => l.status === "ACTIVE" && l.remainingAmountMinor > 0n && l.expiresAt.getTime() <= now.getTime(),
+    (l) =>
+      l.status === "ACTIVE" &&
+      l.remainingAmountMinor > 0n &&
+      l.expiresAt !== null &&
+      l.expiresAt.getTime() <= now.getTime(),
   );
 }

@@ -2348,3 +2348,16 @@ yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, ente
   sortBy `returnWindowEndsAt`/`status` kaldırıldı (kaynaklar-arası anlamsız). Return-only görünümde bu
   sıralamalar istenirse `source=RETURN_REQUEST` filtresiyle geri getirilebilir (kod eklenmesi gerekir).
   FUTURE.
+
+- **TD-175-1** TODO-175 tam 4-viewport (375/768/1024/1440) gerçek-auth UI browser click-through
+  standart smoke harness'ında tamamlanmalı (cancel modal destination adımı + split · return wizard
+  destination · İadelerim/Bakiyem görünürlük · store-admin detail/list). Bu oturumda ad-hoc worktree
+  kurulumunda storefront STORE_SLUG çözümlemesi fixture store'a bağlanmadı (config quirk, feature
+  defect'i DEĞİL); API-katmanı gerçek-auth doğrulaması (cancel-eligibility split + /me) YAPILDI ve
+  tüm UI birim testleri (storefront 569 · store-admin 368) yeşil. FUTURE.
+- **TD-175-2** Unified İadeler admin listesinde `refundDestination` KOLON/badge var; **filtre** eklenmedi
+  (gateway list sorgusu `refundDestination` param'ını henüz onurlandırmıyor — no-op filtre yanıltıcı
+  olurdu). İstenirse gateway `returnWhere`/`cancelWhere`'e destination filtresi eklenebilir (ADR-285). FUTURE.
+- **TD-175-3** Return detail (`AdminReturnDetail`) `refundDestination`'ı DTO'da taşımıyor; müşteri hedefi
+  RefundPanel'de OrderRefund ledger satırlarından türetiliyor. İstenirse serialize'a additive alan
+  eklenip başlıkta gösterilebilir. FUTURE.

@@ -70,7 +70,7 @@ export async function computeCancellationOrderSummaries(
     }),
     db.paymentAttempt.findMany({
       where: { storeId, orderId: { in: orderIds } },
-      select: { orderId: true, status: true, amount: true, currency: true },
+      select: { orderId: true, status: true, amount: true, currency: true, method: true },
     }),
     db.orderRefund.findMany({
       where: { storeId, orderId: { in: orderIds } },
@@ -91,10 +91,10 @@ export async function computeCancellationOrderSummaries(
     list.push({ status: s.status });
     shipmentsByOrder.set(s.orderId, list);
   }
-  const attemptsByOrder = new Map<string, Array<{ status: string; amount: number; currency: string }>>();
+  const attemptsByOrder = new Map<string, Array<{ status: string; amount: number; currency: string; method: string }>>();
   for (const a of attempts) {
     const list = attemptsByOrder.get(a.orderId) ?? [];
-    list.push({ status: a.status, amount: a.amount, currency: a.currency });
+    list.push({ status: a.status, amount: a.amount, currency: a.currency, method: a.method });
     attemptsByOrder.set(a.orderId, list);
   }
   const refundsByOrder = new Map<
@@ -121,7 +121,17 @@ export async function computeCancellationOrderSummaries(
       totalRefundMinor: r.totalRefundMinor,
       currency: r.currency,
     }));
-    const estimatedRefundMinor = computeRefundableRemainingMinor(captured, ledger, order.currency);
+    // TODO-175 — Kaynak-bazlı split (§5.5): external (STORE_CREDIT hariç) vs credit-origin.
+    // external refundable = captured(non-credit) − Σ reserved refund; credit-origin restorable = captured(credit).
+    // (Modal iptal ÖNCESİ gösterilir: bu noktada restore henüz olmadı → capturedCredit doğru Rc tahmini.)
+    const externalAttempts = orderAttempts.filter((a) => a.method !== "STORE_CREDIT");
+    const capturedExternal = sumCapturedMinor(externalAttempts as Array<{ status: PaymentAttemptStatus; amount: number }>);
+    const capturedCredit = captured - capturedExternal;
+    const externalRefundableMinor = computeRefundableRemainingMinor(capturedExternal, ledger, order.currency);
+    const creditRestorableMinor = Math.max(0, capturedCredit);
+    const estimatedRefundMinor = externalRefundableMinor + creditRestorableMinor;
+    const offerOriginalPayment = externalRefundableMinor > 0;
+    const offerShoppingBalance = estimatedRefundMinor > 0;
 
     // İptal refund'u (intent'siz + return'süz OrderRefund) → MASKELİ durum.
     const cancellationRefund = (refundsByOrder.get(order.id) ?? []).find(
@@ -140,6 +150,10 @@ export async function computeCancellationOrderSummaries(
       version: order.version,
       isPaid: captured > 0,
       estimatedRefundMinor,
+      externalRefundableMinor,
+      creditRestorableMinor,
+      offerOriginalPayment,
+      offerShoppingBalance,
       cancelledAt: order.cancelledAt ? order.cancelledAt.toISOString() : null,
       cancelSource: order.cancelSource,
       reasonCode: order.cancelReasonCode,

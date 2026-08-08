@@ -13,6 +13,8 @@ import {
 import { messageForError } from "../../../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../../../lib/client/format";
 import type { Locale } from "@commerce-os/i18n";
+// TODO-175 (ADR-285) — refund hedefi (müşteri tercihi) etiket/tonları (ham enum gösterilmez).
+import { refundDestinationLabel, REFUND_DESTINATION_TONES } from "../../order-shared";
 
 /**
  * TODO-170 (ADR-270) — İade Defteri & Ödeme Ters Çevirme paneli.
@@ -111,6 +113,20 @@ function methodLabel(method: OrderRefund["method"], isTr: boolean): string {
       return isTr ? "Kapıda ödeme" : "Cash on delivery";
     case "PAYMENT_LINK":
       return isTr ? "Ödeme bağlantısı" : "Payment link";
+    default:
+      return "—";
+  }
+}
+
+// TODO-175 (ADR-285) — yürütme modu etiketi. INTERNAL_CREDIT = alışveriş bakiyesi legi (dış PSP YOK).
+function executionModeLabel(mode: OrderRefund["executionMode"], isTr: boolean): string {
+  switch (mode) {
+    case "PROVIDER_AUTOMATIC":
+      return isTr ? "Otomatik (sağlayıcı)" : "Automatic (provider)";
+    case "MANUAL_OFFLINE":
+      return isTr ? "Manuel (banka/EFT)" : "Manual (offline)";
+    case "INTERNAL_CREDIT":
+      return isTr ? "Alışveriş bakiyesi (dahili)" : "Shopping balance (internal)";
     default:
       return "—";
   }
@@ -225,14 +241,17 @@ export function RefundPanel({
   const ctx = state.context;
   const cap = ctx.capability;
   const manualUnsupported = cap?.reason === "PROVIDER_AUTOMATIC_UNSUPPORTED";
+  // TODO-175 (ADR-285) — müşterinin refund hedefi tercihi (iki-defter ayrımı). Detay bunu
+  // yalnız refund satırlarında taşır (legacy null olabilir); ilk taşıyan satırdan türetilir.
+  const customerDestination = ctx.refunds.find((r) => r.refundDestination)?.refundDestination ?? null;
 
   return (
     <SurfaceCard
       title={isTr ? "İade Defteri" : "Refund ledger"}
       description={
         isTr
-          ? "Orijinal ödemeye para iadesi. Tutarlar sipariş anlık görüntüsünden gelir."
-          : "Refund to the original payment. Amounts come from the order snapshot."
+          ? "Müşterinin seçtiği hedefe para iadesi. Tutarlar sipariş anlık görüntüsünden gelir."
+          : "Refund to the destination chosen by the customer. Amounts come from the order snapshot."
       }
       actions={
         ctx.canInitiate ? (
@@ -254,6 +273,17 @@ export function RefundPanel({
           >
             {actionError}
           </Alert>
+        </div>
+      ) : null}
+
+      {/* TODO-175 (ADR-285) — müşterinin seçtiği iade hedefi (iki-defter ayrımı). Ham enum değil,
+          insani etiket + gösterge tonu. SHOPPING_BALANCE = dahili kredi (dış PSP legi yok). */}
+      {customerDestination ? (
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-xs text-white/45">
+          <span>{isTr ? "İade yöntemi (müşteri tercihi)" : "Refund method (customer choice)"}:</span>
+          <Badge tone={REFUND_DESTINATION_TONES[customerDestination]}>
+            {refundDestinationLabel(customerDestination, locale)}
+          </Badge>
         </div>
       ) : null}
 
@@ -339,6 +369,7 @@ export function RefundPanel({
               key={refund.id}
               refund={refund}
               isTr={isTr}
+              locale={locale}
               busy={busy}
               techOpen={Boolean(techOpen[refund.id])}
               onToggleTech={() =>
@@ -448,6 +479,7 @@ function Money({ label, value, strong }: { label: string; value: string; strong?
 function RefundRow({
   refund,
   isTr,
+  locale,
   busy,
   techOpen,
   onToggleTech,
@@ -458,6 +490,7 @@ function RefundRow({
 }: {
   refund: OrderRefund;
   isTr: boolean;
+  locale: Locale;
   busy: boolean;
   techOpen: boolean;
   onToggleTech: () => void;
@@ -497,16 +530,16 @@ function RefundRow({
               {isTr ? "KDV" : "VAT"}: {formatMinor(refund.taxRefundMinor, refund.currency)}
             </span>
           </div>
+          {/* TODO-175 — hedef (müşteri tercihi): SHOPPING_BALANCE = alışveriş bakiyesi legi (PSP yok). */}
+          {refund.refundDestination ? (
+            <div className="mt-1.5">
+              <Badge tone={REFUND_DESTINATION_TONES[refund.refundDestination]}>
+                {refundDestinationLabel(refund.refundDestination, locale)}
+              </Badge>
+            </div>
+          ) : null}
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-white/30">
-            <span>
-              {refund.executionMode === "PROVIDER_AUTOMATIC"
-                ? isTr
-                  ? "Otomatik"
-                  : "Automatic"
-                : isTr
-                  ? "Manuel"
-                  : "Manual"}
-            </span>
+            <span>{executionModeLabel(refund.executionMode, isTr)}</span>
             {refund.provider ? <span>{providerLabel(refund.provider)}</span> : null}
             {refund.providerReference ? (
               <span className="font-mono">

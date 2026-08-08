@@ -7,6 +7,7 @@ import type {
   AdminReturnItem,
   OrderRefundStatusValue,
   RefundOriginValue,
+  RefundDestinationValue,
 } from "@commerce-os/api-client";
 
 export type Tone = "neutral" | "success" | "warning" | "info" | "danger";
@@ -104,6 +105,8 @@ export const RETURN_STATUS_TONES: Record<ReturnStatus, Tone> = {
 };
 
 export const RETURN_RESOLUTION_TONES: Record<ReturnResolutionType, Tone> = {
+  // TODO-175 (ADR-285) — nötr REFUND: hedef (orijinal ödeme / alışveriş bakiyesi) ayrı alanda.
+  REFUND: "info",
   REFUND_TO_ORIGINAL_PAYMENT: "info",
   REPLACEMENT: "success",
 };
@@ -151,6 +154,8 @@ const RETURN_STATUS_LABELS: Record<ReturnStatus, Bi> = {
 };
 
 const RETURN_RESOLUTION_LABELS: Record<ReturnResolutionType, Bi> = {
+  // TODO-175 — nötr "Para iadesi"; hedef ayrı `refundDestinationLabel` ile gösterilir.
+  REFUND: { tr: "Para iadesi", en: "Refund" },
   REFUND_TO_ORIGINAL_PAYMENT: { tr: "Orijinal ödemeye iade", en: "Refund to original payment" },
   REPLACEMENT: { tr: "Değişim", en: "Replacement" },
 };
@@ -281,6 +286,21 @@ export const REFUND_SOURCE_TONES: Record<RefundOriginValue, Tone> = {
 };
 export const refundSourceLabel = (value: RefundOriginValue, locale: string) =>
   pick(locale, REFUND_SOURCE_LABELS[value]);
+
+/* ── TODO-175 (ADR-285) — Refund hedefi (müşteri tercihi): iki-defter ayrımı görünürlüğü ──────
+ * ORIGINAL_PAYMENT → PSP (kart/EFT vs.) legi; SHOPPING_BALANCE → dahili kredi (INTERNAL_CREDIT) legi.
+ * Ham enum ASLA gösterilmez. Ton yalnız gösterge (metin etiketi her zaman görünür); editoryal nötr. */
+export type RefundDestination = RefundDestinationValue;
+const REFUND_DESTINATION_LABELS: Record<RefundDestinationValue, Bi> = {
+  ORIGINAL_PAYMENT: { tr: "Orijinal ödeme", en: "Original payment" },
+  SHOPPING_BALANCE: { tr: "Alışveriş bakiyesi", en: "Shopping balance" },
+};
+export const REFUND_DESTINATION_TONES: Record<RefundDestinationValue, Tone> = {
+  ORIGINAL_PAYMENT: "neutral",
+  SHOPPING_BALANCE: "info",
+};
+export const refundDestinationLabel = (value: RefundDestinationValue, locale: string) =>
+  pick(locale, REFUND_DESTINATION_LABELS[value]);
 
 const REFUND_STATUS_LABELS: Record<OrderRefundStatusValue, Bi> = {
   PENDING: { tr: "Beklemede", en: "Pending" },

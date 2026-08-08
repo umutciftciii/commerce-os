@@ -201,6 +201,7 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
         customerId: customer.id,
         orderNumber: input.orderNumber,
         resolutionType: input.resolutionType,
+        refundDestination: input.refundDestination,
         customerNote: input.customerNote,
         items: input.items,
       },
@@ -230,6 +231,7 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
           returnNumber: true,
           status: true,
           resolutionType: true,
+          refundDestination: true,
           createdAt: true,
           order: { select: { orderNumber: true } },
           items: { select: { id: true } },
@@ -248,6 +250,7 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
           totalRefundMinor: true,
           requestedAt: true,
           completedAt: true,
+          refundDestination: true,
           order: {
             select: { orderNumber: true, cancelReasonCode: true, cancelReasonNote: true },
           },
@@ -265,6 +268,7 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
       createdAt: r.createdAt.toISOString(),
       returnStatus: r.status,
       resolutionType: r.resolutionType,
+      refundDestination: r.refundDestination,
       itemCount: r.items.length,
       refund: null,
       cancellationReasonCode: null,
@@ -403,6 +407,7 @@ function createErrorStatus(result: CreateReturnError): number {
       return 404;
     case "ORDER_NOT_DELIVERED":
     case "RESOLUTION_NOT_ALLOWED":
+    case "REFUND_DESTINATION_INVALID":
     case "LINE_NOT_ELIGIBLE":
     case "QUANTITY_EXCEEDS_REMAINING":
     case "DUPLICATE_LINE":
@@ -422,6 +427,8 @@ function createErrorMessage(result: CreateReturnError): string {
       return "Sipariş henüz teslim edilmedi; iade başlatılamaz.";
     case "RESOLUTION_NOT_ALLOWED":
       return "Seçilen çözüm bu mağaza için kullanılamıyor.";
+    case "REFUND_DESTINATION_INVALID":
+      return "Seçilen iade yöntemi bu sipariş için geçersiz.";
     case "COMMENT_REQUIRED":
       return "Bu neden için açıklama zorunludur.";
     case "LINE_NOT_ELIGIBLE":

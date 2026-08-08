@@ -43,6 +43,7 @@ export function serializeAdminRefund(refund: RefundWithEvents): AdminOrderRefund
     completedAt: refund.completedAt?.toISOString() ?? null,
     failedAt: refund.failedAt?.toISOString() ?? null,
     cancelledAt: refund.cancelledAt?.toISOString() ?? null,
+    refundDestination: refund.refundDestination,
     version: refund.version,
     events: [...refund.events]
       .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())

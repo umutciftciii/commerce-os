@@ -1,4 +1,4 @@
-import type { ReturnStatus, ReturnActorType } from "@prisma/client";
+import type { ReturnStatus, ReturnActorType, ReturnResolutionType, RefundDestination } from "@prisma/client";
 
 /**
  * TODO-169 (ADR-269) — İade talebi yaşam döngüsü SAF state-machine'i.
@@ -129,4 +129,25 @@ function isActorAllowed(actor: ReturnActorType, allowed: AllowedActor): boolean 
 /** Bir durumdan hâlâ ilerlenebilir mi (terminal değilse)? */
 export function isTerminalReturnStatus(status: ReturnStatus): boolean {
   return RETURN_TERMINAL_STATUSES.includes(status);
+}
+
+/**
+ * TODO-175 (ADR-285) — Çözüm türü refund üretir mi? Nötr REFUND ve legacy REFUND_TO_ORIGINAL_PAYMENT
+ * refund çözümüdür; REPLACEMENT değildir. Resolution kontrol eden TÜM yerler bunu kullanır.
+ */
+export function isRefundResolution(type: ReturnResolutionType): boolean {
+  return type === "REFUND" || type === "REFUND_TO_ORIGINAL_PAYMENT";
+}
+
+/**
+ * Efektif refund hedefi. Legacy REFUND_TO_ORIGINAL_PAYMENT (destination alanı yokken oluşmuş) →
+ * ORIGINAL_PAYMENT. Yeni REFUND kayıtlarında saklı refundDestination kullanılır. REPLACEMENT → null.
+ */
+export function resolveEffectiveRefundDestination(req: {
+  resolutionType: ReturnResolutionType;
+  refundDestination: RefundDestination | null;
+}): RefundDestination | null {
+  if (!isRefundResolution(req.resolutionType)) return null;
+  if (req.refundDestination) return req.refundDestination;
+  return "ORIGINAL_PAYMENT";
 }

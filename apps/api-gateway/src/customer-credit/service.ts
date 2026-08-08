@@ -24,11 +24,22 @@ import {
   computeExpiresAt,
   isValidExpiryDays,
   planRestore,
+  planReturnRestore,
   type CreditExpiryDays,
   type CreditLotView,
 } from "./ledger-calc.js";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
+
+/**
+ * TODO-175 (ADR-286, Düzeltme B) — expiryDays=null (non-expiring) YALNIZ bu allowlist'teki
+ * refund-origin sistem yollarında mümkün. Goodwill/admin/route asla non-expiring lot üretemez.
+ */
+export const REFUND_ORIGIN_SYSTEM_SOURCE_TYPES: ReadonlySet<CreditSourceType> = new Set([
+  "ORDER_REFUND",
+  "ORDER_CANCELLATION",
+  "ORDER_RETURN",
+]);
 
 export type CreditErrorCode =
   | "INVALID_AMOUNT"
@@ -115,13 +126,18 @@ export interface IssueCreditParams {
   customerId: string;
   currency: string;
   amountMinor: bigint;
-  expiryDays: number;
+  /** 30/60/120/180 (goodwill). null = non-expiring (yalnız allowlisted refund-origin sistem yolu; TODO-175). */
+  expiryDays: number | null;
   sourceType: CreditSourceType;
   sourceId?: string | null;
   ledgerType: CreditLedgerType;
   description: string;
   actor: CreditActor;
   idempotencyKey: string;
+  /** TODO-175 — ledger entry order attribution (hareket geçmişinde OS-{orderNumber} çözümlemesi için). */
+  orderId?: string | null;
+  /** TODO-175 — expiryDays=null'ı allowlist ile yetkilendirir (SYSTEM aktör + refund-origin sourceType). */
+  refundOriginSystemPath?: boolean;
   /** Politika sınırı (minor). null = özellik KAPALI (reddedilir). undefined = politika denetimi atla (sistem). */
   policyMaxMinor?: bigint | null;
   /** true → policyMaxMinor aşımı serbest (SUPER_ADMIN override). */
@@ -132,75 +148,95 @@ export type IssueCreditResult =
   | { ok: true; entryId: string; lotId: string; balanceAfterMinor: bigint; deduped: boolean }
   | { ok: false; code: CreditErrorCode };
 
-export async function issueCredit(params: IssueCreditParams): Promise<IssueCreditResult> {
+/**
+ * issueCredit'in tx-İÇİ çekirdeği. Mevcut bir transaction içinde (örn. iptal/return execution)
+ * non-expiring refund-origin credit üretmek için kullanılır. Çağıran tx + (dolaylı) advisory lock
+ * bağlamını sağlar; burada lockCustomer re-entrant olarak alınır. P2002 sarmalama YOK — çağıran tx'in
+ * dedup okuması (advisory lock altında) idempotency'yi sağlar.
+ */
+export async function issueCreditInTx(tx: Tx, params: IssueCreditParams): Promise<IssueCreditResult> {
   const { storeId, customerId, currency, amountMinor } = params;
   if (amountMinor <= 0n) return { ok: false, code: "INVALID_AMOUNT" };
-  if (!isValidExpiryDays(params.expiryDays)) return { ok: false, code: "INVALID_EXPIRY" };
+  // TODO-175: non-expiring (null) YALNIZ allowlisted refund-origin sistem yolunda; aksi INVALID_EXPIRY.
+  if (params.expiryDays === null) {
+    const allowed =
+      params.refundOriginSystemPath === true &&
+      params.actor.type === "SYSTEM" &&
+      REFUND_ORIGIN_SYSTEM_SOURCE_TYPES.has(params.sourceType);
+    if (!allowed) return { ok: false, code: "INVALID_EXPIRY" };
+  } else if (!isValidExpiryDays(params.expiryDays)) {
+    return { ok: false, code: "INVALID_EXPIRY" };
+  }
   // Politika: undefined → sistem (atla). null → KAPALI. override yoksa sınır uygulanır.
-  if (params.policyMaxMinor !== undefined && !params.overridePolicy) {
+  // Non-expiring refund-origin sistem yolunda politika denetimi anlamsız (atlanır).
+  if (params.expiryDays !== null && params.policyMaxMinor !== undefined && !params.overridePolicy) {
     if (params.policyMaxMinor === null) return { ok: false, code: "POLICY_DISABLED" };
     if (amountMinor > params.policyMaxMinor) return { ok: false, code: "EXCEEDS_POLICY_LIMIT" };
   }
   const now = new Date();
-  const expiresAt = computeExpiresAt(now, params.expiryDays as CreditExpiryDays);
+  const expiresAt = params.expiryDays === null ? null : computeExpiresAt(now, params.expiryDays as CreditExpiryDays);
 
+  await lockCustomer(tx, storeId, customerId);
+  // Idempotency (dedup) — aynı key varsa mevcut hareketi döndür (sayfa refresh / retry güvenli).
+  const dupe = await tx.customerCreditLedgerEntry.findUnique({
+    where: { storeId_idempotencyKey: { storeId, idempotencyKey: params.idempotencyKey } },
+    select: { id: true, lotId: true, balanceAfterMinor: true },
+  });
+  if (dupe) {
+    return { ok: true as const, entryId: dupe.id, lotId: dupe.lotId ?? "", balanceAfterMinor: dupe.balanceAfterMinor, deduped: true };
+  }
+  const accountId = await getOrCreateAccountId(tx, storeId, customerId, currency);
+  const lot = await tx.customerCreditLot.create({
+    data: {
+      storeId,
+      customerId,
+      accountId,
+      currency,
+      originalAmountMinor: amountMinor,
+      remainingAmountMinor: amountMinor,
+      expiresAt,
+      status: "ACTIVE",
+      sourceType: params.sourceType,
+      sourceId: params.sourceId ?? null,
+      issuedByType: params.actor.type,
+      issuedById: params.actor.id,
+    },
+    select: { id: true },
+  });
+  const available = await refreshCache(tx, accountId, storeId, customerId, currency, now);
+  const entry = await tx.customerCreditLedgerEntry.create({
+    data: {
+      storeId,
+      customerId,
+      accountId,
+      lotId: lot.id,
+      type: params.ledgerType,
+      direction: "CREDIT",
+      amountMinor,
+      balanceAfterMinor: available,
+      currency,
+      sourceType: params.sourceType,
+      sourceId: params.sourceId ?? null,
+      orderId: params.orderId ?? null,
+      description: params.description,
+      createdByType: params.actor.type,
+      createdById: params.actor.id,
+      idempotencyKey: params.idempotencyKey,
+    },
+    select: { id: true },
+  });
+  return { ok: true as const, entryId: entry.id, lotId: lot.id, balanceAfterMinor: available, deduped: false };
+}
+
+export async function issueCredit(params: IssueCreditParams): Promise<IssueCreditResult> {
+  const { storeId, idempotencyKey } = params;
   try {
-    return await prisma.$transaction(async (tx) => {
-      await lockCustomer(tx, storeId, customerId);
-      // Idempotency (dedup) — aynı key varsa mevcut hareketi döndür (sayfa refresh / retry güvenli).
-      const dupe = await tx.customerCreditLedgerEntry.findUnique({
-        where: { storeId_idempotencyKey: { storeId, idempotencyKey: params.idempotencyKey } },
-        select: { id: true, lotId: true, balanceAfterMinor: true },
-      });
-      if (dupe) {
-        return { ok: true as const, entryId: dupe.id, lotId: dupe.lotId ?? "", balanceAfterMinor: dupe.balanceAfterMinor, deduped: true };
-      }
-      const accountId = await getOrCreateAccountId(tx, storeId, customerId, currency);
-      const lot = await tx.customerCreditLot.create({
-        data: {
-          storeId,
-          customerId,
-          accountId,
-          currency,
-          originalAmountMinor: amountMinor,
-          remainingAmountMinor: amountMinor,
-          expiresAt,
-          status: "ACTIVE",
-          sourceType: params.sourceType,
-          sourceId: params.sourceId ?? null,
-          issuedByType: params.actor.type,
-          issuedById: params.actor.id,
-        },
-        select: { id: true },
-      });
-      const available = await refreshCache(tx, accountId, storeId, customerId, currency, now);
-      const entry = await tx.customerCreditLedgerEntry.create({
-        data: {
-          storeId,
-          customerId,
-          accountId,
-          lotId: lot.id,
-          type: params.ledgerType,
-          direction: "CREDIT",
-          amountMinor,
-          balanceAfterMinor: available,
-          currency,
-          sourceType: params.sourceType,
-          sourceId: params.sourceId ?? null,
-          description: params.description,
-          createdByType: params.actor.type,
-          createdById: params.actor.id,
-          idempotencyKey: params.idempotencyKey,
-        },
-        select: { id: true },
-      });
-      return { ok: true as const, entryId: entry.id, lotId: lot.id, balanceAfterMinor: available, deduped: false };
-    });
+    return await prisma.$transaction((tx) => issueCreditInTx(tx, params));
   } catch (err) {
     // Yarış: aynı key iki eşzamanlı istek → unique ihlali → dedup okuması.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
       const existing = await prisma.customerCreditLedgerEntry.findUnique({
-        where: { storeId_idempotencyKey: { storeId, idempotencyKey: params.idempotencyKey } },
+        where: { storeId_idempotencyKey: { storeId, idempotencyKey } },
         select: { id: true, lotId: true, balanceAfterMinor: true },
       });
       if (existing) {
@@ -525,6 +561,233 @@ export async function restoreCreditForOrderInTx(
     });
   }
   return { restoredMinor, skippedExpiredMinor, entriesCreated };
+}
+
+// ---------------------------------------------------------------------------
+// 3b) TODO-175 (ADR-286): Onaylı return credit-origin KISMİ restore. Cancellation'dan FARKLI:
+//     expired original lot değeri SKIP edilmez — cash'e çevrilmeden yeni NON-EXPIRING lot olarak
+//     reissue edilir (değer kaybolmaz, ama STORE_CREDIT değeri de asla cash'e dönmez). Kısmi tutar
+//     (amountMinor = split'in credit-origin bileşeni Rc) order'ın original lot'larına dağıtılır:
+//     önce alive lot'lar revive (provenance/expiry korunur), kalan expired lot'lar reissue.
+//     Per-original-lot cap: spent(ORDER_PAYMENT_DEBIT) − prior RETURN_CREDIT_RESTORE (sourceId=origLot).
+//     Grup idempotency: groupKey `credit-return-restore:<returnId>` — tekrar çağrı no-op (aynı toplam).
+// ---------------------------------------------------------------------------
+
+export interface RestoreCreditAmountParams {
+  storeId: string;
+  customerId: string;
+  currency: string;
+  orderId: string;
+  returnRequestId: string;
+  amountMinor: bigint;
+  actor: CreditActor;
+}
+
+export type RestoreCreditAmountResult =
+  | { ok: true; restoredMinor: bigint; reissuedMinor: bigint; entriesCreated: number; deduped: boolean }
+  | { ok: false; code: "EXCEEDS_RESTORABLE" };
+
+export async function restoreCreditAmountForOrderInTx(
+  tx: Tx,
+  params: RestoreCreditAmountParams,
+): Promise<RestoreCreditAmountResult> {
+  const { storeId, customerId, currency, orderId, returnRequestId, amountMinor } = params;
+  const now = new Date();
+  if (amountMinor <= 0n) return { ok: true, restoredMinor: 0n, reissuedMinor: 0n, entriesCreated: 0, deduped: false };
+  await lockCustomer(tx, storeId, customerId);
+
+  const account = await tx.customerCreditAccount.findUnique({
+    where: { storeId_customerId_currency: { storeId, customerId, currency } },
+    select: { id: true },
+  });
+  if (!account) return { ok: false, code: "EXCEEDS_RESTORABLE" };
+
+  const groupKey = `credit-return-restore:${returnRequestId}`;
+  // Grup-seviyesi idempotency: bu return zaten işlendiyse mevcut satırlardan toplamları türet (no-op).
+  const already = await tx.customerCreditLedgerEntry.findMany({
+    where: { storeId, groupKey },
+    select: { amountMinor: true, idempotencyKey: true },
+  });
+  if (already.length > 0) {
+    let restoredMinor = 0n;
+    let reissuedMinor = 0n;
+    for (const e of already) {
+      if (e.idempotencyKey.startsWith("return-credit-reissue:")) reissuedMinor += e.amountMinor;
+      else restoredMinor += e.amountMinor;
+    }
+    return { ok: true, restoredMinor, reissuedMinor, entriesCreated: 0, deduped: true };
+  }
+
+  // Order'ın credit ödemesi (ORDER_PAYMENT_DEBIT) lot bazında.
+  const debits = await tx.customerCreditLedgerEntry.findMany({
+    where: { storeId, orderId, type: "ORDER_PAYMENT_DEBIT", direction: "DEBIT" },
+    select: { lotId: true, amountMinor: true },
+  });
+  const spentPerLot = new Map<string, bigint>();
+  for (const d of debits) {
+    if (!d.lotId) continue;
+    spentPerLot.set(d.lotId, (spentPerLot.get(d.lotId) ?? 0n) + d.amountMinor);
+  }
+  if (spentPerLot.size === 0) return { ok: false, code: "EXCEEDS_RESTORABLE" };
+
+  // Bu order için önceki return restore/reissue'ları original lot'a (sourceId) göre topla.
+  const priorReturns = await tx.customerCreditLedgerEntry.findMany({
+    where: { storeId, orderId, type: "RETURN_CREDIT_RESTORE", direction: "CREDIT" },
+    select: { sourceId: true, amountMinor: true },
+  });
+  const returnedPerLot = new Map<string, bigint>();
+  for (const r of priorReturns) {
+    if (!r.sourceId) continue;
+    returnedPerLot.set(r.sourceId, (returnedPerLot.get(r.sourceId) ?? 0n) + r.amountMinor);
+  }
+
+  const lotRows = await tx.customerCreditLot.findMany({
+    where: { storeId, id: { in: [...spentPerLot.keys()] } },
+    select: { id: true, expiresAt: true },
+  });
+  const lotById = new Map<string, { expiresAt: Date | null }>(lotRows.map((l) => [l.id, { expiresAt: l.expiresAt }]));
+
+  // Per-lot kalan restorable + alive; alive önce (expiry asc, null en sona), sonra expired.
+  const lotEntries = [...spentPerLot.entries()]
+    .map(([lotId, spent]) => {
+      const remaining = spent - (returnedPerLot.get(lotId) ?? 0n);
+      const exp = lotById.get(lotId)?.expiresAt ?? null;
+      const alive = exp === null || exp.getTime() > now.getTime();
+      return { lotId, remaining: remaining > 0n ? remaining : 0n, exp, alive };
+    })
+    .filter((e) => e.remaining > 0n);
+
+  const totalRemaining = lotEntries.reduce((s, e) => s + e.remaining, 0n);
+  if (amountMinor > totalRemaining) return { ok: false, code: "EXCEEDS_RESTORABLE" };
+
+  lotEntries.sort((a, b) => {
+    if (a.alive !== b.alive) return a.alive ? -1 : 1;
+    const ax = a.exp === null ? Number.POSITIVE_INFINITY : a.exp.getTime();
+    const bx = b.exp === null ? Number.POSITIVE_INFINITY : b.exp.getTime();
+    if (ax !== bx) return ax - bx;
+    return a.lotId < b.lotId ? -1 : a.lotId > b.lotId ? 1 : 0;
+  });
+
+  // amountMinor'ı lot'lara dağıt (kalan restorable ile sınırlı).
+  const candidates: { lotId: string; amountMinor: bigint }[] = [];
+  let remaining = amountMinor;
+  for (const e of lotEntries) {
+    if (remaining <= 0n) break;
+    const take = e.remaining < remaining ? e.remaining : remaining;
+    candidates.push({ lotId: e.lotId, amountMinor: take });
+    remaining -= take;
+  }
+
+  const decisions = planReturnRestore(candidates, lotById, now);
+  let restoredMinor = 0n;
+  let reissuedMinor = 0n;
+  let entriesCreated = 0;
+  for (const dec of decisions) {
+    if (dec.restoreMinor > 0n) {
+      // Alive original lot: aynı lot'a revive (provenance/expiry korunur).
+      await tx.customerCreditLot.updateMany({
+        where: { id: dec.lotId, storeId },
+        data: { remainingAmountMinor: { increment: dec.restoreMinor }, status: "ACTIVE", version: { increment: 1 } },
+      });
+      await tx.customerCreditLedgerEntry.create({
+        data: {
+          storeId,
+          customerId,
+          accountId: account.id,
+          lotId: dec.lotId,
+          type: "RETURN_CREDIT_RESTORE",
+          direction: "CREDIT",
+          amountMinor: dec.restoreMinor,
+          balanceAfterMinor: 0n,
+          currency,
+          sourceType: "ORDER_RETURN",
+          sourceId: dec.lotId, // original lot attribution (per-lot cap için)
+          orderId,
+          groupKey,
+          description: "credit.returnCreditRestore",
+          createdByType: params.actor.type,
+          createdById: params.actor.id,
+          idempotencyKey: `return-credit-restore:${returnRequestId}:${dec.lotId}`,
+        },
+      });
+      restoredMinor += dec.restoreMinor;
+      entriesCreated += 1;
+    }
+    if (dec.reissueMinor > 0n) {
+      // Expired original lot: cash'e çevirmeden yeni NON-EXPIRING lot (değer korunur).
+      const newLot = await tx.customerCreditLot.create({
+        data: {
+          storeId,
+          customerId,
+          accountId: account.id,
+          currency,
+          originalAmountMinor: dec.reissueMinor,
+          remainingAmountMinor: dec.reissueMinor,
+          expiresAt: null,
+          status: "ACTIVE",
+          sourceType: "ORDER_RETURN",
+          sourceId: dec.lotId, // türetildiği original lot
+          issuedByType: params.actor.type,
+          issuedById: params.actor.id,
+        },
+        select: { id: true },
+      });
+      await tx.customerCreditLedgerEntry.create({
+        data: {
+          storeId,
+          customerId,
+          accountId: account.id,
+          lotId: newLot.id,
+          type: "RETURN_CREDIT_RESTORE",
+          direction: "CREDIT",
+          amountMinor: dec.reissueMinor,
+          balanceAfterMinor: 0n,
+          currency,
+          sourceType: "ORDER_RETURN",
+          sourceId: dec.lotId, // original lot attribution (per-lot cap için)
+          orderId,
+          groupKey,
+          description: "credit.returnCreditReissued",
+          createdByType: params.actor.type,
+          createdById: params.actor.id,
+          idempotencyKey: `return-credit-reissue:${returnRequestId}:${dec.lotId}`,
+        },
+      });
+      reissuedMinor += dec.reissueMinor;
+      entriesCreated += 1;
+    }
+  }
+
+  const available = await refreshCache(tx, account.id, storeId, customerId, currency, now);
+  if (entriesCreated > 0) {
+    await tx.customerCreditLedgerEntry.updateMany({
+      where: { storeId, groupKey, balanceAfterMinor: 0n },
+      data: { balanceAfterMinor: available },
+    });
+  }
+  return { ok: true, restoredMinor, reissuedMinor, entriesCreated, deduped: false };
+}
+
+/**
+ * TODO-175 — Order'ın credit-origin restore edilebilir KALAN tutarı (minor):
+ * Σ ORDER_PAYMENT_DEBIT(order) − Σ (ORDER_CANCELLATION_RESTORE + RETURN_CREDIT_RESTORE)(order).
+ * Refund destination split'inin credit havuzu (Rc cap) buradan gelir. Read-only.
+ */
+export async function getOrderCreditRestorableMinor(tx: Tx, storeId: string, orderId: string): Promise<bigint> {
+  const [debits, restores] = await Promise.all([
+    tx.customerCreditLedgerEntry.aggregate({
+      where: { storeId, orderId, type: "ORDER_PAYMENT_DEBIT", direction: "DEBIT" },
+      _sum: { amountMinor: true },
+    }),
+    tx.customerCreditLedgerEntry.aggregate({
+      where: { storeId, orderId, type: { in: ["ORDER_CANCELLATION_RESTORE", "RETURN_CREDIT_RESTORE"] }, direction: "CREDIT" },
+      _sum: { amountMinor: true },
+    }),
+  ]);
+  const spent = debits._sum.amountMinor ?? 0n;
+  const restored = restores._sum.amountMinor ?? 0n;
+  const remaining = spent - restored;
+  return remaining > 0n ? remaining : 0n;
 }
 
 // ---------------------------------------------------------------------------

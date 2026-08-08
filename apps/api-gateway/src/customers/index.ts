@@ -2572,6 +2572,7 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
         orderNumber,
         reasonCode: input.reasonCode,
         reasonNote: input.reasonNote ?? null,
+        refundDestination: input.refundDestination,
         expectedVersion: input.expectedVersion,
       },
       { providerPort: cancellationRefundProviderPort },
@@ -2704,6 +2705,7 @@ function cancelErrorStatus(code: CancelOrderErrorCode): number {
     case "INVALID_REASON":
     case "NOTE_REQUIRED":
       return 400;
+    case "INVALID_DESTINATION":
     case "NOT_CANCELLABLE":
     case "BLOCKED_IN_TRANSIT":
     case "BLOCKED_DELIVERED":
@@ -2729,6 +2731,8 @@ function cancelErrorMessage(code: CancelOrderErrorCode): string {
       return "Siparişiniz teslim edildiği için iade talebi oluşturmanız gerekir.";
     case "NOT_CANCELLABLE":
       return "Bu sipariş iptal edilemez.";
+    case "INVALID_DESTINATION":
+      return "Seçilen iade yöntemi bu sipariş için geçersiz.";
     case "CANCEL_CONFLICT":
       return "Sipariş durumu değişti; lütfen sayfayı yenileyip tekrar deneyin.";
     default:

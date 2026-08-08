@@ -17,11 +17,15 @@ import type {
   ReturnRestockDecision,
 } from "@prisma/client";
 import type {
+  RefundDestinationValue,
   ReturnReasonValue,
   ReturnResolutionTypeValue,
 } from "@commerce-os/contracts";
 import { returnReasonRequiresComment } from "@commerce-os/contracts";
-import { evaluateReturnTransition } from "./status-map.js";
+import { evaluateReturnTransition, isRefundResolution } from "./status-map.js";
+import { getOrderExternalRefundableMinor } from "../refunds/service.js";
+import { getOrderCreditRestorableMinor } from "../customer-credit/service.js";
+import { resolveDestinationEligibility } from "../refunds/destination-calc.js";
 import {
   computeLineEligibility,
   resolveDeliveryAnchor,
@@ -204,6 +208,8 @@ export interface CreateReturnInput {
   customerId: string;
   orderNumber: string;
   resolutionType: ReturnResolutionTypeValue;
+  /** TODO-175 — REFUND çözümünde zorunlu müşteri hedefi (server ayrıca eligibility doğrular). */
+  refundDestination?: RefundDestinationValue;
   customerNote?: string;
   items: CreateReturnItemInput[];
 }
@@ -212,6 +218,7 @@ export type CreateReturnError =
   | { ok: false; code: "ORDER_NOT_FOUND" }
   | { ok: false; code: "ORDER_NOT_DELIVERED" }
   | { ok: false; code: "RESOLUTION_NOT_ALLOWED" }
+  | { ok: false; code: "REFUND_DESTINATION_INVALID" }
   | { ok: false; code: "COMMENT_REQUIRED"; orderLineId: string }
   | { ok: false; code: "LINE_NOT_ELIGIBLE"; orderLineId: string }
   | { ok: false; code: "QUANTITY_EXCEEDS_REMAINING"; orderLineId: string }
@@ -268,8 +275,34 @@ export async function createReturnRequest(
     if (input.resolutionType === "REPLACEMENT" && !policy.allowReplacement) {
       return { ok: false, code: "RESOLUTION_NOT_ALLOWED" };
     }
-    if (input.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT" && !policy.allowOriginalPaymentRefund) {
+    if (isRefundResolution(input.resolutionType) && !policy.allowOriginalPaymentRefund) {
       return { ok: false, code: "RESOLUTION_NOT_ALLOWED" };
+    }
+
+    // TODO-175 — Refund hedefi (server-authoritative). REFUND çözümünde zorunlu; ORIGINAL_PAYMENT yalnız
+    // external ödeme mevcutsa (Düzeltme A: geçersiz seçim SESSIZ fallback YOK). REFUND_TO_ORIGINAL_PAYMENT
+    // (legacy) → hedef zorunlu değil (= ORIGINAL_PAYMENT semantiği).
+    let refundDestination: RefundDestinationValue | null = null;
+    if (isRefundResolution(input.resolutionType)) {
+      if (input.resolutionType === "REFUND") {
+        if (!input.refundDestination) return { ok: false, code: "REFUND_DESTINATION_INVALID" };
+        const externalRefundable = await getOrderExternalRefundableMinor(tx, input.storeId, order.id, order.currency);
+        const creditRestorable = Number(await getOrderCreditRestorableMinor(tx, input.storeId, order.id));
+        const elig = resolveDestinationEligibility({
+          externalRefundableRemaining: externalRefundable,
+          totalRefundableMinor: externalRefundable + creditRestorable,
+        });
+        if (input.refundDestination === "ORIGINAL_PAYMENT" && !elig.offerOriginalPayment) {
+          return { ok: false, code: "REFUND_DESTINATION_INVALID" };
+        }
+        if (input.refundDestination === "SHOPPING_BALANCE" && !elig.offerShoppingBalance) {
+          return { ok: false, code: "REFUND_DESTINATION_INVALID" };
+        }
+        refundDestination = input.refundDestination;
+      } else {
+        // legacy REFUND_TO_ORIGINAL_PAYMENT
+        refundDestination = input.refundDestination ?? "ORIGINAL_PAYMENT";
+      }
     }
 
     const elig = await computeOrderEligibility(tx, input.storeId, order, policy, now);
@@ -321,6 +354,10 @@ export async function createReturnRequest(
         returnNumber,
         status: "REQUESTED",
         resolutionType: input.resolutionType,
+        // TODO-175 — immutable müşteri hedefi snapshot'ı (REFUND çözümünde set; admin değiştiremez).
+        refundDestination,
+        refundDestinationSelectedBy: refundDestination ? "CUSTOMER" : null,
+        refundDestinationSelectedAt: refundDestination ? now : null,
         returnWindowEndsAt: elig.windowEnd,
         customerNote: input.customerNote?.trim() || null,
         refundShipping: false,
@@ -393,16 +430,25 @@ async function isCompletionAllowed(
     select: { resolutionType: true, refundIntent: { select: { totalRefundMinor: true } } },
   });
   if (!rr) return false;
-  if (rr.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT") {
-    // TODO-170 (ADR-272) — Gerçek refund tamamlanmadan COMPLETED YASAK: SUCCEEDED OrderRefund toplamı
-    // intent totalını karşılamalı (ledger gerçek para hareketi otoritesi; intent status'e bakılmaz).
+  if (isRefundResolution(rr.resolutionType)) {
+    // TODO-170/175 — Gerçek refund tamamlanmadan COMPLETED YASAK: iki ledger settlement'ı — Σ SUCCEEDED
+    // OrderRefund (external legler, INTERNAL_CREDIT dahil) + Σ return credit-origin restore ≥ intent total
+    // (ledger gerçek para hareketi otoritesi; intent status'e bakılmaz).
     const intentTotal = rr.refundIntent?.totalRefundMinor ?? null;
     if (intentTotal === null) return false;
-    const agg = await tx.orderRefund.aggregate({
-      where: { storeId, returnRequestId, status: "SUCCEEDED" },
-      _sum: { totalRefundMinor: true },
-    });
-    return (agg._sum.totalRefundMinor ?? 0) >= intentTotal;
+    const [agg, creditAgg] = await Promise.all([
+      tx.orderRefund.aggregate({
+        where: { storeId, returnRequestId, status: "SUCCEEDED" },
+        _sum: { totalRefundMinor: true },
+      }),
+      tx.customerCreditLedgerEntry.aggregate({
+        where: { storeId, groupKey: `credit-return-restore:${returnRequestId}` },
+        _sum: { amountMinor: true },
+      }),
+    ]);
+    const externalSettled = agg._sum.totalRefundMinor ?? 0;
+    const creditRestored = Number(creditAgg._sum.amountMinor ?? 0n);
+    return externalSettled + creditRestored >= intentTotal;
   }
   // REPLACEMENT: fulfillment doğrulanamaz (altyapı yok) → COMPLETED YASAK.
   return false;
@@ -638,7 +684,7 @@ export async function advanceInspectedToRefundPending(
       items: { select: { approvedQuantity: true, quantity: true } },
     },
   });
-  if (!rr || rr.resolutionType !== "REFUND_TO_ORIGINAL_PAYMENT") return { advanced: false };
+  if (!rr || !isRefundResolution(rr.resolutionType)) return { advanced: false };
   const totalApproved = rr.items.reduce((sum, i) => sum + (i.approvedQuantity ?? i.quantity), 0);
   if (totalApproved <= 0) return { advanced: false };
   const verdict = evaluateReturnTransition(rr.status, "REFUND_PENDING", actor.type);
@@ -915,7 +961,7 @@ export async function upsertRefundIntentForReturn(
       items: { select: { orderLineId: true, quantity: true, approvedQuantity: true } },
     },
   });
-  if (!rr || rr.resolutionType !== "REFUND_TO_ORIGINAL_PAYMENT") return;
+  if (!rr || !isRefundResolution(rr.resolutionType)) return;
 
   const order = await tx.order.findFirst({
     where: { id: rr.orderId, storeId },

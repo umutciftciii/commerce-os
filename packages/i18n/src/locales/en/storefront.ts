@@ -1359,6 +1359,13 @@ export const enStorefront: StorefrontDictionary = {
           "Your payment is refunded to your original payment method (after approval and receipt).",
         resolutionReplacementDesc: "The same item is replaced with a new one, when available.",
         resolutionMissing: "Please choose a resolution.",
+        // TODO-175 — Refund method sub-selection (when REFUND resolution is chosen).
+        refundDestinationTitle: "Refund method",
+        refundDestinationOriginal: "Refund to my original payment",
+        refundDestinationBalance: "Add to my shopping balance",
+        refundDestinationOriginalDesc: "The eligible amount is refunded to your card/payment method.",
+        refundDestinationBalanceDesc: "The full refund is added to your shopping balance (never expires).",
+        refundDestinationMissing: "Please choose a refund method.",
         noteLabel: "Note to the store (optional)",
         reviewTitle: "Review your request",
         reviewItems: "Items to return",
@@ -1497,8 +1504,15 @@ export const enStorefront: StorefrontDictionary = {
         OTHER: "Other",
       },
       resolutions: {
+        REFUND: "Refund to original payment",
         REFUND_TO_ORIGINAL_PAYMENT: "Refund to original payment",
         REPLACEMENT: "Replace with the same item",
+      },
+      // TODO-175 (ADR-285) — Where the refund amount is sent (raw enum is NEVER shown).
+      refundDestinationLabel: "Refund destination",
+      refundDestinations: {
+        ORIGINAL_PAYMENT: "To your original payment method",
+        SHOPPING_BALANCE: "To your shopping balance",
       },
       statuses: {
         REQUESTED: "Requested",
@@ -1576,6 +1590,14 @@ export const enStorefront: StorefrontDictionary = {
       summaryReason: "Cancellation reason",
       refundLabel: "Total to be refunded",
       refundNote: "Your order will be cancelled and your payment will be refunded automatically.",
+      // TODO-175 — Refund method selection (shown only when external refundable > 0).
+      refundDestinationTitle: "Refund method",
+      refundDestinationOriginal: "Refund to my original payment",
+      refundDestinationBalance: "Add to my shopping balance",
+      refundDestinationOriginalHint: "The eligible amount is refunded to your card/payment method.",
+      refundDestinationBalanceHint: "The full refund is added to your shopping balance (never expires).",
+      refundSplitBalanceLabel: "Shopping balance",
+      refundToBalanceLabel: "Will be added to your shopping balance",
       confirmCta: "Cancel order",
       confirming: "Cancelling…",
       back: "Back",

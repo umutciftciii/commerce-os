@@ -56,7 +56,14 @@ export async function creditReport(
   const [liveLots, grouped] = await Promise.all([
     // Outstanding liability = NOKTA-ANLIK canlı lot toplamı (worker-bağımsız).
     prisma.customerCreditLot.findMany({
-      where: { storeId, currency, status: "ACTIVE", remainingAmountMinor: { gt: 0 }, expiresAt: { gt: now } },
+      // TODO-175: non-expiring (expiresAt=null) refund-origin lot'lar da canlı liability'ye dahildir.
+      where: {
+        storeId,
+        currency,
+        status: "ACTIVE",
+        remainingAmountMinor: { gt: 0 },
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
       select: { remainingAmountMinor: true, customerId: true },
     }),
     // Aralık-içi hareketler tip başına toplam (amountMinor = pozitif büyüklük).

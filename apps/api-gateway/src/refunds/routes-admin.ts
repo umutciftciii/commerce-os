@@ -86,6 +86,7 @@ export const HTTP_BY_CODE: Record<RefundErrorCode, { status: number; message: st
   CURRENCY_MISMATCH: { status: 409, message: "Para birimi uyuşmuyor." },
   REFUND_ALREADY_ACTIVE: { status: 409, message: "Bu talep için zaten aktif/başarılı bir iade var." },
   EXCEEDS_REFUNDABLE: { status: 409, message: "Talep iade edilebilir kalan tutarı aşıyor." },
+  INVALID_DESTINATION: { status: 409, message: "Seçilen iade yöntemi bu sipariş için geçersiz." },
   INVALID_STATE: { status: 409, message: "İade bu durumda bu işleme uygun değil." },
   MANUAL_ONLY: { status: 409, message: "Bu iade yalnız manuel tamamlanabilir." },
   AUTOMATIC_ONLY: { status: 409, message: "Bu iade otomatik yürütülür; manuel işlem geçersiz." },

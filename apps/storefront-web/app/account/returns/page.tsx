@@ -58,6 +58,8 @@ export default async function ReturnsListPage() {
                       item={item}
                       rf={r.refunds}
                       reasons={t.cancellations.reasons}
+                      destinationLabel={r.refundDestinationLabel}
+                      destinations={r.refundDestinations}
                       locale={locale}
                     />
                   </li>
@@ -80,6 +82,11 @@ export default async function ReturnsListPage() {
                         <p className="text-xs text-ink-subtle">
                           {r.createdAt}: {formatDate(item.createdAt, locale)}
                         </p>
+                        {item.refundDestination ? (
+                          <p className="text-xs text-ink-subtle">
+                            {r.refundDestinationLabel}: {r.refundDestinations[item.refundDestination]}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex items-center gap-3">
                         {item.resolutionType ? (
@@ -110,6 +117,8 @@ function CancellationRefundCard({
   item,
   rf,
   reasons,
+  destinationLabel,
+  destinations,
   locale,
 }: {
   item: CustomerRefundVisibilityItem;
@@ -125,6 +134,8 @@ function CancellationRefundCard({
     failedSupport: string;
   };
   reasons: Record<string, string>;
+  destinationLabel: string;
+  destinations: Record<"ORIGINAL_PAYMENT" | "SHOPPING_BALANCE", string>;
   locale: Locale;
 }) {
   const refund = item.refund;
@@ -156,6 +167,11 @@ function CancellationRefundCard({
         {refund?.methodLabel ? (
           <p className="text-xs text-ink-subtle">
             {rf.methodLabel}: {refund.methodLabel}
+          </p>
+        ) : null}
+        {item.refundDestination ? (
+          <p className="text-xs text-ink-subtle">
+            {destinationLabel}: {destinations[item.refundDestination]}
           </p>
         ) : null}
         {failed ? <p className="text-xs text-ink-subtle">{rf.failedSupport}</p> : null}
