@@ -30,6 +30,16 @@ import {
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
+/**
+ * TODO-175 (ADR-286, Düzeltme B) — expiryDays=null (non-expiring) YALNIZ bu allowlist'teki
+ * refund-origin sistem yollarında mümkün. Goodwill/admin/route asla non-expiring lot üretemez.
+ */
+export const REFUND_ORIGIN_SYSTEM_SOURCE_TYPES: ReadonlySet<CreditSourceType> = new Set([
+  "ORDER_REFUND",
+  "ORDER_CANCELLATION",
+  "ORDER_RETURN",
+]);
+
 export type CreditErrorCode =
   | "INVALID_AMOUNT"
   | "INVALID_EXPIRY"
@@ -115,13 +125,16 @@ export interface IssueCreditParams {
   customerId: string;
   currency: string;
   amountMinor: bigint;
-  expiryDays: number;
+  /** 30/60/120/180 (goodwill). null = non-expiring (yalnız allowlisted refund-origin sistem yolu; TODO-175). */
+  expiryDays: number | null;
   sourceType: CreditSourceType;
   sourceId?: string | null;
   ledgerType: CreditLedgerType;
   description: string;
   actor: CreditActor;
   idempotencyKey: string;
+  /** TODO-175 — expiryDays=null'ı allowlist ile yetkilendirir (SYSTEM aktör + refund-origin sourceType). */
+  refundOriginSystemPath?: boolean;
   /** Politika sınırı (minor). null = özellik KAPALI (reddedilir). undefined = politika denetimi atla (sistem). */
   policyMaxMinor?: bigint | null;
   /** true → policyMaxMinor aşımı serbest (SUPER_ADMIN override). */
@@ -135,14 +148,24 @@ export type IssueCreditResult =
 export async function issueCredit(params: IssueCreditParams): Promise<IssueCreditResult> {
   const { storeId, customerId, currency, amountMinor } = params;
   if (amountMinor <= 0n) return { ok: false, code: "INVALID_AMOUNT" };
-  if (!isValidExpiryDays(params.expiryDays)) return { ok: false, code: "INVALID_EXPIRY" };
+  // TODO-175: non-expiring (null) YALNIZ allowlisted refund-origin sistem yolunda; aksi INVALID_EXPIRY.
+  if (params.expiryDays === null) {
+    const allowed =
+      params.refundOriginSystemPath === true &&
+      params.actor.type === "SYSTEM" &&
+      REFUND_ORIGIN_SYSTEM_SOURCE_TYPES.has(params.sourceType);
+    if (!allowed) return { ok: false, code: "INVALID_EXPIRY" };
+  } else if (!isValidExpiryDays(params.expiryDays)) {
+    return { ok: false, code: "INVALID_EXPIRY" };
+  }
   // Politika: undefined → sistem (atla). null → KAPALI. override yoksa sınır uygulanır.
-  if (params.policyMaxMinor !== undefined && !params.overridePolicy) {
+  // Non-expiring refund-origin sistem yolunda politika denetimi anlamsız (atlanır).
+  if (params.expiryDays !== null && params.policyMaxMinor !== undefined && !params.overridePolicy) {
     if (params.policyMaxMinor === null) return { ok: false, code: "POLICY_DISABLED" };
     if (amountMinor > params.policyMaxMinor) return { ok: false, code: "EXCEEDS_POLICY_LIMIT" };
   }
   const now = new Date();
-  const expiresAt = computeExpiresAt(now, params.expiryDays as CreditExpiryDays);
+  const expiresAt = params.expiryDays === null ? null : computeExpiresAt(now, params.expiryDays as CreditExpiryDays);
 
   try {
     return await prisma.$transaction(async (tx) => {

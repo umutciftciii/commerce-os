@@ -298,4 +298,38 @@ describe.skipIf(!hasTestDb)("Store Credit ledger (integration)", () => {
     expect(ok.ok).toBe(true);
     expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(5000n);
   });
+
+  it("TODO-175: expiryDays=null non-expiring lot (allowlisted refund-origin system path)", async () => {
+    const f = await seed();
+    const res = await issueCredit({
+      storeId: f.storeId, customerId: f.customerId, currency: "TRY", amountMinor: 500n,
+      expiryDays: null, refundOriginSystemPath: true, sourceType: "ORDER_REFUND", ledgerType: "REFUND_RESTORE",
+      description: "credit.returnRefund", actor: { type: "SYSTEM", id: "sys" }, idempotencyKey: "return-refund:R1",
+    });
+    expect(res.ok).toBe(true);
+    const lot = await prisma.customerCreditLot.findFirstOrThrow({ where: { storeId: f.storeId, sourceType: "ORDER_REFUND" } });
+    expect(lot.expiresAt).toBeNull();
+    // Non-expiring lot bakiyeye girer ve gelecekte de spendable kalır.
+    expect(await getAvailableBalanceMinor(prisma, f.storeId, f.customerId, "TRY")).toBe(500n);
+  });
+
+  it("TODO-175: expiryDays=null REJECTED without allowlist (goodwill cannot bypass)", async () => {
+    const f = await seed();
+    const res = await issueCredit({
+      storeId: f.storeId, customerId: f.customerId, currency: "TRY", amountMinor: 500n,
+      expiryDays: null, sourceType: "ADMIN_GOODWILL", ledgerType: "ADMIN_GOODWILL_CREDIT",
+      description: "credit.goodwill", actor: { type: "PLATFORM_USER", id: "u1" }, idempotencyKey: "g-null-1",
+    });
+    expect(res).toEqual({ ok: false, code: "INVALID_EXPIRY" });
+  });
+
+  it("TODO-175: expiryDays=null REJECTED when sourceType not allowlisted even with flag", async () => {
+    const f = await seed();
+    const res = await issueCredit({
+      storeId: f.storeId, customerId: f.customerId, currency: "TRY", amountMinor: 500n,
+      expiryDays: null, refundOriginSystemPath: true, sourceType: "ADMIN_ADJUSTMENT", ledgerType: "ADMIN_ADJUSTMENT_CREDIT",
+      description: "credit.adjustment", actor: { type: "SYSTEM", id: "s" }, idempotencyKey: "a-null-1",
+    });
+    expect(res).toEqual({ ok: false, code: "INVALID_EXPIRY" });
+  });
 });
