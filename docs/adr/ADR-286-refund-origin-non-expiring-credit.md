@@ -1,6 +1,6 @@
 # ADR-286 — Refund-origin Non-Expiring Credit & Expiry Asimetrisi
 
-**Durum:** ACCEPTED (2026-08-08; TODO-175).
+**Durum:** ACCEPTED & DEPLOYED (2026-08-08; PR #203 merge `fa30575`; TODO-175).
 
 **İlişkili:** [ADR-284] (Store Credit expiry — 30/60/120/180 zorunlu, korunur),
 [ADR-282](ADR-282-cancellation-store-credit-restore.md) (cancellation restore — korunur),

@@ -1,6 +1,6 @@
 # ADR-285 — Refund Destination Choice
 
-**Durum:** ACCEPTED (2026-08-08; TODO-175).
+**Durum:** ACCEPTED & DEPLOYED (2026-08-08; PR #203 merge `fa30575`; TODO-175).
 
 **İlişkili:** [ADR-272](ADR-272-refund-ledger-and-payment-reversal.md) (Refund Ledger — REUSE),
 [ADR-276](ADR-276-cancellation-refund.md) (Cancellation refund — genişletildi),
