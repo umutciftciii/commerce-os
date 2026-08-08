@@ -2316,14 +2316,14 @@ yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, ente
 
 ## TODO-174B Order Experience Recovery + Store Credit — açık borç (FUTURE)
 
-- **TD-174B-1** ✅ **RESOLVED (2026-08-08, TD-174B follow-up; PR aşağıda):** Store Admin **sipariş detayı** "Sipariş
+- **TD-174B-1** ✅ **RESOLVED (2026-08-08, PR #201, DEPLOYED 2026-08-08):** Store Admin **sipariş detayı** "Sipariş
   Deneyimi" kartı (rating + yorum + recovery durumu + atanan + tanımlanan goodwill + geri kazanım detayına
   köprü) + payment-summary **Ödeme dağılımı** satırları eklendi. Ödeme dağılımı BUG-CART-005
   `buildPaymentAllocations` projeksiyonu REUSE edilerek serializeOrder'a additive `paymentAllocations` alanı
   olarak taşındı (STORE_CREDIT → "Mağaza bakiyesi"; toplam = captured toplamı invariant). Tek-sipariş özet ucu
   `GET /stores/:storeId/order-experience/orders/:orderId` (review yoksa 200+null; fail-open kart gizlenir).
   Storefront credit-used satırı (`shoppingCreditUsedMinor`) hâlâ FUTURE (bu iş yalnız store-admin).
-- **TD-174B-2** ✅ **RESOLVED (2026-08-08, TD-174B follow-up; PR aşağıda):** (a) **Alışveriş bakiyesi finansal raporu** —
+- **TD-174B-2** ✅ **RESOLVED (2026-08-08, PR #201, DEPLOYED 2026-08-08):** (a) **Alışveriş bakiyesi finansal raporu** —
   Finans>Raporlar yeni "Alışveriş Bakiyesi" sekmesi (`GET /stores/:storeId/finance/credit-report`): NOKTA-ANLIK
   outstanding liability (canlı lot Σ remaining, expiresAt>now) + dönem-içi issued/spent/restored/expired/
   goodwill/adjustments-net; tek para birimi (mixed-currency toplamı yok). (b) **Recovery raporu** — Sipariş
