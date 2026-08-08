@@ -6650,6 +6650,27 @@ export const customerOrderPaymentSummarySchema = z.object({
 });
 
 /**
+ * BUG-CART-005 — Ödeme DAĞILIMI (allocation) satırı. Mixed-payment siparişte (ör. mağaza
+ * bakiyesi + kart) her BAŞARILI (settled: PAID/AUTHORIZED) ödeme kaynağı AYRI satır olur.
+ * Kaynak = PaymentAttempt (finansal source-of-truth); order snapshot alanları TEK BAŞINA
+ * otorite değildir. `sourceType` mevcut `PaymentMethodType` ile hizalı (UI i18n etiketine
+ * çevirir — ham enum ekranda gösterilmez). maskedCard = kart markası + son 4 (varsa); raw
+ * PAN/provider payload ASLA. Discount/coupon/campaign BURADA YER ALMAZ (ödeme kaynağı değil).
+ * Gösterilen allocation'lar toplamı sipariş captured/paid toplamı ile eşleşir (invariant).
+ */
+export const customerOrderPaymentAllocationSchema = z.object({
+  sourceType: z.enum(["CARD", "BANK_TRANSFER", "CASH_ON_DELIVERY", "PAYMENT_LINK", "STORE_CREDIT"]),
+  amountMinor: z.number().int().nonnegative(),
+  currency: currencySchema,
+  cardBrand: z.string().nullable(),
+  cardLast4: z.string().nullable(),
+  provider: z.enum(["MOCK", "IYZICO", "STRIPE", "PAYTR", "GENERIC_REDIRECT"]).nullable(),
+  installmentCount: z.number().int().positive(),
+  paidAt: z.string().datetime().nullable(),
+});
+export type CustomerOrderPaymentAllocation = z.infer<typeof customerOrderPaymentAllocationSchema>;
+
+/**
  * TODO-117 — Müşteri-facing kargo takip özeti. F3C.5 shipment domaininden TÜRETİLİR
  * ama ALLOWLIST'tir: yalnız müşteri-güvenli alanlar. SECRET/iç alan TAŞIMAZ
  * (barkod/ZPL, labelUrl, rawSafeJson, externalOrderId/ShipmentId, referenceId,
@@ -6726,6 +6747,10 @@ export const customerOrderDetailSchema = z.object({
   shippingAddress: customerOrderAddressSummarySchema.nullable(),
   billing: customerOrderBillingSummarySchema.nullable(),
   payment: customerOrderPaymentSummarySchema.nullable(),
+  // BUG-CART-005 — Ödeme DAĞILIMI (mixed-payment görünürlüğü). Her başarılı ödeme kaynağı
+  // (mağaza bakiyesi + kart + …) ayrı satır. `payment` (tek özet) geriye-uyum için KORUNUR;
+  // UI bu listeyi tercih eder. Ödeme yoksa boş dizi. Toplamı order captured/paid ile eşleşir.
+  paymentAllocations: z.array(customerOrderPaymentAllocationSchema).default([]),
   // TODO-117 — Kargo takip özeti; shipment yoksa null.
   shipment: customerOrderShipmentSchema.nullable(),
   // TODO-125 — Sipariş anında seçilen kargo sağlayıcı/seçenek özeti; yoksa null.

@@ -21,6 +21,8 @@ import {
 import type { CustomerAuthRecord, CustomerDataAccess } from "../customers/index.js";
 import { resolveCustomerFromRequest } from "../customers/index.js";
 import { serializeCustomerReverseShipment } from "./reverse-serialize.js";
+// BUG-CART-005 — iade kalemi thumbnail'i sipariş geçmişiyle AYNI varyant-farkında resolver'dan.
+import { resolveReturnItemCovers, type OrderLineCoverEntry } from "./covers.js";
 import type { StorageDriver } from "../media/storage.js";
 import { buildStorageKey } from "../media/storage-key.js";
 import { buildCustomerRefundSummary, maskPaymentMethodLabel } from "../refunds/serialize.js";
@@ -86,22 +88,10 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
     return customer;
   }
 
-  // Ürün kapak görselleri (thumbnail) — position asc, ürün başına ilk.
-  async function coverUrls(storeId: string, productIds: string[]): Promise<Map<string, string>> {
-    if (productIds.length === 0) return new Map();
-    const images = await prisma.productImage.findMany({
-      where: { storeId, productId: { in: productIds } },
-      orderBy: { position: "asc" },
-      select: { productId: true, media: { select: { storageKey: true } } },
-    });
-    const map = new Map<string, string>();
-    for (const img of images) {
-      if (!map.has(img.productId)) {
-        map.set(img.productId, resolveUrl(deps.config, img.media.storageKey));
-      }
-    }
-    return map;
-  }
+  // BUG-CART-005 — iade kalemi thumbnail'i: OrderLine.id → kapak URL'i (snapshot → efektif
+  // varyant → ürün kapağı). Sipariş geçmişiyle AYNI resolver (varyant renk-farkında).
+  const lineCovers = (storeId: string, entries: OrderLineCoverEntry[]) =>
+    resolveReturnItemCovers(storeId, entries, deps.config.MEDIA_PUBLIC_BASE_URL);
 
   // ── İade uygunluğu (sipariş bazında) ──────────────────────────────────────────
   app.get("/public/stores/:storeSlug/customer/orders/:orderNumber/return-eligibility", async (request, reply) => {
@@ -121,12 +111,14 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
             id: true,
             productId: true,
             variantId: true,
+            // BUG-CART-005 — varyant-farkında thumbnail (snapshot + renk ekseni).
+            mediaStorageKey: true,
             title: true,
             variantTitle: true,
             sku: true,
             quantity: true,
             unitPriceAmount: true,
-            product: { select: { slug: true } },
+            product: { select: { slug: true, mediaDefiningAttributeId: true } },
           },
         },
         // TODO-173 (ADR-274) — iade uygunluğu teslim ankoru yalnız OUTBOUND_TO_CUSTOMER'dan.
@@ -147,7 +139,16 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
       new Date(),
     );
     const eligByLine = new Map(elig.lines.map((l) => [l.orderLineId, l]));
-    const covers = await coverUrls(store.id, order.lines.map((l) => l.productId));
+    const covers = await lineCovers(
+      store.id,
+      order.lines.map((l) => ({
+        lineId: l.id,
+        productId: l.productId,
+        variantId: l.variantId,
+        mediaStorageKey: l.mediaStorageKey,
+        mediaDefiningAttributeId: l.product?.mediaDefiningAttributeId ?? null,
+      })),
+    );
     // TODO-169 (blocker #1) — pencere alanları tek otoriteden (projection.resolveReturnWindow).
     const win = resolveReturnWindow(elig.anchor, policy.returnWindowDays, new Date());
 
@@ -173,7 +174,7 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
             sku: line.sku,
             title: line.title,
             variantTitle: line.variantTitle,
-            imageUrl: covers.get(line.productId) ?? null,
+            imageUrl: covers.get(line.id) ?? null,
             purchasedQuantity: line.quantity,
             remainingReturnableQty: e.remainingReturnableQty,
             unitPriceMinor: line.unitPriceAmount,
@@ -394,11 +395,6 @@ export function registerReturnCustomerRoutes(app: FastifyInstance, deps: ReturnC
   });
 }
 
-function resolveUrl(config: AppConfig, storageKey: string): string {
-  const base = (config.MEDIA_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
-  return base ? `${base}/${storageKey}` : `/media/${storageKey}`;
-}
-
 function createErrorStatus(result: CreateReturnError): number {
   switch (result.code) {
     case "ORDER_NOT_FOUND":
@@ -464,7 +460,19 @@ async function loadCustomerDetail(
       order: { select: { orderNumber: true, currency: true } },
       items: {
         include: {
-          orderLine: { select: { productId: true, title: true, variantTitle: true, sku: true } },
+          orderLine: {
+            select: {
+              id: true,
+              productId: true,
+              variantId: true,
+              // BUG-CART-005 — varyant-farkında iade kalemi thumbnail'i.
+              mediaStorageKey: true,
+              title: true,
+              variantTitle: true,
+              sku: true,
+              product: { select: { mediaDefiningAttributeId: true } },
+            },
+          },
           attachments: { select: { id: true } },
         },
       },
@@ -493,7 +501,17 @@ async function loadCustomerDetail(
   if (!rr) return null;
 
   const policy = await resolveStoreReturnPolicy(prisma, storeId);
-  const covers = await coverUrlsFor(storeId, rr.items.map((i) => i.orderLine.productId), deps.config);
+  const covers = await resolveReturnItemCovers(
+    storeId,
+    rr.items.map((i) => ({
+      lineId: i.orderLine.id,
+      productId: i.orderLine.productId,
+      variantId: i.orderLine.variantId,
+      mediaStorageKey: i.orderLine.mediaStorageKey,
+      mediaDefiningAttributeId: i.orderLine.product?.mediaDefiningAttributeId ?? null,
+    })),
+    deps.config.MEDIA_PUBLIC_BASE_URL,
+  );
   const estimatedRefundMinor = await estimateRefund(storeId, rr);
   // Refund özeti yalnız aktif (CANCELLED olmayan) refund niyeti varken; teknik provider kodu MÜŞTERİYE YOK.
   const refund =
@@ -540,7 +558,7 @@ async function loadCustomerDetail(
       title: item.orderLine.title,
       variantTitle: item.orderLine.variantTitle,
       sku: item.orderLine.sku,
-      imageUrl: covers.get(item.orderLine.productId) ?? null,
+      imageUrl: covers.get(item.orderLine.id) ?? null,
       quantity: item.quantity,
       approvedQuantity: item.approvedQuantity,
       reason: item.reason,
@@ -564,19 +582,6 @@ async function loadCustomerDetail(
   };
 }
 
-async function coverUrlsFor(storeId: string, productIds: string[], config: AppConfig): Promise<Map<string, string>> {
-  if (productIds.length === 0) return new Map();
-  const images = await prisma.productImage.findMany({
-    where: { storeId, productId: { in: productIds } },
-    orderBy: { position: "asc" },
-    select: { productId: true, media: { select: { storageKey: true } } },
-  });
-  const map = new Map<string, string>();
-  for (const img of images) {
-    if (!map.has(img.productId)) map.set(img.productId, resolveUrl(config, img.media.storageKey));
-  }
-  return map;
-}
 
 // REPLACEMENT → refund yok (null). REFUND → snapshot'lardan tahmin (approved ?? requested adet).
 async function estimateRefund(

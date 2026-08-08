@@ -68,6 +68,13 @@ const demoStore = {
 // OLMAYAN ürün → görselsiz (imageUrl null). listProductImagesCalls: N+1 kanıtı için
 // gerçek çağrıları (argümanlarıyla) kaydeder. beforeEach ile sıfırlanır.
 const productImagesByProductId = new Map<string, string>();
+// BUG-CART-005 — media-eksenli (renk) ürünler için zengin görsel seed'i (position+optionId) ve
+// varyant→option (renk) haritası. Boşsa basit productImagesByProductId cover'ına düşülür.
+const productImagesRichByProductId = new Map<
+  string,
+  Array<{ storageKey: string; position: number; optionId: string | null }>
+>();
+const variantMediaOptionByProduct = new Map<string, Map<string, string>>();
 const listProductImagesCalls: Array<{
   storeId: string;
   productIds: string[];
@@ -79,17 +86,33 @@ const dataAccess = {
     return slug === demoStore.slug ? demoStore : null;
   },
   // Gerçek server.ts imzası: (storeId, productIds, coverOnly) → Map<productId, records[]>.
-  // Yalnız seed edilmiş kapağı olan ürünler için tek elemanlı dizi döner.
+  // Zengin seed varsa onu (position+optionId), yoksa tek elemanlı basit kapağı döner.
   async listProductImages(storeId: string, productIds: string[], coverOnly: boolean) {
     listProductImagesCalls.push({ storeId, productIds: [...productIds], coverOnly });
-    const map = new Map<string, Array<{ mediaId: string; position: number; storageKey: string; altText: string | null }>>();
+    const map = new Map<
+      string,
+      Array<{ mediaId: string; position: number; storageKey: string; altText: string | null; optionId: string | null }>
+    >();
     for (const productId of productIds) {
+      const rich = productImagesRichByProductId.get(productId);
+      if (rich) {
+        map.set(
+          productId,
+          rich.map((r, i) => ({ mediaId: `media_${productId}_${i}`, position: r.position, storageKey: r.storageKey, altText: null, optionId: r.optionId })),
+        );
+        continue;
+      }
       const storageKey = productImagesByProductId.get(productId);
       if (storageKey) {
-        map.set(productId, [{ mediaId: `media_${productId}`, position: 0, storageKey, altText: null }]);
+        map.set(productId, [{ mediaId: `media_${productId}`, position: 0, storageKey, altText: null, optionId: null }]);
       }
     }
     return map;
+  },
+  // BUG-CART-005 — snapshot'sız satırda efektif varyant medyasını çözmek için variant→option (renk).
+  // (attributeDefinitionId cast'li fake'te kullanılmaz; caller yine 3 argüman geçer — arity esnek.)
+  async resolveVariantMediaOptions(_storeId: string, productId: string) {
+    return variantMediaOptionByProduct.get(productId) ?? new Map<string, string>();
   },
 } as unknown as AppDataAccess;
 
@@ -103,6 +126,10 @@ interface SeededOrderLine {
   variantTitle: string;
   quantity: number;
   unitPriceAmount?: number;
+  // BUG-CART-005 — satın alma anı kapak snapshot'i (öncelik #1); yoksa efektif varyant medyası.
+  mediaStorageKey?: string | null;
+  // BUG-CART-005 — snapshot'sız satırda efektif varyant medyasını çözmek için renk ekseni.
+  mediaDefiningAttributeId?: string | null;
 }
 
 interface SeededOrder {
@@ -149,6 +176,18 @@ interface SeededOrder {
     threeDsApplied: boolean;
     paidAt: Date | null;
   } | null;
+  // BUG-CART-005 — ödeme dağılımı (settled attempt'lerden türetilir; gerçek getOrderDetail
+  // buildPaymentAllocations kullanır). Verilmezse `payment`'tan tek satır türetilir.
+  paymentAllocations?: {
+    sourceType: string;
+    amountMinor: number;
+    currency: string;
+    cardBrand: string | null;
+    cardLast4: string | null;
+    provider: string | null;
+    installmentCount: number;
+    paidAt: Date | null;
+  }[];
   // TODO-117 — Kargo takip (opsiyonel). events ham verilir; fake, gerçek
   // getOrderDetail gibi müşteri-görünür filtre + son işlem noktası türetir.
   shipment?: {
@@ -516,9 +555,12 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
         currency: o.order.currency,
         totalAmount: o.order.totalAmount,
         createdAt: o.order.createdAt,
-        lines: o.order.lines.map((line) => ({
+        lines: o.order.lines.map((line, index) => ({
+          id: `${o.order.orderNumber}:${index}`,
           productId: line.productId ?? line.productSlug,
           variantId: line.variantId,
+          mediaStorageKey: line.mediaStorageKey ?? null,
+          mediaDefiningAttributeId: line.mediaDefiningAttributeId ?? null,
           productSlug: line.productSlug,
           sku: line.sku,
           title: line.title,
@@ -556,9 +598,12 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
       billingTaxOffice: order.billingTaxOffice ?? null,
       billingTaxId: order.billingTaxId ?? null,
       billingTaxNumber: order.billingTaxNumber ?? null,
-      lines: order.lines.map((line) => ({
+      lines: order.lines.map((line, index) => ({
+        id: `${order.orderNumber}:${index}`,
         productId: line.productId ?? line.productSlug,
         variantId: line.variantId,
+        mediaStorageKey: line.mediaStorageKey ?? null,
+        mediaDefiningAttributeId: line.mediaDefiningAttributeId ?? null,
         productSlug: line.productSlug,
         sku: line.sku,
         title: line.title,
@@ -569,6 +614,23 @@ class MemoryCustomerDataAccess implements CustomerDataAccess {
       })),
       addresses: order.addresses ?? [],
       payment: order.payment ?? null,
+      // BUG-CART-005 — verilen allocations; yoksa `payment`'tan tek satır türet (settled kabul).
+      paymentAllocations:
+        order.paymentAllocations ??
+        (order.payment
+          ? [
+              {
+                sourceType: order.payment.method,
+                amountMinor: order.totalAmount,
+                currency: order.currency,
+                cardBrand: order.payment.cardBrand,
+                cardLast4: order.payment.cardLast4,
+                provider: order.payment.provider,
+                installmentCount: order.payment.installmentCount,
+                paidAt: order.payment.paidAt,
+              },
+            ]
+          : []),
       shipment: order.shipment
         ? {
             providerName: order.shipment.providerName,
@@ -630,6 +692,8 @@ describe("api gateway · customer account (F3B.3)", () => {
   // Dilim 6b — her test başında kapak görseli seed'ini ve çağrı sayacını sıfırla.
   beforeEach(() => {
     productImagesByProductId.clear();
+    productImagesRichByProductId.clear();
+    variantMediaOptionByProduct.clear();
     listProductImagesCalls.length = 0;
   });
 
@@ -1089,11 +1153,161 @@ describe("api gateway · customer account (F3B.3)", () => {
     expect(list.json().data).toHaveLength(3);
     // N+1 KANITI: 6 satır / 3 sipariş boyunca listProductImages tam 1 kez çağrılır.
     expect(listProductImagesCalls).toHaveLength(1);
-    expect(listProductImagesCalls[0].coverOnly).toBe(true);
+    // BUG-CART-005 — varyant-farkında çözüm renk eşleme için TÜM görselleri ister (coverOnly=false).
+    expect(listProductImagesCalls[0].coverOnly).toBe(false);
     // Batched çağrı tüm ürünleri tek seferde içerir.
     expect(listProductImagesCalls[0].productIds).toContain("prod_a");
     expect(listProductImagesCalls[0].productIds).toContain("prod_uniq_0");
     expect(listProductImagesCalls[0].productIds).toContain("prod_uniq_2");
+  });
+
+  // ── BUG-CART-005 (Part 1) — Sipariş geçmişi VARYANT thumbnail'i ──────────────
+
+  it("resolves the purchase-time snapshot thumbnail per variant (immutable history)", async () => {
+    const { app, customers } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    const customerId = customers.customers.find((c) => c.email === "ada@example.com")!.id;
+    // Ürün medyası ŞU AN yeşil olsa bile snapshot'lı satır satın alınan rengi (gümüş) korur.
+    productImagesRichByProductId.set("prod_shoe", [
+      { storageKey: "stores/s1/products/shoe-green-now.webp", position: 0, optionId: "opt_green" },
+    ]);
+    customers.seedOrder({
+      customerId,
+      orderNumber: "OS-SNAP",
+      status: "PLACED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "UNFULFILLED",
+      currency: "TRY",
+      totalAmount: 8520,
+      createdAt: new Date(),
+      lines: [
+        {
+          productId: "prod_shoe",
+          variantId: "v_silver",
+          productSlug: "sneaker",
+          sku: "EDM-SHO-0266-GUMUS-43",
+          title: "Camper Sneaker",
+          variantTitle: "Gümüş / 43",
+          quantity: 1,
+          mediaStorageKey: "stores/s1/products/shoe-silver-purchased.webp",
+          mediaDefiningAttributeId: "attr_color",
+        },
+      ],
+    });
+    const list = await app.inject({ method: "GET", url: `${base}/orders`, headers: { "x-customer-session": token } });
+    const detail = await app.inject({ method: "GET", url: `${base}/orders/OS-SNAP`, headers: { "x-customer-session": token } });
+    // Snapshot korunur — güncel yeşil DEĞİL, satın alınan gümüş görseli.
+    expect(list.json().data[0].lines[0].imageUrl).toBe("/media/stores/s1/products/shoe-silver-purchased.webp");
+    expect(detail.json().order.lines[0].imageUrl).toBe("/media/stores/s1/products/shoe-silver-purchased.webp");
+  });
+
+  it("legacy line (no snapshot) resolves DISTINCT thumbnails for two color variants", async () => {
+    const { app, customers } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    const customerId = customers.customers.find((c) => c.email === "ada@example.com")!.id;
+    // Renk-eksenli ürün: iki renge etiketli iki görsel.
+    productImagesRichByProductId.set("prod_shoe", [
+      { storageKey: "stores/s1/products/silver.webp", position: 0, optionId: "opt_silver" },
+      { storageKey: "stores/s1/products/black.webp", position: 1, optionId: "opt_black" },
+    ]);
+    variantMediaOptionByProduct.set(
+      "prod_shoe",
+      new Map([
+        ["v_silver", "opt_silver"],
+        ["v_black", "opt_black"],
+      ]),
+    );
+    customers.seedOrder({
+      customerId,
+      orderNumber: "OS-SIL",
+      status: "PLACED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "UNFULFILLED",
+      currency: "TRY",
+      totalAmount: 8520,
+      createdAt: new Date(2026, 0, 2),
+      lines: [
+        { productId: "prod_shoe", variantId: "v_silver", productSlug: "sneaker", sku: "S-43", title: "Sneaker", variantTitle: "Gümüş / 43", quantity: 1, mediaDefiningAttributeId: "attr_color" },
+      ],
+    });
+    customers.seedOrder({
+      customerId,
+      orderNumber: "OS-BLK",
+      status: "PLACED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "UNFULFILLED",
+      currency: "TRY",
+      totalAmount: 8520,
+      createdAt: new Date(2026, 0, 1),
+      lines: [
+        { productId: "prod_shoe", variantId: "v_black", productSlug: "sneaker", sku: "B-43", title: "Sneaker", variantTitle: "Siyah / 43", quantity: 1, mediaDefiningAttributeId: "attr_color" },
+      ],
+    });
+    const list = await app.inject({ method: "GET", url: `${base}/orders`, headers: { "x-customer-session": token } });
+    const byNumber = new Map(list.json().data.map((o: { orderNumber: string; lines: { imageUrl: string }[] }) => [o.orderNumber, o.lines[0].imageUrl]));
+    expect(byNumber.get("OS-SIL")).toBe("/media/stores/s1/products/silver.webp");
+    expect(byNumber.get("OS-BLK")).toBe("/media/stores/s1/products/black.webp");
+    expect(byNumber.get("OS-SIL")).not.toBe(byNumber.get("OS-BLK"));
+  });
+
+  // ── BUG-CART-005 (Part 2) — Ödeme DAĞILIMI (mixed-payment) ───────────────────
+
+  it("exposes paymentAllocations for a mixed payment (store credit + card); sum equals paid total", async () => {
+    const { app, customers } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    const customerId = customers.customers.find((c) => c.email === "ada@example.com")!.id;
+    customers.seedOrder({
+      customerId,
+      orderNumber: "OS-MIX",
+      status: "PLACED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "UNFULFILLED",
+      currency: "TRY",
+      totalAmount: 852064,
+      createdAt: new Date(),
+      payment: { provider: "IYZICO", method: "CARD", cardBrand: "VISA", cardLast4: "1234", installmentCount: 1, providerReference: "txn_x", threeDsApplied: false, paidAt: new Date() },
+      paymentAllocations: [
+        { sourceType: "STORE_CREDIT", amountMinor: 200000, currency: "TRY", cardBrand: null, cardLast4: null, provider: null, installmentCount: 1, paidAt: new Date("2026-08-07T10:00:00Z") },
+        { sourceType: "CARD", amountMinor: 652064, currency: "TRY", cardBrand: "VISA", cardLast4: "1234", provider: "IYZICO", installmentCount: 1, paidAt: new Date("2026-08-07T10:00:05Z") },
+      ],
+      lines: [
+        { variantId: "v1", productSlug: "sneaker", sku: "S-1", title: "Sneaker", variantTitle: "Gümüş / 43", quantity: 1 },
+      ],
+    });
+    const res = await app.inject({ method: "GET", url: `${base}/orders/OS-MIX`, headers: { "x-customer-session": token } });
+    expect(res.statusCode).toBe(200);
+    const order = res.json().order;
+    expect(order.paymentAllocations).toHaveLength(2);
+    expect(order.paymentAllocations[0]).toMatchObject({ sourceType: "STORE_CREDIT", amountMinor: 200000 });
+    expect(order.paymentAllocations[1]).toMatchObject({ sourceType: "CARD", amountMinor: 652064, cardLast4: "1234", provider: "IYZICO" });
+    // Invariant: allocation toplamı = sipariş ödenen toplam.
+    const sum = order.paymentAllocations.reduce((s: number, a: { amountMinor: number }) => s + a.amountMinor, 0);
+    expect(sum).toBe(order.totalMinor);
+    // Ham PAN/token sızmaz.
+    expect(JSON.stringify(order)).not.toMatch(/cvc|accessToken|tokenHash/i);
+  });
+
+  it("exposes a single store-credit allocation for a credit-only order", async () => {
+    const { app, customers } = makeApp();
+    const token = (await registerCustomer(app, "ada@example.com")).json().token;
+    const customerId = customers.customers.find((c) => c.email === "ada@example.com")!.id;
+    customers.seedOrder({
+      customerId,
+      orderNumber: "OS-CR",
+      status: "PLACED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "UNFULFILLED",
+      currency: "TRY",
+      totalAmount: 852064,
+      createdAt: new Date(),
+      payment: { provider: null, method: "STORE_CREDIT", cardBrand: null, cardLast4: null, installmentCount: 1, providerReference: null, threeDsApplied: false, paidAt: new Date() },
+      lines: [{ variantId: "v1", productSlug: "sneaker", sku: "S-1", title: "Sneaker", variantTitle: "Gümüş / 43", quantity: 1 }],
+    });
+    const res = await app.inject({ method: "GET", url: `${base}/orders/OS-CR`, headers: { "x-customer-session": token } });
+    const order = res.json().order;
+    expect(order.paymentAllocations).toHaveLength(1);
+    expect(order.paymentAllocations[0]).toMatchObject({ sourceType: "STORE_CREDIT", amountMinor: 852064 });
+    expect(order.paymentAllocations[0].amountMinor).toBe(order.totalMinor);
   });
 
   it("returns customer-safe shipment tracking (allowlist; no internal/secret fields)", async () => {

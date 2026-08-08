@@ -139,7 +139,8 @@ export interface AdminReturnDetailRow {
 export function serializeAdminReturnDetail(
   row: AdminReturnDetailRow,
   priorHeld: Map<string, number>,
-  // TODO-169 (blocker #3) — productId → kapak URL'i (store-scoped). Kapaksız → null (placeholder).
+  // TODO-169 (blocker #3) / BUG-CART-005 — OrderLine.id → kapak URL'i (store-scoped; varyant-farkında,
+  // snapshot öncelikli). Kapaksız → null (placeholder).
   covers: Map<string, string> = new Map(),
   // TODO-170 (ADR-272) — ledger-otoriteli refund özeti (route'ta hesaplanır; yoksa null).
   refundSummary: AdminReturnRefundSummary | null = null,
@@ -187,8 +188,8 @@ export function serializeAdminReturnDetail(
       variantTitle: item.orderLine.variantTitle,
       sku: item.orderLine.sku,
       // TODO-169 (blocker #3) — önce store-scoped ürün kapak görseli; yoksa null → ortak placeholder.
-      // cross-store medya ASLA (covers store-scoped sorgudan gelir).
-      imageUrl: covers.get(item.orderLine.productId) ?? null,
+      // cross-store medya ASLA (covers store-scoped sorgudan gelir). BUG-CART-005 — satır-bazlı.
+      imageUrl: covers.get(item.orderLine.id) ?? null,
       quantity: item.quantity,
       approvedQuantity: item.approvedQuantity,
       rejectedQuantity: item.rejectedQuantity,
