@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   evaluateReturnTransition,
+  isRefundResolution,
   isTerminalReturnStatus,
+  resolveEffectiveRefundDestination,
   RETURN_TERMINAL_STATUSES,
   RETURN_TRANSITIONS,
 } from "../src/returns/status-map";
@@ -112,5 +114,32 @@ describe("returns state machine (ADR-269 §4)", () => {
     expect(evaluateReturnTransition("INSPECTED", "REJECTED", "ADMIN")).toEqual({ ok: true });
     const shipped = evaluateReturnTransition("RETURN_SHIPPED", "REJECTED", "ADMIN");
     expect(shipped.ok).toBe(false);
+  });
+});
+
+describe("TODO-175 — refund resolution + effective destination", () => {
+  it("isRefundResolution true for REFUND and legacy REFUND_TO_ORIGINAL_PAYMENT", () => {
+    expect(isRefundResolution("REFUND")).toBe(true);
+    expect(isRefundResolution("REFUND_TO_ORIGINAL_PAYMENT")).toBe(true);
+    expect(isRefundResolution("REPLACEMENT")).toBe(false);
+  });
+
+  it("legacy resolution maps to ORIGINAL_PAYMENT when destination null", () => {
+    expect(
+      resolveEffectiveRefundDestination({ resolutionType: "REFUND_TO_ORIGINAL_PAYMENT", refundDestination: null }),
+    ).toBe("ORIGINAL_PAYMENT");
+  });
+
+  it("new REFUND uses stored destination", () => {
+    expect(resolveEffectiveRefundDestination({ resolutionType: "REFUND", refundDestination: "SHOPPING_BALANCE" })).toBe(
+      "SHOPPING_BALANCE",
+    );
+    expect(resolveEffectiveRefundDestination({ resolutionType: "REFUND", refundDestination: "ORIGINAL_PAYMENT" })).toBe(
+      "ORIGINAL_PAYMENT",
+    );
+  });
+
+  it("replacement has no destination", () => {
+    expect(resolveEffectiveRefundDestination({ resolutionType: "REPLACEMENT", refundDestination: null })).toBeNull();
   });
 });
