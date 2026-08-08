@@ -9,6 +9,7 @@ import {
   isValidExpiryDays,
   minBigInt,
   planRestore,
+  planReturnRestore,
   sortFefo,
   type CreditLotView,
 } from "../src/customer-credit/ledger-calc.js";
@@ -137,5 +138,73 @@ describe("expiry sweep adayları (worker housekeeping)", () => {
     const empty = lot({ id: "empty", remainingAmountMinor: 0n, expiresAt: new Date(NOW.getTime() - 1) });
     const consumed = lot({ id: "consumed", remainingAmountMinor: 50n, status: "CONSUMED", expiresAt: new Date(NOW.getTime() - 1) });
     expect(expiredSweepCandidates([due, future, empty, consumed], NOW).map((l) => l.id)).toEqual(["due"]);
+  });
+});
+
+describe("TODO-175 — nullable expiry (null = non-expiring)", () => {
+  it("null expiry lot is spendable ve available'a girer", () => {
+    const nn = lot({ id: "nn", remainingAmountMinor: 100n, expiresAt: null });
+    const soon = lot({ id: "soon", remainingAmountMinor: 50n, expiresAt: new Date(NOW.getTime() + dayMs) });
+    expect(isLotSpendable(nn, NOW)).toBe(true);
+    expect(availableBalanceMinor([nn, soon], NOW)).toBe(150n);
+  });
+
+  it("null expiry FEFO'da EN SONA sıralanır (en son tüketilir)", () => {
+    const nn = lot({ id: "nn", remainingAmountMinor: 10n, expiresAt: null });
+    const soon = lot({ id: "soon", remainingAmountMinor: 10n, expiresAt: new Date(NOW.getTime() + dayMs) });
+    expect(sortFefo([nn, soon]).map((l) => l.id)).toEqual(["soon", "nn"]);
+  });
+
+  it("null expiry FEFO harcamada en son çekilir", () => {
+    const nn = lot({ id: "nn", remainingAmountMinor: 100n, expiresAt: null });
+    const soon = lot({ id: "soon", remainingAmountMinor: 40n, expiresAt: new Date(NOW.getTime() + dayMs) });
+    const res = allocateFefo([nn, soon], 60n, NOW);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.allocations).toEqual([
+      { lotId: "soon", amountMinor: 40n },
+      { lotId: "nn", amountMinor: 20n },
+    ]);
+  });
+
+  it("null expiry ASLA sweep adayı değil", () => {
+    const nn = lot({ id: "nn", remainingAmountMinor: 100n, expiresAt: null });
+    expect(expiredSweepCandidates([nn], new Date("2030-01-01"))).toHaveLength(0);
+  });
+
+  it("planRestore null-expiry lot'u alive sayar (revive)", () => {
+    const m = new Map<string, { expiresAt: Date | null }>([["l1", { expiresAt: null }]]);
+    expect(planRestore([{ lotId: "l1", amountMinor: 5n }], m, NOW)).toEqual([
+      { lotId: "l1", restoreMinor: 5n, skippedExpiredMinor: 0n },
+    ]);
+  });
+});
+
+describe("TODO-175 — planReturnRestore (return: expired → reissue)", () => {
+  it("alive lot aynı lot'a restore", () => {
+    const m = new Map<string, { expiresAt: Date | null }>([["l1", { expiresAt: new Date(NOW.getTime() + 100 * dayMs) }]]);
+    expect(planReturnRestore([{ lotId: "l1", amountMinor: 60n }], m, NOW)).toEqual([
+      { lotId: "l1", restoreMinor: 60n, reissueMinor: 0n },
+    ]);
+  });
+
+  it("expired lot reissue (değer korunur, skip DEĞİL)", () => {
+    const m = new Map<string, { expiresAt: Date | null }>([["l1", { expiresAt: new Date(NOW.getTime() - dayMs) }]]);
+    expect(planReturnRestore([{ lotId: "l1", amountMinor: 60n }], m, NOW)).toEqual([
+      { lotId: "l1", restoreMinor: 0n, reissueMinor: 60n },
+    ]);
+  });
+
+  it("null-expiry original lot alive → restore", () => {
+    const m = new Map<string, { expiresAt: Date | null }>([["l1", { expiresAt: null }]]);
+    expect(planReturnRestore([{ lotId: "l1", amountMinor: 5n }], m, NOW)).toEqual([
+      { lotId: "l1", restoreMinor: 5n, reissueMinor: 0n },
+    ]);
+  });
+
+  it("bulunmayan lot → reissue (güvenli)", () => {
+    const m = new Map<string, { expiresAt: Date | null }>();
+    expect(planReturnRestore([{ lotId: "gone", amountMinor: 7n }], m, NOW)).toEqual([
+      { lotId: "gone", restoreMinor: 0n, reissueMinor: 7n },
+    ]);
   });
 });
