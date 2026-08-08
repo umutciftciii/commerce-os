@@ -949,11 +949,15 @@ async function loadAdminDetail(storeId: string, returnId: string, mediaBaseUrl: 
             select: {
               id: true,
               productId: true,
+              variantId: true,
+              // BUG-CART-005 — varyant-farkında iade kalemi thumbnail'i (snapshot + renk ekseni).
+              mediaStorageKey: true,
               title: true,
               variantTitle: true,
               sku: true,
               quantity: true,
               unitPriceAmount: true,
+              product: { select: { mediaDefiningAttributeId: true } },
             },
           },
           attachments: { select: { id: true, type: true } },
@@ -975,7 +979,13 @@ async function loadAdminDetail(storeId: string, returnId: string, mediaBaseUrl: 
   // TODO-169 (blocker #3) — kalem kapak görselleri (store-scoped; storefront ile aynı semantik).
   const covers = await resolveReturnItemCovers(
     storeId,
-    rr.items.map((i) => i.orderLine.productId),
+    rr.items.map((i) => ({
+      lineId: i.orderLine.id,
+      productId: i.orderLine.productId,
+      variantId: i.orderLine.variantId,
+      mediaStorageKey: i.orderLine.mediaStorageKey,
+      mediaDefiningAttributeId: i.orderLine.product?.mediaDefiningAttributeId ?? null,
+    })),
     mediaBaseUrl,
   );
   const refundSummary = await buildReturnRefundSummary(storeId, rr.orderId, rr);

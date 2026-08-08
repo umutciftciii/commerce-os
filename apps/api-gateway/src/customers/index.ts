@@ -31,7 +31,14 @@ import { prisma } from "@commerce-os/db";
 import { Prisma } from "@prisma/client";
 // Faz 3/Dilim 6b — siparis satiri thumbnail'i icin paylasilan kapak URL haritasi
 // (tek allowlist noktasi; N+1'siz). listProductImages DI ile deps'ten gelir.
-import { buildProductCoverUrlMap, type ListProductImagesFn } from "../media/cover.js";
+import {
+  buildOrderLineCoverUrlMap,
+  type ListProductImagesRichFn,
+  type ResolveVariantMediaOptionsFn,
+  type OrderLineCoverEntry,
+} from "../media/cover.js";
+// BUG-CART-005 — Müşteri-facing ödeme dağılımı (settled attempt'lerden; finansal source-of-truth).
+import { buildPaymentAllocations, type PaymentAllocation } from "../payments/payment-state.js";
 // TODO-169 (blocker #5/#6/#8) — ORTAK iade özeti projeksiyonu (sipariş listesi/detayı aynı otoriteyi kullanır).
 import { computeReturnOrderSummaries } from "../returns/projection.js";
 import { resolveStoreReturnPolicy } from "../returns/service.js";
@@ -177,10 +184,18 @@ export interface CustomerAddressInputRecord {
 /* ── Sipariş okuma kayıtları (TODO-079) ───────────────────────────────────── */
 
 export interface CustomerOrderLineRecord {
-  // Dilim 6b — güncel kapak görselini çözmek için iç alan; contract DTO'suna
-  // SIZMAZ (serialize'da imageUrl'e çevrilip atılır, kendisi allowlist'te yok).
+  // BUG-CART-005 — kapak URL'i satır-bazında (OrderLine.id) anahtarlanır; aynı variant iki
+  // farklı siparişte FARKLI snapshot taşıyabildiği için variantId anahtarlama yetmez. İç alan;
+  // DTO'ya SIZMAZ.
+  id: string;
+  // Dilim 6b / BUG-CART-005 — kapak görselini çözmek için iç alanlar; contract DTO'suna SIZMAZ
+  // (serialize'da imageUrl'e çevrilip atılır). mediaStorageKey = satın alma anı SNAPSHOT'i (öncelik
+  // #1); mediaDefiningAttributeId = snapshot yoksa MEVCUT efektif varyant medyasını çözmek için
+  // ürünün renk ekseni (öncelik #2).
   productId: string;
   variantId: string;
+  mediaStorageKey: string | null;
+  mediaDefiningAttributeId: string | null;
   productSlug: string;
   sku: string;
   title: string;
@@ -330,6 +345,9 @@ export interface CustomerOrderDetailRecord {
   lines: CustomerOrderDetailLineRecord[];
   addresses: CustomerOrderAddressRecord[];
   payment: CustomerOrderPaymentRecord | null;
+  // BUG-CART-005 — Ödeme DAĞILIMI: her başarılı (settled) ödeme kaynağı ayrı satır. `payment`
+  // (tek özet, geriye-uyum) KORUNUR; bu liste mixed-payment görünürlüğü için otoriterdir.
+  paymentAllocations: PaymentAllocation[];
   shipment: CustomerOrderShipmentRecord | null;
 }
 
@@ -912,14 +930,18 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           createdAt: true,
           lines: {
             select: {
+              id: true, // BUG-CART-005 — kapak URL'i satır-bazında anahtarlanır (iç; DTO'ya sızmaz)
               productId: true, // Dilim 6b — güncel kapak görseli çözümü (iç; DTO'ya sızmaz)
               variantId: true,
+              // BUG-CART-005 — satın alma anı kapak SNAPSHOT'i (iç; DTO'ya sızmaz).
+              mediaStorageKey: true,
               sku: true,
               title: true,
               variantTitle: true,
               quantity: true,
               ...FASHION_LINE_SELECT,
-              product: { select: { slug: true } },
+              // BUG-CART-005 — snapshot yoksa efektif varyant medyasını çözmek için renk ekseni.
+              product: { select: { slug: true, mediaDefiningAttributeId: true } },
             },
           },
           // TODO-135 — Liste rozetinin kargo hazırlık durumunu yansıtması için TEMSİLİ
@@ -940,8 +962,11 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         // TODO-135 — Birden çok gönderi olabilir → en ileri temsili durum; yoksa null.
         shipmentStatus: pickOrderShipmentStatus(order.shipments.map((s) => s.status)),
         lines: order.lines.map((line) => ({
+          id: line.id,
           productId: line.productId,
           variantId: line.variantId,
+          mediaStorageKey: line.mediaStorageKey,
+          mediaDefiningAttributeId: line.product.mediaDefiningAttributeId,
           productSlug: line.product.slug,
           sku: line.sku,
           title: line.title,
@@ -986,8 +1011,11 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
           billingTaxNumber: true,
           lines: {
             select: {
+              id: true, // BUG-CART-005 — kapak URL'i satır-bazında anahtarlanır (iç; DTO'ya sızmaz)
               productId: true, // Dilim 6b — güncel kapak görseli çözümü (iç; DTO'ya sızmaz)
               variantId: true,
+              // BUG-CART-005 — satın alma anı kapak SNAPSHOT'i (iç; DTO'ya sızmaz).
+              mediaStorageKey: true,
               sku: true,
               title: true,
               variantTitle: true,
@@ -995,7 +1023,8 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
               unitPriceAmount: true,
               totalAmount: true,
               ...FASHION_LINE_SELECT,
-              product: { select: { slug: true } },
+              // BUG-CART-005 — snapshot yoksa efektif varyant medyasını çözmek için renk ekseni.
+              product: { select: { slug: true, mediaDefiningAttributeId: true } },
             },
           },
           addresses: {
@@ -1011,13 +1040,18 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
               postalCode: true,
             },
           },
-          // Ödeme yöntemi özeti: GÜVENLİ alanlar; gerçekten ödenen (paidAt dolu)
-          // en son denemeyi tercih ederiz. accessTokenHash/PAN/CVC SELECT EDİLMEZ.
+          // Ödeme yöntemi özeti: GÜVENLİ alanlar. accessTokenHash/PAN/CVC SELECT EDİLMEZ.
+          // BUG-CART-005 — TÜM denemeler çekilir (yalnız bir "paid" değil): mixed-payment ödeme
+          // DAĞILIMI için başarılı (settled) attempt'lerin HEPSİ gerekir. amount/currency/status
+          // allocation + invariant için eklendi.
           paymentAttempts: {
             orderBy: { createdAt: "desc" },
             select: {
               provider: true,
               method: true,
+              amount: true,
+              currency: true,
+              status: true,
               cardBrand: true,
               cardLast4: true,
               installmentCount: true,
@@ -1029,7 +1063,15 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         },
       });
       if (!order) return null;
-      const paid = order.paymentAttempts.find((attempt) => attempt.paidAt !== null);
+      // BUG-CART-005 — Ödeme DAĞILIMI: başarılı (settled: PAID/AUTHORIZED) attempt'lerin HEPSİ ayrı
+      // satır (mağaza bakiyesi + kart + …). Toplamı order captured/paid ile eşleşir (invariant).
+      const paymentAllocations = buildPaymentAllocations(order.paymentAttempts);
+      // Geriye-uyum: `payment` (tek özet) — başarılı DIŞ (kart/PSP) tahsilatı tercih et; yoksa
+      // ilk başarılı (ör. yalnız store-credit) denemesi. Tarih/taksit/işlem no bu özetten gösterilir.
+      const paid =
+        order.paymentAttempts.find(
+          (attempt) => attempt.paidAt !== null && attempt.method !== "STORE_CREDIT",
+        ) ?? order.paymentAttempts.find((attempt) => attempt.paidAt !== null);
       const payment = paid ?? null;
 
       // TODO-117 — Kargo takip özeti (en güncel shipment). Yalnız müşteri-güvenli
@@ -1112,8 +1154,11 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
         billingTaxId: order.billingTaxId,
         billingTaxNumber: order.billingTaxNumber,
         lines: order.lines.map((line) => ({
+          id: line.id,
           productId: line.productId,
           variantId: line.variantId,
+          mediaStorageKey: line.mediaStorageKey,
+          mediaDefiningAttributeId: line.product.mediaDefiningAttributeId,
           productSlug: line.product.slug,
           sku: line.sku,
           title: line.title,
@@ -1149,6 +1194,7 @@ export function createPrismaCustomerDataAccess(): CustomerDataAccess {
               paidAt: payment.paidAt,
             }
           : null,
+        paymentAllocations,
         shipment,
       };
     },
@@ -1374,9 +1420,9 @@ function toIban(rec: CustomerIbanRecord) {
  * eklenmez (güncel katalogdan doğrulanır). */
 function serializeCustomerOrderSummary(
   order: CustomerOrderRecord,
-  // Dilim 6b — productId → güncel kapak URL'i (batched, tek çağrı). Kapaksız/
-  // görselsiz ürün haritada yoktur → imageUrl null (ProductMedia placeholder).
-  coverUrlByProductId: Map<string, string>,
+  // BUG-CART-005 — OrderLine.id → kapak URL'i (snapshot → efektif varyant → ürün kapağı; batched).
+  // Kapaksız/görselsiz satır haritada yoktur → imageUrl null (ProductMedia placeholder).
+  coverUrlByLineId: Map<string, string>,
   // TODO-169 (blocker #5) — ORTAK iade özeti (server-authoritative); iade yoksa null.
   returnSummary: ReturnOrderSummary | null = null,
   // TODO-174 (ADR-275) — iptal uygunluğu özeti (CTA/mesaj kararı); yoksa null.
@@ -1397,9 +1443,9 @@ function serializeCustomerOrderSummary(
       title: line.title,
       variantTitle: line.variantTitle,
       quantity: line.quantity,
-      // ALLOWLIST: yalnız türetilmiş güncel kapak URL'i; productId iç record'da
-      // kalır, DTO'ya girmez. Kapaksız ürün → null.
-      imageUrl: coverUrlByProductId.get(line.productId) ?? null,
+      // ALLOWLIST: yalnız türetilmiş kapak URL'i (satır-bazında); productId/storageKey iç
+      // record'da kalır, DTO'ya girmez. Kapaksız satır → null.
+      imageUrl: coverUrlByLineId.get(line.id) ?? null,
       // TODO-165 (ADR-252) — moda snapshot (immutable; fashion-dışı satırda null).
       ...pickFashionLine(line),
     })),
@@ -1420,8 +1466,8 @@ function serializeCustomerOrderSummary(
  */
 function serializeCustomerOrderDetail(
   order: CustomerOrderDetailRecord,
-  // Dilim 6b — productId → güncel kapak URL'i (bu siparişin satırları için batched).
-  coverUrlByProductId: Map<string, string>,
+  // BUG-CART-005 — OrderLine.id → kapak URL'i (snapshot → efektif varyant → ürün kapağı; batched).
+  coverUrlByLineId: Map<string, string>,
   // TODO-169 (blocker #6/#7) — ORTAK iade özeti; iade yoksa null.
   returnSummary: ReturnOrderSummary | null = null,
   // TODO-174 (ADR-275) — iptal uygunluğu/provenance özeti; yoksa null.
@@ -1470,8 +1516,8 @@ function serializeCustomerOrderDetail(
       quantity: line.quantity,
       unitPriceMinor: line.unitPriceAmount,
       lineTotalMinor: line.totalAmount,
-      // ALLOWLIST: yalnız türetilmiş güncel kapak URL'i; productId DTO'ya girmez.
-      imageUrl: coverUrlByProductId.get(line.productId) ?? null,
+      // ALLOWLIST: yalnız türetilmiş kapak URL'i (satır-bazında); productId/storageKey DTO'ya girmez.
+      imageUrl: coverUrlByLineId.get(line.id) ?? null,
       // TODO-165 (ADR-252) — moda snapshot (immutable; fashion-dışı satırda null).
       ...pickFashionLine(line),
     })),
@@ -1500,6 +1546,18 @@ function serializeCustomerOrderDetail(
           paidAt: order.payment.paidAt ? order.payment.paidAt.toISOString() : null,
         }
       : null,
+    // BUG-CART-005 — Ödeme DAĞILIMI (mixed-payment görünürlüğü). Her başarılı ödeme kaynağı ayrı
+    // satır; UI ham enum'u i18n etiketine çevirir. Maskeli kart bilgisi taşınır (raw PAN ASLA).
+    paymentAllocations: order.paymentAllocations.map((allocation) => ({
+      sourceType: allocation.sourceType,
+      amountMinor: allocation.amountMinor,
+      currency: allocation.currency,
+      cardBrand: allocation.cardBrand,
+      cardLast4: allocation.cardLast4,
+      provider: allocation.provider,
+      installmentCount: allocation.installmentCount,
+      paidAt: allocation.paidAt ? allocation.paidAt.toISOString() : null,
+    })),
     shipment: order.shipment
       ? {
           providerName: order.shipment.providerName,
@@ -1718,9 +1776,13 @@ export interface CustomerRoutesDeps {
   customers: CustomerDataAccess;
   logger: CustomerLogger;
   resolvePublicStore: (slug: string) => Promise<{ id: string; slug: string } | null>;
-  // Dilim 6b — sipariş satırı thumbnail'i için güncel kapak görseli çözümü (DI;
-  // server.ts dataAccess.listProductImages'i geçirir). N+1'siz batched çağrı.
-  listProductImages: ListProductImagesFn;
+  // Dilim 6b / BUG-CART-005 — sipariş satırı thumbnail'i için kapak görseli çözümü (DI;
+  // server.ts dataAccess'i geçirir). N+1'siz batched. Rich imza (optionId+position) varyant-
+  // farkında legacy fallback (snapshot yok) için gerekir.
+  listProductImages: ListProductImagesRichFn;
+  // BUG-CART-005 — snapshot'sız (eski) satırda MEVCUT efektif varyant medyasını çözmek için
+  // media-ekseni (renk) → variant→option haritası (server.ts dataAccess.resolveVariantMediaOptions).
+  resolveVariantMediaOptions: ResolveVariantMediaOptionsFn;
 }
 
 /**
@@ -1770,7 +1832,34 @@ export async function resolveCustomerFromRequest(
 }
 
 export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoutesDeps): void {
-  const { config, customers, logger, resolvePublicStore, listProductImages } = deps;
+  const { config, customers, logger, resolvePublicStore, listProductImages, resolveVariantMediaOptions } =
+    deps;
+  // BUG-CART-005 — sipariş satırı kapak URL'i (snapshot → efektif varyant → ürün kapağı) haritası.
+  // OrderLine.id ile anahtarlanır; snapshot'sız satırların ürünleri için TEK batched sorgu (N+1 YOK).
+  const buildLineCoverUrls = (
+    storeId: string,
+    entries: OrderLineCoverEntry[],
+  ): Promise<Map<string, string>> =>
+    buildOrderLineCoverUrlMap(
+      listProductImages,
+      resolveVariantMediaOptions,
+      config.MEDIA_PUBLIC_BASE_URL,
+      storeId,
+      entries,
+    );
+  // Sipariş satırı kayıtlarından kapak-çözümü girdileri (list + detail ortak).
+  const coverEntriesOf = (
+    orders: Array<{ lines: CustomerOrderLineRecord[] }>,
+  ): OrderLineCoverEntry[] =>
+    orders.flatMap((order) =>
+      order.lines.map((line) => ({
+        lineId: line.id,
+        productId: line.productId,
+        variantId: line.variantId,
+        mediaStorageKey: line.mediaStorageKey,
+        mediaDefiningAttributeId: line.mediaDefiningAttributeId,
+      })),
+    );
   // ADR-271 — cozumlenmis oturum politikasi (platform ile ORTAK evaluator/pencereler).
   const sessionPolicy = resolveSessionPolicy(config);
   const loginLimiter = createWindowRateLimiter(
@@ -2385,14 +2474,10 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     const customer = await requireCustomer(request, reply, store.id);
     if (!customer) return;
     const orders = await customers.listOrders(store.id, customer.id);
-    // Dilim 6b — TÜM siparişlerin TÜM satırlarının productId'lerini topla → TEK
-    // batched listProductImages çağrısı (N+1 YOK; helper unique'ler + boşsa erken döner).
-    const coverUrlByProductId = await buildProductCoverUrlMap(
-      listProductImages,
-      config.MEDIA_PUBLIC_BASE_URL,
-      store.id,
-      orders.flatMap((order) => order.lines.map((line) => line.productId)),
-    );
+    // BUG-CART-005 — TÜM siparişlerin TÜM satırları için kapak URL'i (snapshot → efektif
+    // varyant → ürün kapağı), OrderLine.id ile anahtarlı. Snapshot'lı satır DB sorgusu
+    // gerektirmez; yalnız snapshot'sız (eski) satırların ürünleri için TEK batched sorgu (N+1 YOK).
+    const coverUrlByLineId = await buildLineCoverUrls(store.id, coverEntriesOf(orders));
     // TODO-169 (blocker #5) — ORTAK iade özeti: sipariş id'lerini (customer-scoped) çözüp TEK batched
     // projeksiyon (N+1 YOK). Teslim rozeti korunur; iade durumu AYRI rozet olarak taşınır.
     const returnSummaryByOrderNumber = await buildOrderReturnSummaries(
@@ -2410,7 +2495,7 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
       data: orders.map((order) =>
         serializeCustomerOrderSummary(
           order,
-          coverUrlByProductId,
+          coverUrlByLineId,
           returnSummaryByOrderNumber.get(order.orderNumber) ?? null,
           cancellationByOrderNumber.get(order.orderNumber) ?? null,
         ),
@@ -2429,13 +2514,8 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     if (!order) {
       return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
     }
-    // Dilim 6b — tek siparişin satırları için TEK batched kapak çağrısı (N+1 YOK).
-    const coverUrlByProductId = await buildProductCoverUrlMap(
-      listProductImages,
-      config.MEDIA_PUBLIC_BASE_URL,
-      store.id,
-      order.lines.map((line) => line.productId),
-    );
+    // BUG-CART-005 — tek siparişin satırları için kapak URL'i (snapshot → efektif varyant → ürün).
+    const coverUrlByLineId = await buildLineCoverUrls(store.id, coverEntriesOf([order]));
     // TODO-169 (blocker #6/#7) — ORTAK iade özeti (pencere + pending finansal etki).
     const returnSummaryByOrderNumber = await buildOrderReturnSummaries(store.id, customer.id, [
       order.orderNumber,
@@ -2447,7 +2527,7 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     return customerOrderDetailResponseSchema.parse({
       order: serializeCustomerOrderDetail(
         order,
-        coverUrlByProductId,
+        coverUrlByLineId,
         returnSummaryByOrderNumber.get(order.orderNumber) ?? null,
         cancellationByOrderNumber.get(order.orderNumber) ?? null,
       ),
@@ -2504,19 +2584,14 @@ export function registerCustomerRoutes(app: FastifyInstance, deps: CustomerRoute
     // Güncel detay + iptal özeti (refund AYRI durum; yanıltıcı "iade tamamlandı" gösterme).
     const order = await customers.getOrderDetail(store.id, customer.id, orderNumber);
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Sipariş bulunamadı."));
-    const coverUrlByProductId = await buildProductCoverUrlMap(
-      listProductImages,
-      config.MEDIA_PUBLIC_BASE_URL,
-      store.id,
-      order.lines.map((line) => line.productId),
-    );
+    const coverUrlByLineId = await buildLineCoverUrls(store.id, coverEntriesOf([order]));
     const returnSummaryByOrderNumber = await buildOrderReturnSummaries(store.id, customer.id, [orderNumber]);
     const cancellationByOrderNumber = await buildOrderCancellationSummaries(store.id, customer.id, [orderNumber]);
     const cancellation = cancellationByOrderNumber.get(orderNumber);
     return customerOrderCancelResponseSchema.parse({
       order: serializeCustomerOrderDetail(
         order,
-        coverUrlByProductId,
+        coverUrlByLineId,
         returnSummaryByOrderNumber.get(orderNumber) ?? null,
         cancellation ?? null,
       ),

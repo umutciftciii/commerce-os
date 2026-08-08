@@ -1213,6 +1213,11 @@ export const trStorefront = {
         method: "Yöntem",
         storeCredit: "Mağaza bakiyesi",
         card: "Kart",
+        // BUG-CART-005 — Ödeme dağılımı (mixed-payment) kaynak etiketleri (i18n; ham enum gösterilmez).
+        creditCard: "Kredi kartı",
+        bankTransfer: "Banka havalesi",
+        cashOnDelivery: "Kapıda ödeme",
+        paymentLink: "Ödeme bağlantısı",
         installment: "Taksit",
         singlePayment: "Tek çekim",
         installmentCount: "{count} taksit",

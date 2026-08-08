@@ -234,7 +234,7 @@ import { LocalDiskDriver } from "./media/local-disk-driver.js";
 import { resolveMediaUrl } from "./media/url.js";
 // Faz 3/Dilim 6a+6b — sepet/onay + hesap-siparisleri kapak URL haritasi (paylasilan,
 // tek allowlist noktasi; N+1'siz). buildCartCoverUrlMap bunu delege eder.
-import { buildProductCoverUrlMap, buildCartVariantCoverUrlMap } from "./media/cover.js";
+import { buildProductCoverUrlMap, buildCartVariantCoverUrlMap, pickVariantCoverImage } from "./media/cover.js";
 // F4A — Kampanya/kupon modulu (ADR-058): saf indirim motoru + veri erisimi + admin uclari.
 import {
   computeDiscounts,
@@ -4553,8 +4553,12 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             currency: true,
             status: true,
             // TODO-165 (ADR-252) — fashion snapshot kaynagi: varyant eksen secimleri (renk/beden).
+            // BUG-CART-005 — attributeDefinitionId/optionId: media-ekseni (renk) icin secili option'i
+            // cozup satin alma ani kapak snapshot'ini hesaplamak icin gerekli.
             optionValueSelections: {
               select: {
+                attributeDefinitionId: true,
+                optionId: true,
                 definition: { select: { code: true, dataType: true } },
                 option: { select: { value: true, label: true, colorHex: true } },
               },
@@ -4569,6 +4573,8 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
                 priceVisibility: true,
                 minOrderQuantity: true,
                 maxOrderQuantity: true,
+                // BUG-CART-005 — satin alma ani kapak snapshot'i icin media-tanimlayici eksen (renk).
+                mediaDefiningAttributeId: true,
                 // TODO-165 (ADR-252) — urun-seviyesi fashion meta (materyal + beden sistemi).
                 attributeValues: {
                   select: {
@@ -4589,6 +4595,46 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
         const lineDiscountByVariant = input.lineDiscounts
           ? new Map(input.lineDiscounts.map((d) => [d.variantId, d.discountMinor]))
           : null;
+        // BUG-CART-005 — Satin alma ani kapak medyasi SNAPSHOT'i icin urun gorsellerini TEK batched
+        // sorguyla yukle (siparisteki tum urunler). Variant Media Engine (pickVariantCoverImage /
+        // ADR-078) ile birebir: her satirin efektif kapagi (renk option'ina etiketli gorsel, yoksa
+        // urun birincil kapagi) storageKey olarak OrderLine.mediaStorageKey'e yazilir → tarihsel sabitlik.
+        const orderProductIds = [...new Set(variants.map((variant) => variant.productId))];
+        const orderImageRows = orderProductIds.length
+          ? await transaction.productImage.findMany({
+              where: { storeId, productId: { in: orderProductIds } },
+              orderBy: [{ productId: "asc" }, { position: "asc" }],
+              select: {
+                productId: true,
+                position: true,
+                optionId: true,
+                media: { select: { storageKey: true } },
+              },
+            })
+          : [];
+        const imagesByProductForSnapshot = new Map<
+          string,
+          Array<{ storageKey: string; position: number; optionId: string | null }>
+        >();
+        for (const row of orderImageRows) {
+          const record = { storageKey: row.media.storageKey, position: row.position, optionId: row.optionId };
+          const existing = imagesByProductForSnapshot.get(row.productId);
+          if (existing) existing.push(record);
+          else imagesByProductForSnapshot.set(row.productId, [record]);
+        }
+        const resolveLineMediaStorageKey = (variant: (typeof variants)[number]): string | null => {
+          const mediaAxis = variant.product.mediaDefiningAttributeId;
+          const selectedMediaOptionId = mediaAxis
+            ? variant.optionValueSelections.find((sel) => sel.attributeDefinitionId === mediaAxis)?.optionId ??
+              null
+            : null;
+          const cover = pickVariantCoverImage(
+            imagesByProductForSnapshot.get(variant.productId) ?? [],
+            mediaAxis,
+            selectedMediaOptionId,
+          );
+          return cover?.storageKey ?? null;
+        };
         const orderLines = [];
         for (const line of input.lines) {
           const variant = variantById.get(line.variantId);
@@ -4639,6 +4685,8 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             discountAllocatedMinor: lineDiscountByVariant
               ? (lineDiscountByVariant.get(variant.id) ?? 0)
               : null,
+            // BUG-CART-005 — satin alma ani kapak medyasi snapshot'i (renk-ekseni cozumlu; yoksa null).
+            mediaStorageKey: resolveLineMediaStorageKey(variant),
             ...fashionSnapshot,
           });
         }
@@ -4784,14 +4832,18 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             currency: true,
             status: true,
             // TODO-165 (ADR-252) — fashion snapshot kaynagi (createOrder ile AYNI).
+            // BUG-CART-005 — media-ekseni secili option'i (kapak snapshot'i icin).
             optionValueSelections: {
               select: {
+                attributeDefinitionId: true,
+                optionId: true,
                 definition: { select: { code: true, dataType: true } },
                 option: { select: { value: true, label: true, colorHex: true } },
               },
             },
             product: {
               select: {
+                id: true,
                 title: true,
                 status: true,
                 salesMode: true,
@@ -4799,6 +4851,8 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
                 priceVisibility: true,
                 minOrderQuantity: true,
                 maxOrderQuantity: true,
+                // BUG-CART-005 — satin alma ani kapak snapshot'i icin media-tanimlayici eksen.
+                mediaDefiningAttributeId: true,
                 attributeValues: {
                   select: {
                     valueText: true,
@@ -4829,6 +4883,27 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
           productAttributeRows: variant.product.attributeValues,
           variantTitle: variant.title,
         });
+        // BUG-CART-005 — createOrder ile AYNI kapak snapshot kurali (tek semantik): varyantin efektif
+        // kapagi (renk option'i, yoksa urun birincil) storageKey olarak snapshot'lanir.
+        const addLineImageRows = await transaction.productImage.findMany({
+          where: { storeId, productId: variant.productId },
+          orderBy: { position: "asc" },
+          select: { position: true, optionId: true, media: { select: { storageKey: true } } },
+        });
+        const addLineMediaAxis = variant.product.mediaDefiningAttributeId;
+        const addLineSelectedOptionId = addLineMediaAxis
+          ? variant.optionValueSelections.find((sel) => sel.attributeDefinitionId === addLineMediaAxis)
+              ?.optionId ?? null
+          : null;
+        const addLineCover = pickVariantCoverImage(
+          addLineImageRows.map((row) => ({
+            storageKey: row.media.storageKey,
+            position: row.position,
+            optionId: row.optionId,
+          })),
+          addLineMediaAxis,
+          addLineSelectedOptionId,
+        );
         await transaction.orderLine.create({
           data: {
             storeId,
@@ -4852,6 +4927,7 @@ function createPrismaDataAccess(reservationTtlPolicy: ReservationTtlPolicy): App
             lineVatAmountMinor: unitVatAmountMinor * input.quantity,
             lineGrossAmountMinor: totalAmount,
             lineCostMinor: variant.costMinor != null ? variant.costMinor * input.quantity : null,
+            mediaStorageKey: addLineCover?.storageKey ?? null,
             ...fashionSnapshot,
           },
         });
@@ -7248,10 +7324,13 @@ export function createServer(
     customers,
     logger,
     resolvePublicStore,
-    // Dilim 6b — siparis satiri thumbnail'i icin kapak gorseli cozumu (DI; Prisma
-    // customers modulune sizmaz, ayni tek allowlist noktasi paylasilir). Arrow
-    // wrapper `this` baglamini korur (detached method referansi this'i koparirdi).
+    // Dilim 6b / BUG-CART-005 — siparis satiri thumbnail'i icin kapak gorseli cozumu (DI; Prisma
+    // customers modulune sizmaz, ayni tek allowlist noktasi paylasilir). Arrow wrapper `this`
+    // baglamini korur (detached method referansi this'i koparirdi). Rich imza (optionId+position)
+    // + resolveVariantMediaOptions: snapshot'siz (eski) satirda efektif varyant medyasi fallback'i.
     listProductImages: (sid, pids, coverOnly) => dataAccess.listProductImages(sid, pids, coverOnly),
+    resolveVariantMediaOptions: (sid, pid, attrId) =>
+      dataAccess.resolveVariantMediaOptions(sid, pid, attrId),
   });
 
   // TODO-163 (ADR-208…ADR-210 · Faz 2 ADR-211…213) — Tenant Module & Capability infra.

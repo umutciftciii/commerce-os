@@ -1,4 +1,9 @@
-import type { PaymentAttemptStatus, PaymentStatus } from "@prisma/client";
+import type {
+  PaymentAttemptStatus,
+  PaymentMethodType,
+  PaymentProviderType,
+  PaymentStatus,
+} from "@prisma/client";
 
 /**
  * TODO-159F (ADR-095) — Order Payment Recovery state machine (SAF, yan etkisiz).
@@ -149,6 +154,59 @@ export function sumCapturedMinor(attempts: readonly CapturedAttemptView[]): numb
   return attempts
     .filter((attempt) => isSettledAttemptStatus(attempt.status))
     .reduce((sum, attempt) => sum + attempt.amount, 0);
+}
+
+/**
+ * BUG-CART-005 — Müşteri-facing ÖDEME DAĞILIMI (allocation). Bir attempt bir satır olur.
+ * SADECE başarılı (settled: PAID/AUTHORIZED) attempt'ler dahil — pending/failed HARİÇ (spec).
+ * Kaynak = PaymentAttempt (finansal source-of-truth). Gösterilen allocation'lar toplamı
+ * `sumCapturedMinor` (order captured/paid toplamı) ile EŞLEŞİR (invariant — aynı settled kümesi).
+ * Sıralama deterministik: en erken ödeme önce (paidAt asc; paidAt yoksa en sona).
+ */
+export interface PaymentAllocationAttemptView {
+  status: PaymentAttemptStatus;
+  method: PaymentMethodType;
+  amount: number;
+  currency: string;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  provider: PaymentProviderType | null;
+  installmentCount: number;
+  paidAt: Date | null;
+}
+
+export interface PaymentAllocation {
+  sourceType: PaymentMethodType;
+  amountMinor: number;
+  currency: string;
+  cardBrand: string | null;
+  cardLast4: string | null;
+  provider: PaymentProviderType | null;
+  installmentCount: number;
+  paidAt: Date | null;
+}
+
+export function buildPaymentAllocations(
+  attempts: readonly PaymentAllocationAttemptView[],
+): PaymentAllocation[] {
+  return attempts
+    .filter((attempt) => isSettledAttemptStatus(attempt.status))
+    .slice()
+    .sort((a, b) => {
+      const at = a.paidAt ? a.paidAt.getTime() : Number.POSITIVE_INFINITY;
+      const bt = b.paidAt ? b.paidAt.getTime() : Number.POSITIVE_INFINITY;
+      return at - bt;
+    })
+    .map((attempt) => ({
+      sourceType: attempt.method,
+      amountMinor: attempt.amount,
+      currency: attempt.currency,
+      cardBrand: attempt.cardBrand,
+      cardLast4: attempt.cardLast4,
+      provider: attempt.provider,
+      installmentCount: attempt.installmentCount,
+      paidAt: attempt.paidAt,
+    }));
 }
 
 /**

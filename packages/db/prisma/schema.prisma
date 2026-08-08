@@ -2026,6 +2026,15 @@ model OrderLine {
   swatchLabel            String? // swatch etiketi (renk ailesi / desen ozeti)
   materialSummary        String? // kisa materyal/kompozisyon ozeti
   variantDisplayName     String? // insan-okur varyant adi ("Kirmizi / M")
+  // BUG-CART-005 (Variant Media Engine / ADR-078 reuse) — SATIN ALMA ANI kapak medyasi
+  // SNAPSHOT'i (additive, nullable). Sipariş geçmişi tarihsel kayıttır: kapak thumbnail'i
+  // checkout anında varyantin EFEKTIF medya ekseninden (renk) cozulen ProductImage'in
+  // storageKey'idir. Urun/varyant medyasi SONRADAN degisse bile gecmis siparisin gorseli
+  // SABIT kalir (IMMUTABLE). Server-side turetilir (createOrder), client manipule EDEMEZ.
+  // ESKI (backfill YOK) veya gorselsiz kalemde NULL → projeksiyon guvenli fallback'e duser
+  // (once mevcut efektif varyant medyasi, sonra urun birincil kapagi). storageKey ic alandir;
+  // DTO'ya SIZMAZ (imageUrl'e cevrilip atilir — Dilim 6b allowlist deseni).
+  mediaStorageKey        String?
   createdAt              DateTime @default(now())
 
   store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)

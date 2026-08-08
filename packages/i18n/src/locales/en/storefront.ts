@@ -1175,6 +1175,11 @@ export const enStorefront: StorefrontDictionary = {
         method: "Method",
         storeCredit: "Store credit",
         card: "Card",
+        // BUG-CART-005 — Payment breakdown (mixed-payment) source labels (i18n; no raw enum shown).
+        creditCard: "Credit card",
+        bankTransfer: "Bank transfer",
+        cashOnDelivery: "Cash on delivery",
+        paymentLink: "Payment link",
         installment: "Installments",
         singlePayment: "Single payment",
         installmentCount: "{count} installments",

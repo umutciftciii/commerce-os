@@ -135,3 +135,70 @@ export async function buildCartVariantCoverUrlMap(
   }
   return urlByVariantId;
 }
+
+// ── BUG-CART-005 — Siparis GECMISI (tarihsel) satir kapagi ────────────────────────────
+// Sepetten FARKLI oncelik: siparis gecmisi tarihsel kayittir. Tercih sirasi (Product Rule):
+//   1) satin alma ani SNAPSHOT'i (OrderLine.mediaStorageKey) — urun medyasi sonradan degisse
+//      bile SABIT kalir (saf; DB sorgusu YOK),
+//   2) snapshot yoksa (eski siparis) MEVCUT efektif varyant medyasi (pickVariantCoverImage),
+//   3) o da yoksa urun birincil kapagi.
+// Anahtar = OrderLine.id (ayni variant iki farkli sipariste FARKLI snapshot tasiyabilir; bu
+// yuzden variantId ile anahtarlamak YETMEZ). Yalniz snapshot'siz (legacy) satirlarin urunleri
+// icin TEK batched gorsel sorgusu (N+1 YOK). Cikti allowlist: yalniz turetilmis URL (storageKey
+// DISARI SIZMAZ). Kapaksiz satir haritada yer almaz (cagiran ?? null ile yer tutucuya duser).
+
+/** Bir siparis satiri icin kapak-cozumu girdisi (list/detail projeksiyonundan turetilir). */
+export interface OrderLineCoverEntry {
+  lineId: string;
+  productId: string;
+  variantId: string;
+  mediaStorageKey: string | null;
+  mediaDefiningAttributeId: string | null;
+}
+
+export async function buildOrderLineCoverUrlMap(
+  listProductImages: ListProductImagesRichFn,
+  resolveVariantMediaOptions: ResolveVariantMediaOptionsFn,
+  mediaBaseUrl: string | undefined,
+  storeId: string,
+  entries: OrderLineCoverEntry[],
+): Promise<Map<string, string>> {
+  const urlByLineId = new Map<string, string>();
+  if (entries.length === 0) return urlByLineId;
+
+  // Oncelik #1 — satin alma ani snapshot'i (tarihsel sabitlik; saf, DB sorgusu YOK).
+  const legacy: OrderLineCoverEntry[] = [];
+  for (const entry of entries) {
+    if (entry.mediaStorageKey) {
+      urlByLineId.set(entry.lineId, resolveMediaUrl(mediaBaseUrl, entry.mediaStorageKey));
+    } else {
+      legacy.push(entry);
+    }
+  }
+  if (legacy.length === 0) return urlByLineId;
+
+  // Oncelik #2/#3 — snapshot YOK: MEVCUT efektif varyant medyasi (renk), yoksa urun kapagi.
+  // Variant Media Engine (galleryImagesForVariant / ADR-078) ile TUTARLI; sepetle ayni algoritma.
+  const productIds = [...new Set(legacy.map((entry) => entry.productId))];
+  const imagesByProduct = await listProductImages(storeId, productIds, false);
+  const axisByProduct = new Map<string, string>();
+  for (const entry of legacy) {
+    if (entry.mediaDefiningAttributeId) axisByProduct.set(entry.productId, entry.mediaDefiningAttributeId);
+  }
+  const mediaOptionByVariant = new Map<string, string>();
+  await Promise.all(
+    [...axisByProduct.entries()].map(async ([productId, attributeDefinitionId]) => {
+      const resolved = await resolveVariantMediaOptions(storeId, productId, attributeDefinitionId);
+      for (const [variantId, optionId] of resolved) mediaOptionByVariant.set(variantId, optionId);
+    }),
+  );
+  for (const entry of legacy) {
+    const images = imagesByProduct.get(entry.productId) ?? [];
+    const selectedMediaOptionId = entry.mediaDefiningAttributeId
+      ? mediaOptionByVariant.get(entry.variantId) ?? null
+      : null;
+    const cover = pickVariantCoverImage(images, entry.mediaDefiningAttributeId, selectedMediaOptionId);
+    if (cover) urlByLineId.set(entry.lineId, resolveMediaUrl(mediaBaseUrl, cover.storageKey));
+  }
+  return urlByLineId;
+}

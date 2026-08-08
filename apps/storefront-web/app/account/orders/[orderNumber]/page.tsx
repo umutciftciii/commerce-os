@@ -284,7 +284,30 @@ function ShippingBlock({ o, order }: { o: OrdersDict; order: CustomerOrderDetail
   );
 }
 
-function PaymentBlock({
+/**
+ * BUG-CART-005 — Ödeme allocation satır etiketi. Ham enum (sourceType) i18n etiketine çevrilir;
+ * karttA maskeli son 4 hane eklenir (raw PAN ASLA — DTO'da yalnız cardLast4 vardır).
+ */
+function allocationLabel(o: OrdersDict, allocation: CustomerOrderDetail["paymentAllocations"][number]): string {
+  switch (allocation.sourceType) {
+    case "STORE_CREDIT":
+      return o.detail.storeCredit;
+    case "CARD":
+      return allocation.cardLast4
+        ? `${o.detail.creditCard} •••• ${allocation.cardLast4}`
+        : o.detail.creditCard;
+    case "BANK_TRANSFER":
+      return o.detail.bankTransfer;
+    case "CASH_ON_DELIVERY":
+      return o.detail.cashOnDelivery;
+    case "PAYMENT_LINK":
+      return o.detail.paymentLink;
+    default:
+      return o.detail.method;
+  }
+}
+
+export function PaymentBlock({
   o,
   order,
   locale,
@@ -294,13 +317,40 @@ function PaymentBlock({
   locale: Locale;
 }) {
   const p = order.payment;
+  // BUG-CART-005 — Mixed-payment görünürlüğü: her başarılı ödeme kaynağı AYRI satır. `payment`
+  // (tek özet) yalnız yardımcı bilgiler (taksit/tarih/işlem no) için korunur.
+  const allocations = order.paymentAllocations;
+  const hasAllocations = allocations.length > 0;
   return (
     <section className="border border-line p-4">
       <Subheading as="h2" className="mb-2">{o.detail.paymentInfo}</Subheading>
-      {p ? (
+      {hasAllocations ? (
         <div className="space-y-1.5">
-          {/* BUG-CART-004 — provider artık nullable (store-credit/manuel tahsilatta yok).
-              Store-credit'te sağlayıcı yerine yöntem satırı gösterilir. */}
+          {/* Ödeme DAĞILIMI — kaynak başına tutar. Toplamı sipariş captured/paid ile eşleşir. */}
+          {allocations.map((allocation, index) => (
+            <Row
+              key={`${allocation.sourceType}-${index}`}
+              label={allocationLabel(o, allocation)}
+              value={formatMinor(allocation.amountMinor, allocation.currency)}
+              strong
+            />
+          ))}
+          {/* Yardımcı bilgiler (varsa): taksit / ödeme tarihi / işlem no. */}
+          {p && p.installmentCount > 1 ? (
+            <Row
+              label={o.detail.installment}
+              value={format(o.detail.installmentCount, { count: p.installmentCount })}
+            />
+          ) : null}
+          {p?.paidAt ? <Row label={o.detail.paidAt} value={formatDate(p.paidAt, locale)} /> : null}
+          {p?.transactionId ? <Row label={o.detail.transaction} value={p.transactionId} /> : null}
+          {p?.threeDsApplied ? (
+            <p className="text-xs text-ink-subtle">{o.detail.threeDs}</p>
+          ) : null}
+        </div>
+      ) : p ? (
+        // Fallback (allocation yok ama tekil özet var — beklenmeyen legacy durum): eski görünüm.
+        <div className="space-y-1.5">
           {p.provider ? <Row label={o.detail.provider} value={p.provider} /> : null}
           {p.method === "STORE_CREDIT" ? (
             <Row label={o.detail.method} value={o.detail.storeCredit} />
@@ -320,9 +370,7 @@ function PaymentBlock({
             }
           />
           {p.transactionId ? <Row label={o.detail.transaction} value={p.transactionId} /> : null}
-          {p.paidAt ? (
-            <Row label={o.detail.paidAt} value={formatDate(p.paidAt, locale)} />
-          ) : null}
+          {p.paidAt ? <Row label={o.detail.paidAt} value={formatDate(p.paidAt, locale)} /> : null}
           {p.threeDsApplied ? (
             <p className="text-xs text-ink-subtle">{o.detail.threeDs}</p>
           ) : null}
