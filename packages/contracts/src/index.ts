@@ -12088,7 +12088,23 @@ export const returnStatusSchema = z.enum([
   "CLOSED",
 ]);
 
-export const returnResolutionTypeSchema = z.enum(["REFUND_TO_ORIGINAL_PAYMENT", "REPLACEMENT"]);
+// TODO-175 (ADR-285): REFUND = nötr refund çözümü (destination ayrı refundDestination alanında).
+// REFUND_TO_ORIGINAL_PAYMENT legacy olarak korunur (= REFUND + ORIGINAL_PAYMENT semantiği).
+export const returnResolutionTypeSchema = z.enum(["REFUND", "REFUND_TO_ORIGINAL_PAYMENT", "REPLACEMENT"]);
+
+// TODO-175 (ADR-285) — Refund geri ödeme hedefi (yalnız external-origin bileşeni yönetir).
+export const refundDestinationSchema = z.enum(["ORIGINAL_PAYMENT", "SHOPPING_BALANCE"]);
+export type RefundDestinationValue = z.infer<typeof refundDestinationSchema>;
+
+// Server-authoritative refund hedef önizlemesi (split + eligibility). Client tutar GÖNDERMEZ.
+export const refundDestinationPreviewSchema = z.object({
+  totalRefundableMinor: z.number().int().nonnegative(),
+  externalComponentMinor: z.number().int().nonnegative(),
+  creditComponentMinor: z.number().int().nonnegative(),
+  offerOriginalPayment: z.boolean(),
+  offerShoppingBalance: z.boolean(),
+});
+export type RefundDestinationPreview = z.infer<typeof refundDestinationPreviewSchema>;
 
 export const returnReasonSchema = z.enum([
   "NO_LONGER_NEEDED",
@@ -12274,6 +12290,12 @@ export const cancellationOrderSummarySchema = z.object({
   isPaid: z.boolean(),
   // ALLOWED iken iptalde iade edilecek server-authoritative tahmini tutar (unpaid → 0). Kargo ücreti dahil.
   estimatedRefundMinor: z.number().int().nonnegative(),
+  // TODO-175 — refund destination split (§5.5): external-origin (PSP/balance seçilebilir) vs credit-origin
+  // (her zaman balance restore). Modal destination adımı + confirm summary bunları gösterir.
+  externalRefundableMinor: z.number().int().nonnegative().default(0),
+  creditRestorableMinor: z.number().int().nonnegative().default(0),
+  offerOriginalPayment: z.boolean().default(false),
+  offerShoppingBalance: z.boolean().default(false),
   // Zaten iptal edilmiş sipariş provenance'i (iptal edilmemişse null).
   cancelledAt: z.string().datetime().nullable().default(null),
   cancelSource: orderCancellationSourceSchema.nullable().default(null),
@@ -12299,6 +12321,9 @@ export const customerOrderCancelRequestSchema = z
     // Client YALNIZ kodu gönderir; kategori server'da registry'den türetilir + doğrulanır.
     reasonCode: orderCancellationReasonSchema,
     reasonNote: z.string().max(CANCELLATION_NOTE_MAX).optional(),
+    // TODO-175 — müşteri refund hedefi (yalnız external-origin bileşeni etkiler). Opsiyonel: unpaid /
+    // credit-only akışta gönderilmez; gönderilirse server eligibility'yi doğrular (INVALID_DESTINATION).
+    refundDestination: refundDestinationSchema.optional(),
     // Optimistic concurrency (opsiyonel; verilirse guard'lanır — server ayrıca kendi guard'ını uygular).
     expectedVersion: z.number().int().nonnegative().optional(),
   })
@@ -12377,12 +12402,25 @@ export const customerReturnCreateItemSchema = z.object({
   attachmentMediaIds: z.array(z.string().min(1)).max(6).optional(),
 });
 
-export const customerReturnCreateRequestSchema = z.object({
-  orderNumber: z.string().min(1),
-  resolutionType: returnResolutionTypeSchema,
-  customerNote: z.string().max(RETURN_COMMENT_MAX).optional(),
-  items: z.array(customerReturnCreateItemSchema).min(1),
-});
+export const customerReturnCreateRequestSchema = z
+  .object({
+    orderNumber: z.string().min(1),
+    resolutionType: returnResolutionTypeSchema,
+    // TODO-175 — REFUND çözümünde zorunlu müşteri hedefi; REPLACEMENT'ta gönderilmez.
+    refundDestination: refundDestinationSchema.optional(),
+    customerNote: z.string().max(RETURN_COMMENT_MAX).optional(),
+    items: z.array(customerReturnCreateItemSchema).min(1),
+  })
+  .superRefine((val, ctx) => {
+    // Nötr REFUND çözümü için destination zorunlu (server ayrıca eligibility doğrular).
+    if (val.resolutionType === "REFUND" && !val.refundDestination) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["refundDestination"],
+        message: "İade yöntemi seçimi zorunludur.",
+      });
+    }
+  });
 
 /* ── Müşteri: iade özeti / detay / takip ──────────────────────────────────────── */
 export const customerReturnItemSchema = z.object({
