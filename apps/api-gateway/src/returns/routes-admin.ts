@@ -171,6 +171,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
       returnNumber: true,
       status: true,
       resolutionType: true,
+      refundDestination: true,
       requestedAt: true,
       returnWindowEndsAt: true,
       order: { select: { orderNumber: true } },
@@ -184,6 +185,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
       totalRefundMinor: true,
       requestedAt: true,
       completedAt: true,
+      refundDestination: true,
       order: {
         select: {
           id: true,

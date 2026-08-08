@@ -15,6 +15,7 @@ import type {
   CustomerRefundVisibilityItem,
   OrderCancellationReasonValue,
   OrderRefundStatusValue,
+  RefundDestinationValue,
   ReturnResolutionTypeValue,
 } from "@commerce-os/contracts";
 import type { PaymentManualMethod, PaymentMethodType } from "@prisma/client";
@@ -37,6 +38,7 @@ export interface AdminReturnRowSource {
   returnNumber: string;
   status: string;
   resolutionType: string;
+  refundDestination: RefundDestinationValue | null;
   requestedAt: Date;
   returnWindowEndsAt: Date;
   order: { orderNumber: string };
@@ -58,6 +60,7 @@ export interface AdminCancellationRowSource {
     cancelReasonCode: OrderCancellationReasonValue | null;
     customer: { firstName: string | null; lastName: string | null; email: string | null } | null;
   };
+  refundDestination: RefundDestinationValue | null;
   paymentAttempt: MaskablePaymentAttempt | null;
 }
 
@@ -93,6 +96,7 @@ export function mapAdminReturnRow(r: AdminReturnRowSource, now: number): AdminRe
     currency: null,
     refundMethodLabel: null,
     refundCompletedAt: null,
+    refundDestination: r.refundDestination,
     cancellationReasonCode: null,
   };
 }
@@ -119,7 +123,57 @@ export function mapAdminCancellationRow(r: AdminCancellationRowSource): AdminRef
     currency: r.currency,
     refundMethodLabel: maskPaymentMethodLabel(r.paymentAttempt),
     refundCompletedAt: r.completedAt?.toISOString() ?? null,
+    refundDestination: r.refundDestination,
     cancellationReasonCode: r.order.cancelReasonCode,
+  };
+}
+
+/**
+ * TODO-175 (Düzeltme D) — Shopping-balance adoption rate. Payda YALNIZ müşterinin GERÇEK seçim yaptığı
+ * refund'lar: external component > 0 VE her iki seçenek de sunulmuş (choiceEligible). Payda 0 → null.
+ */
+export interface AdoptionInput {
+  choiceEligible: boolean;
+  destination: RefundDestinationValue | null;
+}
+export function computeAdoptionRate(rows: readonly AdoptionInput[]): number | null {
+  const eligible = rows.filter((r) => r.choiceEligible);
+  if (eligible.length === 0) return null;
+  const shoppingBalance = eligible.filter((r) => r.destination === "SHOPPING_BALANCE").length;
+  return shoppingBalance / eligible.length;
+}
+
+/** TODO-175 — Minimum refund-destination raporu (tutar + adoption + cancellation vs return breakdown). */
+export interface RefundDestinationReportRow {
+  source: "RETURN_REQUEST" | "ORDER_CANCELLATION";
+  destination: RefundDestinationValue | null;
+  refundAmountMinor: number;
+  choiceEligible: boolean;
+}
+export interface RefundDestinationReport {
+  refundToOriginalMinor: number;
+  refundToShoppingBalanceMinor: number;
+  shoppingBalanceAdoptionRate: number | null;
+  returnCount: number;
+  cancellationCount: number;
+}
+export function computeRefundDestinationReport(rows: readonly RefundDestinationReportRow[]): RefundDestinationReport {
+  let refundToOriginalMinor = 0;
+  let refundToShoppingBalanceMinor = 0;
+  let returnCount = 0;
+  let cancellationCount = 0;
+  for (const r of rows) {
+    if (r.destination === "ORIGINAL_PAYMENT") refundToOriginalMinor += r.refundAmountMinor;
+    else if (r.destination === "SHOPPING_BALANCE") refundToShoppingBalanceMinor += r.refundAmountMinor;
+    if (r.source === "RETURN_REQUEST") returnCount += 1;
+    else cancellationCount += 1;
+  }
+  return {
+    refundToOriginalMinor,
+    refundToShoppingBalanceMinor,
+    shoppingBalanceAdoptionRate: computeAdoptionRate(rows),
+    returnCount,
+    cancellationCount,
   };
 }
 

@@ -3,6 +3,8 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  computeAdoptionRate,
+  computeRefundDestinationReport,
   isAdminRowOverdue,
   mapAdminCancellationRow,
   mapAdminReturnRow,
@@ -22,6 +24,7 @@ function returnSource(over: Partial<AdminReturnRowSource> = {}): AdminReturnRowS
     returnNumber: "R000001",
     status: "REQUESTED",
     resolutionType: "REFUND_TO_ORIGINAL_PAYMENT",
+    refundDestination: null,
     requestedAt: new Date(NOW - 5 * DAY),
     returnWindowEndsAt: new Date(NOW + 5 * DAY),
     order: { orderNumber: "OS-000004" },
@@ -45,6 +48,7 @@ function cancelSource(over: Partial<AdminCancellationRowSource> = {}): AdminCanc
       cancelReasonCode: "WILL_NOT_ARRIVE_IN_TIME",
       customer: { firstName: "Umut", lastName: "Ç", email: "u@example.com" },
     },
+    refundDestination: "ORIGINAL_PAYMENT",
     paymentAttempt: { method: "CARD", cardBrand: "Visa", cardLast4: "4242", manualMethod: null },
     ...over,
   };
@@ -195,5 +199,37 @@ describe("mapCustomerCancellationItem", () => {
     );
     expect(item.cancellationReasonCode).toBe("OTHER");
     expect(item.cancellationReasonNote).toBe("Elden aldım");
+  });
+});
+
+describe("TODO-175 computeAdoptionRate (Düzeltme D denominator)", () => {
+  it("counts only choice-eligible refunds; credit-only excluded", () => {
+    expect(
+      computeAdoptionRate([
+        { choiceEligible: true, destination: "SHOPPING_BALANCE" },
+        { choiceEligible: true, destination: "ORIGINAL_PAYMENT" },
+        { choiceEligible: false, destination: "SHOPPING_BALANCE" },
+      ]),
+    ).toBe(0.5);
+  });
+  it("returns null when no choice-eligible refunds (avoid NaN)", () => {
+    expect(computeAdoptionRate([{ choiceEligible: false, destination: "SHOPPING_BALANCE" }])).toBeNull();
+    expect(computeAdoptionRate([])).toBeNull();
+  });
+});
+
+describe("TODO-175 computeRefundDestinationReport", () => {
+  it("aggregates amounts, adoption, source breakdown", () => {
+    const r = computeRefundDestinationReport([
+      { source: "RETURN_REQUEST", destination: "ORIGINAL_PAYMENT", refundAmountMinor: 700, choiceEligible: true },
+      { source: "RETURN_REQUEST", destination: "SHOPPING_BALANCE", refundAmountMinor: 300, choiceEligible: true },
+      { source: "ORDER_CANCELLATION", destination: "SHOPPING_BALANCE", refundAmountMinor: 500, choiceEligible: true },
+      { source: "ORDER_CANCELLATION", destination: "SHOPPING_BALANCE", refundAmountMinor: 400, choiceEligible: false },
+    ]);
+    expect(r.refundToOriginalMinor).toBe(700);
+    expect(r.refundToShoppingBalanceMinor).toBe(1200);
+    expect(r.returnCount).toBe(2);
+    expect(r.cancellationCount).toBe(2);
+    expect(r.shoppingBalanceAdoptionRate).toBeCloseTo(2 / 3, 5);
   });
 });

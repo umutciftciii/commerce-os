@@ -12868,6 +12868,8 @@ export const adminRefundVisibilityItemSchema = z.object({
   // Admin'e maskeli ödeme yöntemi ("Kart •••• 1234" / "Banka havalesi"); ham PAN/secret ASLA.
   refundMethodLabel: z.string().nullable(),
   refundCompletedAt: z.string().datetime().nullable(),
+  // TODO-175 — müşterinin refund hedefi tercihi (REFUND çözümü/iptal external legi taşır; REPLACEMENT null).
+  refundDestination: refundDestinationSchema.nullable(),
   // Yalnız sipariş iptali (ORDER_CANCELLATION) — insani etiket UI'da registry/i18n'den türetilir:
   cancellationReasonCode: orderCancellationReasonSchema.nullable(),
 });
