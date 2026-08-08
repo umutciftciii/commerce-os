@@ -21,7 +21,7 @@ import type {
   ReturnResolutionTypeValue,
 } from "@commerce-os/contracts";
 import { returnReasonRequiresComment } from "@commerce-os/contracts";
-import { evaluateReturnTransition } from "./status-map.js";
+import { evaluateReturnTransition, isRefundResolution } from "./status-map.js";
 import {
   computeLineEligibility,
   resolveDeliveryAnchor,
@@ -393,16 +393,25 @@ async function isCompletionAllowed(
     select: { resolutionType: true, refundIntent: { select: { totalRefundMinor: true } } },
   });
   if (!rr) return false;
-  if (rr.resolutionType === "REFUND_TO_ORIGINAL_PAYMENT") {
-    // TODO-170 (ADR-272) — Gerçek refund tamamlanmadan COMPLETED YASAK: SUCCEEDED OrderRefund toplamı
-    // intent totalını karşılamalı (ledger gerçek para hareketi otoritesi; intent status'e bakılmaz).
+  if (isRefundResolution(rr.resolutionType)) {
+    // TODO-170/175 — Gerçek refund tamamlanmadan COMPLETED YASAK: iki ledger settlement'ı — Σ SUCCEEDED
+    // OrderRefund (external legler, INTERNAL_CREDIT dahil) + Σ return credit-origin restore ≥ intent total
+    // (ledger gerçek para hareketi otoritesi; intent status'e bakılmaz).
     const intentTotal = rr.refundIntent?.totalRefundMinor ?? null;
     if (intentTotal === null) return false;
-    const agg = await tx.orderRefund.aggregate({
-      where: { storeId, returnRequestId, status: "SUCCEEDED" },
-      _sum: { totalRefundMinor: true },
-    });
-    return (agg._sum.totalRefundMinor ?? 0) >= intentTotal;
+    const [agg, creditAgg] = await Promise.all([
+      tx.orderRefund.aggregate({
+        where: { storeId, returnRequestId, status: "SUCCEEDED" },
+        _sum: { totalRefundMinor: true },
+      }),
+      tx.customerCreditLedgerEntry.aggregate({
+        where: { storeId, groupKey: `credit-return-restore:${returnRequestId}` },
+        _sum: { amountMinor: true },
+      }),
+    ]);
+    const externalSettled = agg._sum.totalRefundMinor ?? 0;
+    const creditRestored = Number(creditAgg._sum.amountMinor ?? 0n);
+    return externalSettled + creditRestored >= intentTotal;
   }
   // REPLACEMENT: fulfillment doğrulanamaz (altyapı yok) → COMPLETED YASAK.
   return false;
@@ -638,7 +647,7 @@ export async function advanceInspectedToRefundPending(
       items: { select: { approvedQuantity: true, quantity: true } },
     },
   });
-  if (!rr || rr.resolutionType !== "REFUND_TO_ORIGINAL_PAYMENT") return { advanced: false };
+  if (!rr || !isRefundResolution(rr.resolutionType)) return { advanced: false };
   const totalApproved = rr.items.reduce((sum, i) => sum + (i.approvedQuantity ?? i.quantity), 0);
   if (totalApproved <= 0) return { advanced: false };
   const verdict = evaluateReturnTransition(rr.status, "REFUND_PENDING", actor.type);
@@ -915,7 +924,7 @@ export async function upsertRefundIntentForReturn(
       items: { select: { orderLineId: true, quantity: true, approvedQuantity: true } },
     },
   });
-  if (!rr || rr.resolutionType !== "REFUND_TO_ORIGINAL_PAYMENT") return;
+  if (!rr || !isRefundResolution(rr.resolutionType)) return;
 
   const order = await tx.order.findFirst({
     where: { id: rr.orderId, storeId },
