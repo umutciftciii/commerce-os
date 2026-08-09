@@ -4,7 +4,13 @@
 
 **Goal:** Repo-içi kalıcı Playwright E2E suite kur; 8 çekirdek storefront smoke senaryosunu gerçek UI + izole `e2e-store` fixture üzerinde deterministik doğrula; ayrı merge-blocking `e2e.yml` CI gate + non-destructive `@prod-smoke` profili ekle.
 
-**Architecture:** Kök `tests/e2e/` + kök `playwright.config.ts`, projeler: `setup` (gerçek UI login → storageState), `smoke` (desktop Chromium, `@smoke`), `responsive` (`@responsive`, küçük subset), `prod-smoke` (`@prod-smoke`, anonim/read-only). Storefront tek-store olduğundan (`STOREFRONT_DEMO_STORE_SLUG` env, 46 kullanım, host-tabanlı çözüm yok) e2e için ayrı bir storefront runtime `storefront-web-e2e` (`:3100`, slug `e2e-store`) compose override ile ayağa kalkar; enterprise-demo (`:3000`) hiç bozulmaz. Fixture = dedike idempotent `e2e-seed.mjs`; write-path verisi test içinde üretilir + `e2e-`/`test-` prefix cleanup (`APP_ENV` guard).
+**Architecture:** Kök `tests/e2e/` + kök `playwright.config.ts`, projeler: `setup` (gerçek UI login → storageState), `smoke` (desktop Chromium, `@smoke`), `responsive` (`@responsive`, küçük subset), `prod-smoke` (`@prod-smoke`, anonim/read-only). Storefront tek-store olduğundan (`STOREFRONT_DEMO_STORE_SLUG` env, 46 kullanım, host-tabanlı çözüm yok) e2e ayrı bir storefront runtime `:3100` + slug `e2e-store` ile koşar; enterprise-demo (`:3000`) hiç bozulmaz.
+
+**KRİTİK — docker bake vs worktree:** `storefront-web` compose servisi kaynağı **volume mount ETMEZ**; build context `../..` = **main repo** kopyasıdır → worktree'de eklenen `data-testid` değişiklikleri docker container'ında GÖRÜNMEZ. Bu yüzden:
+- **Local (bu oturum + geliştirici):** e2e storefront = **host `next dev --port 3100`** (worktree kodunu doğrudan servis eder, hot-reload, testid'ler görünür). Gateway/postgres/redis docker'da kalır (runtime'da shared postgres'ten okur; e2e-store row'u eklenince gateway'i rebuild GEREKMEZ). Memory pattern'i: "browser smoke = worktree next dev :3100".
+- **CI:** `docker-compose.e2e.yml` içindeki `storefront-web-e2e` servisi PR branch checkout'undan build edilir (context = CI checkout = branch) → testid'ler image'da vardır. Playwright her iki durumda da `E2E_STOREFRONT_URL=http://localhost:3100`'e bakar.
+
+Fixture = dedike idempotent `e2e-seed.mjs` (docker exec ile shared postgres'e); write-path verisi test içinde üretilir + `e2e-`/`test-` prefix cleanup (`APP_ENV` guard).
 
 **Tech Stack:** `@playwright/test`, Next.js 15 storefront, api-gateway (:4000) public REST, Prisma seed (docker exec), Docker Compose, GitHub Actions, pnpm workspace.
 
@@ -196,11 +202,13 @@ git commit -m "chore(e2e): Playwright kök config + fixtures scaffold + scripts 
 
 **Files:**
 - Create: `packages/db/scripts/e2e-seed.mjs`, `infra/docker/docker-compose.e2e.yml`
-- Modify: `packages/db/scripts/cleanup-smoke.ts` (SMOKE_PREFIXES'e `"e2e-"` ekle)
+- Modify: `packages/db/scripts/cleanup-smoke.ts` (SMOKE_PREFIXES'e `"e2e-"` ekle), `package.json` (root — `e2e:storefront` script)
 
 **Interfaces:**
 - Consumes: `ids` değerleri (aynı sabitler — seed JS'te literal tekrarlanır; `ids.ts` TS olduğundan seed .mjs kendi literal'ini içerir, değerler birebir eşleşir).
-- Produces: DB'de `e2e-store` + test müşterisi (`CustomerCredential`) + 2 ürün/varyant + stok + kupon + `e2e-order-1001`. `storefront-web-e2e` servisi `:3100`, `STOREFRONT_DEMO_STORE_SLUG=e2e-store`.
+- Produces: DB'de `e2e-store` + test müşterisi (`CustomerCredential`) + 2 ürün/varyant + stok + kupon + `e2e-order-1001`. **Local:** `e2e:storefront` host `next dev` :3100. **CI:** `storefront-web-e2e` compose servisi :3100, `STOREFRONT_DEMO_STORE_SLUG=e2e-store`.
+
+**KRİTİK bake gotcha:** `storefront-web` compose servisi kaynağı volume mount etmez, build context = main repo. Bu yüzden LOCAL doğrulama ve sonraki testid task'ları **host `next dev` :3100** ile yapılır (worktree kodu); compose `storefront-web-e2e` yalnız CI içindir (branch checkout'tan build). Detay: plan başı "KRİTİK — docker bake vs worktree".
 
 - [ ] **Step 1: `cleanup-smoke.ts` prefix'ine `e2e-` ekle**
 
@@ -263,35 +271,44 @@ services:
       retries: 30
       start_period: 40s
 ```
-NOT: storefront `dev` scripti `--port 3000` sabit. `:3100` için ya compose `command`'i `pnpm --filter @commerce-os/storefront-web exec next dev --port 3100` olarak override et, ya da storefront `dev` scriptini `next dev --port ${PORT:-3000}` yap (tercih: compose command override — app scriptine dokunma). `command_note` alanını gerçek `command:` ile değiştir.
+NOT: storefront `dev` scripti `--port 3000` sabit. Compose `command`'ini `pnpm --filter @commerce-os/storefront-web exec next dev --port 3100` olarak yaz (app scriptine dokunma). `command_note` alanını gerçek `command:` ile değiştir. Bu servis YALNIZ CI içindir (build context=branch checkout).
 
-- [ ] **Step 4: e2e storefront'u ayağa kaldır + seed**
+- [ ] **Step 4: Local `e2e:storefront` script'i ekle (host next dev :3100 — worktree kodu)**
 
-```bash
-docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.e2e.yml up -d storefront-web-e2e
-pnpm db:seed-e2e
+Kök `package.json` scripts'e ekle (host'ta çalışır, worktree kaynağını servis eder; env inline):
+```json
+"e2e:storefront": "STOREFRONT_DEMO_STORE_SLUG=e2e-store API_GATEWAY_URL=http://localhost:4000 STOREFRONT_CART_SECRET=e2e-cart-secret pnpm --filter @commerce-os/storefront-web exec next dev --port 3100"
 ```
 
-- [ ] **Step 5: e2e-store'un servis edildiğini doğrula (business result)**
+- [ ] **Step 5: Seed'i koştur + local host storefront'u ayağa kaldır**
+
+```bash
+pnpm db:seed-e2e
+# ayrı terminalde / arka planda:
+pnpm e2e:storefront   # host next dev :3100, e2e-store slug, worktree kodu
+```
+NOT: `db:seed-e2e` docker exec ile çalışan api-gateway container'ında koşar → shared postgres'e yazar; gateway rebuild GEREKMEZ.
+
+- [ ] **Step 6: e2e-store'un servis edildiğini doğrula (business result)**
 
 Run:
 ```bash
-curl -s "http://localhost:4000/public/stores/e2e-store/store-info" | head -c 300; echo
+curl -s "http://localhost:4000/public/stores/e2e-store/store-info" | head -c 300; echo   # birincil: seed doğru (gateway canlı okur)
 curl -s "http://localhost:3100/api/health"; echo
-curl -s "http://localhost:3100/products/e2e-tshirt" -o /dev/null -w "%{http_code}\n"
+curl -s "http://localhost:3100/products/e2e-tshirt" -o /dev/null -w "%{http_code}\n"        # PDP 200 (host storefront)
 ```
-Expected: store-info JSON `e2e-store` döner (200); health ok; PDP `200`.
+Expected: store-info JSON `e2e-store` döner (200); health ok; PDP `200`. Gateway store-info alone seed'i kanıtlar; PDP 200 host storefront'un e2e-store'u servis ettiğini gösterir.
 
-- [ ] **Step 6: Idempotency (retry duplicate üretmez) doğrula**
+- [ ] **Step 7: Idempotency (retry duplicate üretmez) doğrula**
 
 Run: `pnpm db:seed-e2e && pnpm db:seed-e2e`
 Expected: İkinci koşu hata vermez; ürün/order sayısı artmaz (upsert). Gerekirse gateway `.../products` sayımı sabit kalır.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add packages/db/scripts/e2e-seed.mjs infra/docker/docker-compose.e2e.yml packages/db/scripts/cleanup-smoke.ts
-git commit -m "feat(e2e): dedike e2e-store seed + storefront-web-e2e (:3100) override + e2e- cleanup prefix (TODO-176)"
+git add packages/db/scripts/e2e-seed.mjs infra/docker/docker-compose.e2e.yml packages/db/scripts/cleanup-smoke.ts package.json
+git commit -m "feat(e2e): dedike e2e-store seed + host e2e:storefront :3100 + CI storefront-web-e2e override + e2e- cleanup prefix (TODO-176)"
 ```
 
 ---
