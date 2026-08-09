@@ -38,6 +38,7 @@
     "e2e:install": "playwright install --with-deps chromium",
     "e2e:smoke": "playwright test --project=smoke",
     "e2e:responsive": "playwright test --project=responsive",
+    "e2e:regression": "playwright test --project=regression",
     "e2e:prod-smoke": "playwright test --project=prod-smoke",
     "e2e:report": "playwright show-report",
     "db:seed-e2e": "docker compose -f infra/docker/docker-compose.yml exec -T -e APP_ENV=test api-gateway node packages/db/scripts/e2e-seed.mjs",

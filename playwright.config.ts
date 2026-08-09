@@ -41,6 +41,15 @@ export default defineConfig({
       dependencies: ["setup"],
     },
     {
+      // TODO-176B (PR2) — Daha ağır finansal/lifecycle regresyon senaryoları. Smoke gate'in
+      // DIŞINDA (PR smoke süresini büyütmez); nightly/manuel `pnpm e2e:regression` ile koşar.
+      name: "regression",
+      testDir: "tests/e2e/regression",
+      grep: /@regression/,
+      use: { ...devices["Desktop Chrome"], storageState: "tests/e2e/.auth/customer.json" },
+      dependencies: ["setup"],
+    },
+    {
       name: "prod-smoke",
       testDir: "tests/e2e/prod-smoke",
       grep: /@prod-smoke/,

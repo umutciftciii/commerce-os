@@ -98,7 +98,13 @@ export function OrderActions({
           {t.actions.detail}
         </Link>
         {reorderable ? (
-          <Button size="sm" variant="primary" onClick={runBuyAgain} disabled={pending}>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={runBuyAgain}
+            disabled={pending}
+            data-testid="order-buy-again"
+          >
             {pending ? t.buyAgain.pending : t.actions.buyAgain}
           </Button>
         ) : null}
@@ -171,11 +177,11 @@ export function OrderActions({
 
       {buyAgain.status === "success" ? (
         <Alert tone="success">
-          <span>
+          <span data-testid="order-buy-again-success">
             {format(t.buyAgain.success, { count: buyAgain.addedCount })}
             {buyAgain.unavailableCount > 0 ? ` ${t.buyAgain.partial}` : ""}
           </span>{" "}
-          <Link href="/cart" className="font-medium underline">
+          <Link href="/cart" className="font-medium underline" data-testid="order-buy-again-gotocart">
             {t.buyAgain.goToCart}
           </Link>
         </Alert>
