@@ -1,0 +1,35 @@
+# TODO-176 — E2E storefront override (CI ONLY).
+#
+# KRITIK bake gotcha: `storefront-web` (docker-compose.yml) kaynagi volume MOUNT ETMEZ; build
+# context = main repo. Bu yuzden LOCAL dogrulama + sonraki testid task'lari HOST `next dev` :3100
+# ile yapilir (`pnpm e2e:storefront` — worktree kodunu servis eder). Bu servis YALNIZ CI icindir:
+# CI branch checkout'undan build eder, e2e-store slug'ini servis eder ve :3100'e baglanir.
+#
+# Kullanim (CI):
+#   docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.e2e.yml up -d storefront-web-e2e
+services:
+  storefront-web-e2e:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: infra/docker/node.Dockerfile
+    # storefront `dev` scripti `--port 3000` SABIT; app scriptine dokunmadan --port override.
+    command: pnpm --filter @commerce-os/storefront-web exec next dev --port 3100
+    environment:
+      SERVICE_NAME: storefront-web-e2e
+      NODE_ENV: development
+      API_GATEWAY_URL: http://api-gateway:4000
+      STOREFRONT_DEMO_STORE_SLUG: e2e-store
+      STOREFRONT_CART_SECRET: e2e-cart-secret
+      PORT: 3100
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    ports:
+      - "3100:3100"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s

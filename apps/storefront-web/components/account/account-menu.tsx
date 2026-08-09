@@ -88,7 +88,7 @@ export function AccountMenu({
           role="menu"
           className="absolute right-0 z-20 mt-2 w-56 rounded-xl border border-slate-200 bg-white py-2 shadow-lg"
         >
-          <p className="px-4 py-1 text-xs text-slate-400">
+          <p className="px-4 py-1 text-xs text-slate-400" data-testid="account-greeting">
             {t.greeting}
             {customer.firstName ? `, ${customer.firstName}` : ""}
           </p>

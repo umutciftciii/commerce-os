@@ -22,3 +22,9 @@ infra/backups/
 
 # SDD çalışma alanı (git-ignored scratch)
 .superpowers/
+
+# Playwright E2E artifacts (TODO-176)
+tests/e2e/.auth/
+playwright-report/
+test-results/
+blob-report/

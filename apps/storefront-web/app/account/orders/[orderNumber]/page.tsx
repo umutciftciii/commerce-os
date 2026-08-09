@@ -128,7 +128,11 @@ export default async function OrderDetailPage({
           <Subheading as="h2" className="mb-3">{o.detail.productsTitle}</Subheading>
           <ul className="space-y-3">
             {order.lines.map((line) => (
-              <li key={line.variantId} className="flex items-center gap-3">
+              <li
+                key={line.variantId}
+                className="flex items-center gap-3"
+                data-testid="order-detail-line"
+              >
                 {/* TD-173 — Ortak ürün medya çerçevesi (line-thumbnail). */}
                 <ProductMediaFrame
                   variant="line-thumbnail"
@@ -208,9 +212,19 @@ export default async function OrderDetailPage({
   );
 }
 
-function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function Row({
+  label,
+  value,
+  strong,
+  testId,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+  testId?: string;
+}) {
   return (
-    <div className="flex items-center justify-between gap-4 text-sm">
+    <div className="flex items-center justify-between gap-4 text-sm" data-testid={testId}>
       <span className="text-ink-muted">{label}</span>
       <span className={strong ? "font-semibold text-ink" : "text-ink-muted"}>{value}</span>
     </div>
@@ -245,7 +259,12 @@ export function OrderSummary({ o, order }: { o: OrdersDict; order: CustomerOrder
           <p className="text-xs text-ink-muted">{o.detail.taxIncludedNote}</p>
         )}
         <div className="border-t border-line pt-2">
-          <Row label={o.detail.total} value={formatMinor(order.totalMinor, order.currency)} strong />
+          <Row
+            label={o.detail.total}
+            value={formatMinor(order.totalMinor, order.currency)}
+            strong
+            testId="order-detail-total"
+          />
         </div>
       </div>
     </section>

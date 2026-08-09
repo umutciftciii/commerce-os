@@ -116,7 +116,7 @@ export function CartView({
 
         <ul className="space-y-4" aria-busy={isPending}>
           {view.lines.map((line) => (
-            <li key={line.variantId}>
+            <li key={line.variantId} data-testid="cart-line">
               <CartLineRow
                 line={line}
                 t={t}
@@ -482,7 +482,7 @@ function CartLineRow({
             >
               {line.title}
             </Link>
-            <p className="mt-0.5 text-xs text-ink-muted">{line.variantTitle}</p>
+            <p data-testid="cart-line-variant" className="mt-0.5 text-xs text-ink-muted">{line.variantTitle}</p>
             <p className="mt-0.5 text-xs text-ink-subtle">{line.sku}</p>
             {/* Dilim 6a-refine — Statik kargo tahmini (yalniz satilabilir satirda). */}
             {!unavailable ? (
@@ -574,6 +574,7 @@ function CartLineRow({
 
             <button
               type="button"
+              data-testid="cart-line-remove"
               disabled={pending}
               onClick={() => onRemove(line)}
               aria-label={format(t.removeItemLabel, { title: line.title })}
@@ -625,7 +626,7 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
               {t.subtotal}{" "}
               <span className="text-xs text-ink-subtle">· {format(t.itemsLabel, { count: view.itemCount })}</span>
             </dt>
-            <dd className="font-medium text-ink">{s.subtotalLabel}</dd>
+            <dd data-testid="cart-subtotal" className="font-medium text-ink">{s.subtotalLabel}</dd>
           </div>
 
           {/* F4A — Uygulanan indirim satirlari (kupon + otomatik kampanyalar).
@@ -681,7 +682,9 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
 
           <div className="flex items-center justify-between border-t border-line pt-2.5">
             <dt className="font-semibold text-ink">{t.grandTotal}</dt>
-            <dd className="text-lg font-semibold text-ink">{s.grandTotalLabel}</dd>
+            <dd data-testid="cart-total" className="text-lg font-semibold text-ink">
+              {s.grandTotalLabel}
+            </dd>
           </div>
           <div className="flex items-center justify-between text-xs text-ink-subtle">
             <dt>{format(t.taxIncludedLabel, { rate: s.taxRatePercent })}</dt>
@@ -708,7 +711,7 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
             (mevcut disabled={pending} bagı korunur). */}
         <div className="mt-5">
           {view.checkoutReady && !pending ? (
-            <ButtonLink href="/checkout" variant="cta" className="w-full">
+            <ButtonLink href="/checkout" variant="cta" className="w-full" data-testid="checkout-cta">
               {t.checkoutCta}
             </ButtonLink>
           ) : (
@@ -848,7 +851,7 @@ function AvailableCouponCard({
         ) : coupon.state === "EXPIRED" ? (
           <Badge tone="muted">{t.couponStateExpired}</Badge>
         ) : (
-          <Button variant="secondary" size="sm" onClick={use} disabled={isPending}>
+          <Button data-testid="coupon-use" variant="secondary" size="sm" onClick={use} disabled={isPending}>
             {t.couponUse}
           </Button>
         )}
@@ -900,6 +903,7 @@ function ClaimCouponForm({ summary, t }: { summary: CartViewModel["summary"]; t:
     return (
       <button
         type="button"
+        data-testid="coupon-claim-toggle"
         onClick={() => setOpen(true)}
         className="mt-3 text-sm font-medium text-ink underline decoration-line underline-offset-4 transition-colors hover:decoration-ink"
       >
@@ -913,13 +917,14 @@ function ClaimCouponForm({ summary, t }: { summary: CartViewModel["summary"]; t:
       <div className="flex gap-2">
         <Input
           type="text"
+          data-testid="coupon-input"
           value={code}
           onChange={(event) => setCode(event.target.value)}
           placeholder={t.couponPlaceholder}
           aria-label={t.couponLabel}
           className="uppercase placeholder:normal-case"
         />
-        <Button variant="secondary" onClick={submit} disabled={isPending || !code.trim()}>
+        <Button data-testid="coupon-apply" variant="secondary" onClick={submit} disabled={isPending || !code.trim()}>
           {t.couponClaimSubmit}
         </Button>
       </div>
@@ -958,6 +963,7 @@ function AppliedCouponControl({
         </span>
         <button
           type="button"
+          data-testid="coupon-remove"
           onClick={() => startTransition(() => void removeCouponAction())}
           disabled={disabled || isPending}
           className="text-xs font-medium text-ink underline underline-offset-4 transition-colors hover:text-ink-muted disabled:opacity-40"

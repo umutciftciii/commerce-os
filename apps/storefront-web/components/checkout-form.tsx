@@ -518,7 +518,7 @@ function CheckoutSummary({
 
         <ul className="mt-4 space-y-3">
           {view.lines.map((line) => (
-            <li key={line.variantId} className="flex items-start justify-between gap-3 text-sm">
+            <li key={line.variantId} data-testid="checkout-line" className="flex items-start justify-between gap-3 text-sm">
               <span className="min-w-0">
                 <span className="block truncate font-medium text-ink">{line.title}</span>
                 <span className="block text-xs text-ink-subtle">
@@ -531,7 +531,7 @@ function CheckoutSummary({
         </ul>
 
         <dl className="mt-4 space-y-2 border-t border-line pt-4 text-sm">
-          <Row label={t.subtotal} value={s.subtotalLabel} />
+          <Row label={t.subtotal} value={s.subtotalLabel} valueTestId="checkout-subtotal" />
           {/* F4A.1 — Indirim satirlari kampanya ADIYLA listelenir (kuponda kod
               parantezde); satir bilgisi yoksa toplam indirim satirina dusulur.
               DS: indirim NOTR (aksan yalniz CTA'da); "−" isareti + ink ile ayrisir. */}
@@ -750,11 +750,11 @@ function ProviderBadge({
   );
 }
 
-function Row({ label, value }: { label: string; value: string }) {
+function Row({ label, value, valueTestId }: { label: string; value: string; valueTestId?: string }) {
   return (
     <div className="flex items-center justify-between">
       <dt className="text-ink-muted">{label}</dt>
-      <dd className="font-medium text-ink">{value}</dd>
+      <dd data-testid={valueTestId} className="font-medium text-ink">{value}</dd>
     </div>
   );
 }

@@ -48,7 +48,7 @@ export function StorefrontProductCard({
         : null;
 
   return (
-    <div className="product-card group relative flex flex-col" data-variant={cardVariant}>
+    <div className="product-card group relative flex flex-col" data-variant={cardVariant} data-testid="product-card">
       {/* TODO-165B — Ortak medya çerçevesi (contain + nötr zemin + kontrollü padding; blocker 6).
           `product-card-media` sınıfı korunur (globals.css data-variant aspect/border override'ları); frame'in
           aspect-[4/5] utility'sini CSS variant kuralları eskisi gibi override eder. Link tıklama katmanı +

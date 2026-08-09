@@ -1,0 +1,96 @@
+name: e2e
+
+# Merge-blocking Playwright smoke gate (TODO-176).
+# ci.yml (lint · test · build) ayri kalir; bu YENI bir workflow oldugu icin
+# kendi required-status-check context'ini uretir: "e2e / smoke" (workflow adi
+# "e2e" + job adi "smoke"). Governance (branch protection'a required olarak
+# eklemek) bu task'in kapsami DISINDA — ayri bir adimda yapilir.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      APP_ENV: test
+      E2E_STOREFRONT_URL: http://localhost:3100
+      E2E_GATEWAY_URL: http://localhost:4000
+    steps:
+      - uses: actions/checkout@v4
+
+      # packageManager (pnpm@9.15.0) package.json'dan okunur.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Prisma Client tipleri seed/test'ten once uretilmelidir.
+      - name: Prisma generate
+        run: pnpm db:generate
+
+      # Base compose (postgres/redis/api-gateway/worker) + e2e override
+      # (storefront-web-e2e, :3100). Base `storefront-web` KASITLI olarak
+      # baslatilmaz — CI'da branch checkout'undan build eden e2e-store servisi
+      # kullanilir (bkz. infra/docker/docker-compose.e2e.yml).
+      - name: Start stack (gateway + e2e storefront + deps)
+        run: |
+          docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.e2e.yml up -d \
+            postgres redis api-gateway worker storefront-web-e2e
+
+      - name: Wait for health
+        run: |
+          for i in $(seq 1 60); do
+            if curl -sf http://localhost:4000/health >/dev/null 2>&1 && curl -sf http://localhost:3100/api/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 5
+          done
+          curl -sf http://localhost:4000/health
+          curl -sf http://localhost:3100/api/health
+
+      # Fresh CI postgres'te sema yok — seed'den ONCE migrate zorunlu.
+      - name: Migrate database
+        run: pnpm db:migrate
+
+      - name: Seed e2e fixtures
+        run: pnpm db:seed-e2e
+
+      - name: Install Playwright browser
+        run: pnpm exec playwright install --with-deps chromium
+
+      # `smoke` projesi `setup` projesine bagimli (playwright.config.ts):
+      # once gercek UI login ile storageState uretilir, sonra smoke testleri
+      # calisir. Bu adimin basarisizligi merge'i BLOKE eder (required check).
+      - name: Run smoke
+        run: pnpm e2e:smoke
+
+      # Yalnizca basarisizlikta yukle. tests/e2e/.auth/ (gercek oturum cookie'si
+      # — secret) ve env DAHIL EDILMEZ.
+      - name: Upload artifacts
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+
+      - name: Cleanup
+        if: ${{ always() }}
+        run: |
+          pnpm db:cleanup-e2e || true
+          docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.e2e.yml down -v || true
