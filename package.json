@@ -41,7 +41,8 @@
     "e2e:prod-smoke": "playwright test --project=prod-smoke",
     "e2e:report": "playwright show-report",
     "db:seed-e2e": "docker compose -f infra/docker/docker-compose.yml exec -T -e APP_ENV=test api-gateway node packages/db/scripts/e2e-seed.mjs",
-    "db:cleanup-e2e": "docker compose -f infra/docker/docker-compose.yml exec -T -e APP_ENV=test api-gateway pnpm --filter @commerce-os/db db:cleanup-smoke"
+    "db:cleanup-e2e": "docker compose -f infra/docker/docker-compose.yml exec -T -e APP_ENV=test api-gateway pnpm --filter @commerce-os/db db:cleanup-smoke",
+    "e2e:storefront": "STOREFRONT_DEMO_STORE_SLUG=e2e-store API_GATEWAY_URL=http://localhost:4000 STOREFRONT_CART_SECRET=e2e-cart-secret pnpm --filter @commerce-os/storefront-web exec next dev --port 3100"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
