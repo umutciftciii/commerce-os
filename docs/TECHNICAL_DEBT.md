@@ -2367,16 +2367,29 @@ yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, ente
 PR1 (ADR-287) yalnız altyapı + auth + 8 çekirdek smoke senaryosu + CI gate'i kapsar. Aşağıdakiler
 bilinçli olarak PR1 kapsamı DIŞINDA bırakıldı.
 
-- **TD-176-1 PR2 senaryoları — henüz Playwright kapsamında değil.** Aşağıdaki kritik akışların hiçbiri
-  `tests/e2e/` içinde henüz bir kalıcı test olarak yok (yalnız manuel/exploratory doğrulanmış olabilir):
-  reorder / BUG-CART-006 invariant (`reorder == /cart == checkout` — sipariş tekrar-ver akışının sepet
-  ve checkout ile aynı satır/qty/fiyat kimliğini üretmesi), shopping-balance-only ödeme (TODO-174B),
-  mixed balance+external ödeme, self-servis cancellation (TODO-174), return (TODO-169/171), refund
-  ORIGINAL_PAYMENT (TODO-175), refund SHOPPING_BALANCE (TODO-175), İadelerim listesi/detayı, Alışveriş
-  Bakiyem (hareket geçmişi), wishlist (TODO-159D), ürün review (TODO-159E), order-experience review
-  (TODO-174A). Bu senaryoların her biri ayrı bir plan/PR olarak (`tests/e2e/smoke/` altında yeni spec
-  dosyaları + gerekiyorsa `e2e-seed.mjs`'e additive fixture — PR1'in "yalnız ilk 8 senaryonun ihtiyacını
-  seed'e ekle" kararı gereği bugün seed'de YOK) ele alınmalı. FUTURE.
+- **TD-176-1 PR2 senaryoları — KISMEN KAPANDI (2026-08-09, PR2).** PR2 aşağıdakileri kalıcı Playwright
+  testine bağladı (hepsi gate'te yeşil, RED→GREEN veya read-only invariant olarak doğrulandı):
+  - **reorder / BUG-CART-006 invariant** (`reorder == /cart == checkout`) — `tests/e2e/smoke/08-reorder-cart-invariant.spec.ts`
+    (**@smoke** gate'e DAHİL — release-kritik regresyon). BUG-CART-006 kök nedeni bulundu + düzeltildi
+    (bkz. aşağı). Fixture: `e2e-order-2001` (tshirt M × 2).
+  - **Alışveriş Bakiyem** (bakiye + hareket, finansal invariant: gösterilen available == goodwill grant;
+    STORE_CREDIT nakde çevrilmez) — `tests/e2e/regression/01-shopping-balance.spec.ts` (**@regression**).
+    Fixture: goodwill kredi grant (account+lot+ledger, idempotent).
+  - **refund destination ORIGINAL_PAYMENT + SHOPPING_BALANCE + İadelerim** (immutable snapshot, ADR-285)
+    — `tests/e2e/regression/02-returns-refund-destination.spec.ts` (**@regression**). Fixture: 2 `ReturnRequest`
+    (farklı hedef + statü, read-only).
+
+  **Yeni `regression` Playwright projesi** (`playwright.config.ts`, `@regression` grep, `pnpm e2e:regression`):
+  daha ağır finansal/lifecycle senaryoları smoke gate DIŞINDA tutar (PR smoke süresini büyütmez).
+
+  **HÂLÂ AÇIK (TD-176-1 kalan — FUTURE):** shopping-balance-only ödeme + mixed balance+external ödeme
+  (checkout allocation'ı sürmeyi + `useShoppingCredit` toggle'ını gerektirir; append-only ledger'ı KALICI
+  debit ettiği için per-test teardown olmadan idempotent DEĞİL — dedike grant/teardown fixture'ı gerekir),
+  self-servis cancellation (TODO-174 — order'ı KALICI CANCELLED'a çeviren non-idempotent mutasyon), return
+  submit akışı (TODO-169/171 — çok-aktörlü: teslim + admin onayı), wishlist (TODO-159D — UI-sürücü + toggle
+  teardown), ürün review (TODO-159E — order-line başına tek review; non-idempotent), order-experience review
+  (TODO-174A — iptal+teslim-edilmemiş order fixture'ı + tek-submit). Her biri dedike fixture + teardown
+  stratejisi ister; ayrı plan/PR olarak ele alınmalı.
 - **TD-176-2 Per-worker cart isolation — `workers:1` paralelliği engelliyor.** `smoke`/`responsive`
   projelerindeki tüm testler **aynı** e2e müşterisinin (`e2e-customer@example.test`) DB-tabanlı
   (server-authoritative) sepetini paylaşır (bkz. `tests/e2e/fixtures/cart.ts`, `playwright.config.ts`

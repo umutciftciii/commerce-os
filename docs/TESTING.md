@@ -28,8 +28,9 @@ test dosyaları). Bu doküman yalnız E2E paketini anlatır.
 | Proje | Grep tag | Tarayıcı/viewport | Auth | Bağımlılık | Amaç |
 | --- | --- | --- | --- | --- | --- |
 | `setup` | — | — | gerçek UI login | — | `tests/e2e/.auth/customer.json` storageState üretir |
-| `smoke` | `@smoke` | Desktop Chromium | storageState reuse | `setup` | 8 çekirdek kullanıcı akışı (PR1) |
+| `smoke` | `@smoke` | Desktop Chromium | storageState reuse | `setup` | 9 çekirdek kullanıcı akışı (PR1 8 + PR2 reorder/BUG-CART-006 invariant) |
 | `responsive` | `@responsive` | Desktop Chromium, viewport **375** ve **1440** | storageState reuse | `setup` | Küçük, kritik responsive subset (kırılma taraması; ana akış smoke'ta zaten var) |
+| `regression` | `@regression` | Desktop Chromium | storageState reuse | `setup` | Ağır finansal/lifecycle senaryoları (PR2) — smoke gate DIŞINDA (PR smoke süresini büyütmez); `pnpm e2e:regression` |
 | `prod-smoke` | `@prod-smoke` | Desktop Chromium | **anonim** (storageState/setup YOK) | — | Post-deploy, güvenli/read-only, hedef ortama karşı |
 
 `workers: 1` — tüm smoke/responsive testleri **aynı** e2e müşterisinin DB-tabanlı (server-authoritative)
@@ -46,6 +47,7 @@ paralellik maliyetidir (bkz. `docs/TECHNICAL_DEBT.md` "per-worker cart isolation
 pnpm e2e:install       # playwright install --with-deps chromium
 pnpm e2e:smoke         # playwright test --project=smoke (setup önce koşar, dependency)
 pnpm e2e:responsive    # playwright test --project=responsive
+pnpm e2e:regression    # playwright test --project=regression (PR2 finansal/lifecycle senaryoları)
 pnpm e2e:prod-smoke    # playwright test --project=prod-smoke
 pnpm e2e:report        # playwright show-report (son HTML raporunu açar)
 pnpm e2e:storefront    # host `next dev --port 3100`, e2e-store env'iyle (yerel storefront servisi)
@@ -87,8 +89,20 @@ enterprise-demo (:3000) hiçbir E2E adımında dokunulmaz.
    pnpm db:seed-e2e
    ```
    İzole `e2e-store` (test müşterisi `e2e-customer@example.test`, ürünler `e2e-tshirt`/`e2e-mug`,
-   kupon `E2E10`, bir `CustomerAddress`, seed sipariş `e2e-order-1001`) kurar/upsert'ler. Idempotent —
+   kupon `E2E10`, bir `CustomerAddress`, seed siparişler `e2e-order-1001` + PR2 `e2e-order-2001`
+   [reorder invariant: tshirt M × 2], PR2 goodwill kredi grant [Alışveriş Bakiyem] ve 2 `ReturnRequest`
+   [`e2e-return-1001`/`e2e-return-1002`, farklı refund destination]) kurar/upsert'ler. Idempotent —
    iki kez koşmak duplicate üretmez (`APP_ENV=test` guard'lı; `docker exec -e APP_ENV=test`).
+
+   > **Local gotcha (worktree seed değişikliği):** `db:seed-e2e`, **çalışan** `api-gateway` container'ı
+   > içinde `node packages/db/scripts/e2e-seed.mjs` çalıştırır — container ana repo kodunu taşır, worktree
+   > değişikliğini GÖRMEZ (docker `storefront-web` gotcha'sıyla aynı sebep). Worktree'de seed'i düzenlediysen
+   > önce dosyayı container'a kopyala, sonra çalıştır:
+   > ```
+   > docker compose -f infra/docker/docker-compose.yml cp packages/db/scripts/e2e-seed.mjs api-gateway:/app/packages/db/scripts/e2e-seed.mjs
+   > pnpm db:seed-e2e
+   > ```
+   > CI'da bu gerekmez (`docker-compose.e2e.yml` branch checkout'undan build eder).
 3. **Local storefront'u ayrı bir terminalde başlat:**
    ```
    pnpm e2e:storefront

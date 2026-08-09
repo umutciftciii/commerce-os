@@ -276,6 +276,83 @@ async function main() {
     },
   });
 
+  // 7b) TODO-176B (BUG-CART-006) — Reorder invariant siparisi e2e-order-2001 (musteriye bagli,
+  //     1 satir e2e-tshirt varyant M x2, PLACED/PAID). "Tekrar Satin Al" sonrasi sepette DOGRU
+  //     varyant + adet + fiyat korunuyor mu invariant'ini kanitlamak icin cok-varyantli + adet>1.
+  const TSHIRT_M = TSHIRT_VARIANTS[1]; // { id: e2e-variant-tshirt-m, sku: e2e-tshirt-m, title: M }
+  const REORDER_ORDER_NUMBER = "e2e-order-2001";
+  const REORDER_ORDER_ID = "e2e-order-2001";
+  const REORDER_LINE_ID = "e2e-order-2001-line-1";
+  const REORDER_PAYMENT_ID = "e2e-order-2001-payment-1";
+  const REORDER_QTY = 2;
+  const REORDER_TOTAL = TSHIRT_PRICE_MINOR * REORDER_QTY; // 40000
+  const reorderPlacedAt = new Date("2026-02-02T10:00:00.000Z");
+  await prisma.order.upsert({
+    where: { storeId_orderNumber: { storeId: store.id, orderNumber: REORDER_ORDER_NUMBER } },
+    update: {
+      customerId: customer.id,
+      customerEmail: CUSTOMER_EMAIL,
+      status: "PLACED",
+      paymentStatus: "PAID",
+      subtotalAmount: REORDER_TOTAL,
+      totalAmount: REORDER_TOTAL,
+    },
+    create: {
+      id: REORDER_ORDER_ID,
+      storeId: store.id,
+      orderNumber: REORDER_ORDER_NUMBER,
+      customerId: customer.id,
+      customerEmail: CUSTOMER_EMAIL,
+      currency: "TRY",
+      status: "PLACED",
+      paymentStatus: "PAID",
+      fulfillmentStatus: "UNFULFILLED",
+      subtotalAmount: REORDER_TOTAL,
+      discountAmount: 0,
+      shippingAmount: 0,
+      taxAmount: 0,
+      totalAmount: REORDER_TOTAL,
+      placedAt: reorderPlacedAt,
+    },
+  });
+  await prisma.orderLine.upsert({
+    where: { id: REORDER_LINE_ID },
+    update: {
+      quantity: REORDER_QTY,
+      unitPriceAmount: TSHIRT_PRICE_MINOR,
+      totalAmount: REORDER_TOTAL,
+      variantId: TSHIRT_M.id,
+    },
+    create: {
+      id: REORDER_LINE_ID,
+      storeId: store.id,
+      orderId: REORDER_ORDER_ID,
+      productId: tshirt.id,
+      variantId: TSHIRT_M.id,
+      sku: TSHIRT_M.sku,
+      title: "E2E Tshirt",
+      variantTitle: TSHIRT_M.title,
+      quantity: REORDER_QTY,
+      unitPriceAmount: TSHIRT_PRICE_MINOR,
+      totalAmount: REORDER_TOTAL,
+      currency: "TRY",
+    },
+  });
+  await prisma.paymentAttempt.upsert({
+    where: { id: REORDER_PAYMENT_ID },
+    update: { status: "PAID", amount: REORDER_TOTAL },
+    create: {
+      id: REORDER_PAYMENT_ID,
+      storeId: store.id,
+      orderId: REORDER_ORDER_ID,
+      method: "CARD",
+      amount: REORDER_TOTAL,
+      currency: "TRY",
+      status: "PAID",
+      paidAt: reorderPlacedAt,
+    },
+  });
+
   // 8) Musteri teslimat adresi (Task 9 — checkout /checkout sayfasi kayitli adres
   // olmadan CheckoutForm'u HIC render etmez; "Adres ekle" bos-durumuna duser. Sabit
   // id ile idempotent upsert; varsayilan teslimat/fatura adresi olarak isaretlenir.
@@ -312,6 +389,119 @@ async function main() {
     },
   });
 
+  // 9) TODO-176B (PR2) — Alışveriş bakiyesi (goodwill kredi grant). getCustomerBalance ACTIVE +
+  //    süresi-dolmamış lot'ların kalanından available hesaplar; ledger hareket listesi ayrı okunur.
+  //    Sabit id'ler + idempotencyKey → idempotent (re-run remaining'i sıfırlar, ledger'da DUPLICATE
+  //    hareket üretmez). description SEMANTIK KEY (`credit.goodwill`) → UI TR/EN lokalize eder.
+  const CREDIT_ACCOUNT_ID = "e2e-credit-account-1";
+  const CREDIT_LOT_ID = "e2e-credit-lot-goodwill-1";
+  const CREDIT_ENTRY_ID = "e2e-credit-entry-goodwill-1";
+  const CREDIT_AMOUNT_MINOR = 100000; // ₺1.000,00 goodwill
+  const CREDIT_NEVER_EXPIRES = new Date("2099-01-01T00:00:00.000Z"); // deterministik: hep gelecekte
+  await prisma.customerCreditAccount.upsert({
+    where: { storeId_customerId_currency: { storeId: store.id, customerId: customer.id, currency: "TRY" } },
+    update: { cachedAvailableMinor: CREDIT_AMOUNT_MINOR },
+    create: {
+      id: CREDIT_ACCOUNT_ID,
+      storeId: store.id,
+      customerId: customer.id,
+      currency: "TRY",
+      cachedAvailableMinor: CREDIT_AMOUNT_MINOR,
+    },
+  });
+  await prisma.customerCreditLot.upsert({
+    where: { id: CREDIT_LOT_ID },
+    update: { remainingAmountMinor: CREDIT_AMOUNT_MINOR, status: "ACTIVE", expiresAt: CREDIT_NEVER_EXPIRES },
+    create: {
+      id: CREDIT_LOT_ID,
+      storeId: store.id,
+      customerId: customer.id,
+      accountId: CREDIT_ACCOUNT_ID,
+      currency: "TRY",
+      originalAmountMinor: CREDIT_AMOUNT_MINOR,
+      remainingAmountMinor: CREDIT_AMOUNT_MINOR,
+      expiresAt: CREDIT_NEVER_EXPIRES,
+      status: "ACTIVE",
+      sourceType: "ADMIN_GOODWILL",
+      issuedByType: "PLATFORM_USER",
+    },
+  });
+  await prisma.customerCreditLedgerEntry.upsert({
+    where: { id: CREDIT_ENTRY_ID },
+    update: { amountMinor: CREDIT_AMOUNT_MINOR, balanceAfterMinor: CREDIT_AMOUNT_MINOR },
+    create: {
+      id: CREDIT_ENTRY_ID,
+      storeId: store.id,
+      customerId: customer.id,
+      accountId: CREDIT_ACCOUNT_ID,
+      lotId: CREDIT_LOT_ID,
+      type: "ADMIN_GOODWILL_CREDIT",
+      direction: "CREDIT",
+      amountMinor: CREDIT_AMOUNT_MINOR,
+      balanceAfterMinor: CREDIT_AMOUNT_MINOR,
+      currency: "TRY",
+      sourceType: "ADMIN_GOODWILL",
+      description: "credit.goodwill",
+      createdByType: "PLATFORM_USER",
+      idempotencyKey: "e2e-goodwill-grant-1",
+    },
+  });
+
+  // 10) TODO-176B (PR2) — İade fixture'ları (İadelerim + refund destination invariant). İki iade:
+  //     REFUND → SHOPPING_BALANCE (status REQUESTED) ve REFUND → ORIGINAL_PAYMENT (status APPROVED).
+  //     Müşteri iade listesi sorgusu STATUS FİLTRESİZ (yalnız storeId+customerId) → ham upsert yüzeye
+  //     çıkar. refundDestination IMMUTABLE snapshot → "Alışveriş bakiyesine" / "Orijinal ödeme yöntemine".
+  const RETURN_WINDOW_ENDS = new Date("2099-01-01T00:00:00.000Z");
+  const RETURNS = [
+    {
+      id: "e2e-return-1",
+      number: "e2e-return-1001",
+      orderId: ORDER_ID,
+      lineId: ORDER_LINE_ID,
+      itemId: "e2e-return-1-item-1",
+      status: "REQUESTED",
+      refundDestination: "SHOPPING_BALANCE",
+    },
+    {
+      id: "e2e-return-2",
+      number: "e2e-return-1002",
+      orderId: REORDER_ORDER_ID,
+      lineId: REORDER_LINE_ID,
+      itemId: "e2e-return-2-item-1",
+      status: "APPROVED",
+      refundDestination: "ORIGINAL_PAYMENT",
+    },
+  ];
+  for (const rr of RETURNS) {
+    await prisma.returnRequest.upsert({
+      where: { storeId_returnNumber: { storeId: store.id, returnNumber: rr.number } },
+      update: { status: rr.status, refundDestination: rr.refundDestination, resolutionType: "REFUND" },
+      create: {
+        id: rr.id,
+        storeId: store.id,
+        orderId: rr.orderId,
+        customerId: customer.id,
+        returnNumber: rr.number,
+        status: rr.status,
+        resolutionType: "REFUND",
+        refundDestination: rr.refundDestination,
+        returnWindowEndsAt: RETURN_WINDOW_ENDS,
+      },
+    });
+    await prisma.returnItem.upsert({
+      where: { id: rr.itemId },
+      update: { quantity: 1 },
+      create: {
+        id: rr.itemId,
+        storeId: store.id,
+        returnRequestId: rr.id,
+        orderLineId: rr.lineId,
+        quantity: 1,
+        reason: "NO_LONGER_NEEDED",
+      },
+    });
+  }
+
   console.log(
     JSON.stringify({
       ok: true,
@@ -319,8 +509,10 @@ async function main() {
       products: [TSHIRT_SLUG, MUG_SLUG],
       customer: CUSTOMER_EMAIL,
       coupon: COUPON_CODE,
-      order: ORDER_NUMBER,
+      orders: [ORDER_NUMBER, REORDER_ORDER_NUMBER],
       address: ADDRESS_ID,
+      goodwillCreditMinor: CREDIT_AMOUNT_MINOR,
+      returns: RETURNS.map((r) => r.number),
     }),
   );
 }

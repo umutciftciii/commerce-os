@@ -10,4 +10,41 @@ export const ids = {
   simpleProduct: { slug: "e2e-mug", title: "E2E Mug", sku: "e2e-mug-std", priceMinor: 5000 },
   coupon: { code: "E2E10", percentOff: 10 },
   seedOrderNumber: "e2e-order-1001",
+  // TODO-176B (BUG-CART-006) — Reorder invariant siparişi: çok-varyantlı ürün (tshirt M) + adet 2.
+  // Tek-satır mug siparişinin aksine bu, "Tekrar Satın Al" sonrası sepette DOĞRU varyant + DOĞRU
+  // adet + DOĞRU fiyat korunuyor mu invariant'ını tam kanıtlar (reorder == /cart == checkout).
+  reorderOrder: {
+    number: "e2e-order-2001",
+    variantSku: "e2e-tshirt-m",
+    variantLabel: "M",
+    quantity: 2,
+    unitMinor: 20000,
+    // Beklenen sepet ara toplamı = 2 × ₺200,00 = ₺400,00.
+    expectedSubtotalText: "400,00",
+  },
+  // TODO-176B (PR2) — Alışveriş bakiyesi (goodwill kredi grant). Finansal invariant: gösterilen
+  // kullanılabilir bakiye == grant; STORE_CREDIT bir bakiyedir (asla nakde çevrilmez).
+  goodwillCredit: {
+    amountMinor: 100000,
+    // NOT: balance-section `fmt` `toLocaleString(undefined)` kullanır (formatMinor DEĞİL) → tutar
+    // TR mağazada bile en-US formatında ("1,000.00") render edilir. Test GERÇEK davranışa göre
+    // assert eder; bu lokalizasyon tutarsızlığı ayrı bir düzeltme görevi olarak işaretlendi (kapsam dışı).
+    availableText: "1,000.00",
+    // credit.goodwill semantik key'inin TR karşılığı (balance-section DESC map).
+    movementText: "Müşteri memnuniyeti kapsamında bakiye eklendi",
+  },
+  // TODO-176B (PR2) — İade fixture'ları (İadelerim + refund destination invariant). İki iade
+  // farklı IMMUTABLE refund hedefi + farklı statü taşır (read-only, deterministik).
+  returns: [
+    {
+      number: "e2e-return-1001",
+      destinationText: "Alışveriş bakiyesine",
+      statusText: "Talep alındı",
+    },
+    {
+      number: "e2e-return-1002",
+      destinationText: "Orijinal ödeme yöntemine",
+      statusText: "Onaylandı",
+    },
+  ],
 } as const;

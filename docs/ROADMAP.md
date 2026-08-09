@@ -1616,7 +1616,12 @@ kılavuzu: `docs/TESTING.md`.
 
 **PR1 CLOSED & DEPLOYED (2026-08-09; PR #205 merge `9a1eca9`; CI `smoke` green; post-deploy prod-smoke green — home `<title>` fix canlı doğrulandı):** altyapı + auth + 8 çekirdek smoke senaryosu (auth/session · PDP variant ·
 add-to-cart · cart badge · cart persistence · coupon apply/remove+repricing · cart→checkout canonical
-identity · order list/detail) + responsive subset + prod-smoke + CI gate + docs. **PR2 (FUTURE):**
-reorder/BUG-CART-006 invariant, shopping-balance/mixed ödeme, cancellation, return, refund
-(ORIGINAL_PAYMENT/SHOPPING_BALANCE), İadelerim, Alışveriş Bakiyem, wishlist, ürün review,
-order-experience review — bkz. `docs/TECHNICAL_DEBT.md`.
+identity · order list/detail) + responsive subset + prod-smoke + CI gate + docs.
+
+**PR2 IN REVIEW (2026-08-09; TODO-176B):** **BUG-CART-006** (reorder → boş sepet) kök nedeni bulundu +
+düzeltildi (`buyAgainAction` auth oturumda cookie yerine `authAddLine` ile DB cart'a yazar) + kalıcı
+`@smoke` invariant testi (`reorder == /cart == checkout`, RED→GREEN kanıtlı). Yeni `regression` Playwright
+projesi (`@regression`, smoke gate DIŞINDA): Alışveriş Bakiyem finansal invariant + refund destination
+(ORIGINAL_PAYMENT/SHOPPING_BALANCE) + İadelerim. Additive fixture: reorder order + goodwill kredi grant +
+2 return. **Kalan (TD-176-1 FUTURE):** shopping-balance-only/mixed ödeme, cancellation, return submit,
+wishlist, ürün review, order-experience review (non-idempotent/çok-aktör → dedike fixture+teardown; ayrı PR).
