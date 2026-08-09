@@ -158,7 +158,7 @@ function OrderCard({
   experienceList: OrderExperienceEligibility[];
 }) {
   return (
-    <li className="border border-line p-4">
+    <li className="border border-line p-4" data-testid="order-list-item">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="text-sm font-medium text-ink">
