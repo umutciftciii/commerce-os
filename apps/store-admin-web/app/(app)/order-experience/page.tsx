@@ -21,14 +21,19 @@ import { SurfaceCard } from "../../components/premium";
 import { storeApi } from "../../../lib/client/api";
 import { messageForError } from "../../../lib/client/messages";
 import { formatDate, formatMinor } from "../../../lib/client/format";
+import {
+  outcomeLabel,
+  recoveryStatusKeys,
+  recoveryStatusLabel,
+  recoveryStatusTone,
+  slaState,
+} from "../../../lib/client/recovery-labels";
 import type {
   ExperienceKpiDto,
   ExperienceListResponse,
   ExperienceListRow,
   RecoveryReportDto,
 } from "@commerce-os/api-client";
-
-type Tone = "neutral" | "success" | "warning" | "info" | "danger";
 
 /** TD-174B-2 — Dakikayı insan-okur süreye çevirir (gün/saat/dakika). null → "—". */
 function formatDuration(minutes: number | null, tr: boolean): string {
@@ -40,51 +45,6 @@ function formatDuration(minutes: number | null, tr: boolean): string {
   const days = Math.floor(h / 24);
   const rh = h % 24;
   return rh > 0 ? `${days} ${tr ? "g" : "d"} ${rh} ${tr ? "sa" : "h"}` : `${days} ${tr ? "g" : "d"}`;
-}
-
-/** TD-174B-2 — RecoveryOutcome enum → insan-okur etiket (ham enum sızmaz). */
-function outcomeLabel(outcome: string, tr: boolean): string {
-  const map: Record<string, [string, string]> = {
-    ISSUE_RESOLVED: ["Sorun çözüldü", "Issue resolved"],
-    APOLOGY_ACCEPTED: ["Özür kabul edildi", "Apology accepted"],
-    REFUND_QUESTION: ["İade sorusu", "Refund question"],
-    DELIVERY_COMPLAINT: ["Teslimat şikâyeti", "Delivery complaint"],
-    PRICE_COMPLAINT: ["Fiyat şikâyeti", "Price complaint"],
-    PRODUCT_EXPECTATION_MISMATCH: ["Ürün beklentisi uyuşmadı", "Product expectation mismatch"],
-    CUSTOMER_UNREACHABLE: ["Müşteriye ulaşılamadı", "Customer unreachable"],
-    CUSTOMER_DECLINED: ["Müşteri reddetti", "Customer declined"],
-    OTHER: ["Diğer", "Other"],
-  };
-  const v = map[outcome];
-  return v ? (tr ? v[0] : v[1]) : outcome;
-}
-
-const RECOVERY_TONE: Record<string, Tone> = {
-  OPEN: "warning",
-  ASSIGNED: "info",
-  CONTACT_ATTEMPTED: "info",
-  CUSTOMER_REACHED: "info",
-  ACTION_REQUIRED: "warning",
-  RESOLVED: "success",
-  CLOSED: "neutral",
-  UNREACHABLE: "danger",
-  NO_ACTION_REQUIRED: "neutral",
-};
-
-function recoveryLabel(status: string, tr: boolean): string {
-  const map: Record<string, [string, string]> = {
-    OPEN: ["Açık", "Open"],
-    ASSIGNED: ["Atandı", "Assigned"],
-    CONTACT_ATTEMPTED: ["İletişim denendi", "Contact attempted"],
-    CUSTOMER_REACHED: ["Müşteriye ulaşıldı", "Customer reached"],
-    ACTION_REQUIRED: ["Aksiyon gerekli", "Action required"],
-    RESOLVED: ["Çözüldü", "Resolved"],
-    CLOSED: ["Kapatıldı", "Closed"],
-    UNREACHABLE: ["Ulaşılamadı", "Unreachable"],
-    NO_ACTION_REQUIRED: ["Aksiyon gerekmez", "No action"],
-  };
-  const v = map[status];
-  return v ? (tr ? v[0] : v[1]) : status;
 }
 
 export default function OrderExperiencePage() {
@@ -277,7 +237,7 @@ export default function OrderExperiencePage() {
             onChange={(e) => setRecoveryStatus(e.target.value)}
             options={[
               { value: "", label: tr ? "Tümü" : "All" },
-              ...Object.keys(RECOVERY_TONE).map((s) => ({ value: s, label: recoveryLabel(s, tr) })),
+              ...recoveryStatusKeys.map((s) => ({ value: s, label: recoveryStatusLabel(s, tr) })),
             ]}
           />
           <label className="flex items-center gap-2 text-sm">
@@ -303,6 +263,7 @@ export default function OrderExperiencePage() {
                   <th className="p-3">{tr ? "Yorum" : "Comment"}</th>
                   <th className="p-3">{tr ? "Tarih" : "Date"}</th>
                   <th className="p-3">Recovery</th>
+                  <th className="p-3">{tr ? "Atanan" : "Assignee"}</th>
                   <th className="p-3">SLA</th>
                   <th className="p-3">{tr ? "İşlem" : "Action"}</th>
                 </tr>
@@ -310,7 +271,7 @@ export default function OrderExperiencePage() {
               <tbody>
                 {state.data.rows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="p-6 text-center opacity-60">
+                    <td colSpan={9} className="p-6 text-center opacity-60">
                       {tr ? "Kayıt yok." : "No records."}
                     </td>
                   </tr>
@@ -324,18 +285,30 @@ export default function OrderExperiencePage() {
                     <td className="p-3 whitespace-nowrap">{formatDate(row.reviewCreatedAt)}</td>
                     <td className="p-3">
                       {row.recovery ? (
-                        <Badge tone={RECOVERY_TONE[row.recovery.status] ?? "neutral"}>
-                          {recoveryLabel(row.recovery.status, tr)}
+                        <Badge tone={recoveryStatusTone(row.recovery.status)}>
+                          {recoveryStatusLabel(row.recovery.status, tr)}
                         </Badge>
                       ) : (
                         <span className="opacity-50">—</span>
                       )}
                     </td>
                     <td className="p-3">
-                      {row.recovery?.overdue ? (
-                        <Badge tone="danger">{tr ? "Gecikti" : "Overdue"}</Badge>
-                      ) : row.recovery ? (
-                        <span className="opacity-70 text-xs">{formatDate(row.recovery.dueAt)}</span>
+                      {row.recovery?.assigneeName ? (
+                        <span className="text-xs opacity-80">{row.recovery.assigneeName}</span>
+                      ) : (
+                        <span className="opacity-50">—</span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      {row.recovery ? (
+                        (() => {
+                          const sla = slaState(row.recovery, Date.now(), tr);
+                          return sla.state === "INSIDE" ? (
+                            <span className="opacity-70 text-xs">{formatDate(row.recovery.dueAt)}</span>
+                          ) : (
+                            <Badge tone={sla.tone}>{sla.label}</Badge>
+                          );
+                        })()
                       ) : (
                         <span className="opacity-50">—</span>
                       )}

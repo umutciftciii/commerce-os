@@ -43,6 +43,7 @@ import type {
   // TODO-174B — Store Credit + Order Experience Recovery.
   ExperienceListResponse,
   ExperienceKpiDto,
+  AssignableUser,
   RecoveryCaseDetailDto,
   RecoveryActionRequest,
   ManualOpenCaseRequest,
@@ -396,6 +397,7 @@ export type {
   ExperienceListResponse,
   ExperienceListRow,
   ExperienceKpiDto,
+  AssignableUser,
   RecoveryCaseDetailDto,
   RecoveryActivityDto,
   RecoveryActionRequest,
@@ -2373,6 +2375,8 @@ export interface ApiClient {
       report(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<RecoveryReportDto>;
       // TD-174B-1 — Tek-sipariş deneyim özeti (order-detail kartı). Review yoksa null.
       byOrder(storeId: string, orderId: string, token?: string): Promise<OrderExperienceSummaryDto | null>;
+      // TODO-174B.2 — "Kullanıcıya ata" için store'un yetkili kullanıcıları.
+      assignableUsers(storeId: string, token?: string): Promise<AssignableUser[]>;
     };
     // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
     customerCredit: {
@@ -4179,6 +4183,8 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getJson<RecoveryReportDto>(`/stores/${storeId}/order-experience/report${buildQueryString(query)}`, token),
         byOrder: (storeId, orderId, token) =>
           getJson<OrderExperienceSummaryDto | null>(`/stores/${storeId}/order-experience/orders/${orderId}`, token),
+        assignableUsers: (storeId, token) =>
+          getJson<AssignableUser[]>(`/stores/${storeId}/order-experience/assignable-users`, token),
       },
       // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
       customerCredit: {

@@ -46,9 +46,23 @@ export interface ExperienceListRow {
     status: RecoveryCaseStatus;
     priority: string;
     assigneePlatformUserId: string | null;
+    assigneeName: string | null;
     dueAt: string;
     overdue: boolean;
   } | null;
+}
+
+/** Platform user id kümesini görüntü-adına (name ?? email) çözer. Ham id UI'a sızmaz. */
+async function resolveAssigneeDisplay(ids: (string | null | undefined)[]): Promise<Map<string, string>> {
+  const unique = [...new Set(ids.filter((x): x is string => Boolean(x)))];
+  const map = new Map<string, string>();
+  if (unique.length === 0) return map;
+  const users = await prisma.platformUser.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, name: true, email: true },
+  });
+  for (const u of users) map.set(u.id, u.name ?? u.email);
+  return map;
 }
 
 function ratingBucketWhere(bucket?: string): Prisma.OrderExperienceReviewWhereInput {
@@ -56,6 +70,31 @@ function ratingBucketWhere(bucket?: string): Prisma.OrderExperienceReviewWhereIn
   if (bucket === "THREE") return { rating: 3 };
   if (bucket === "FOUR_FIVE") return { rating: { gte: 4 } };
   return {};
+}
+
+export interface AssignableUser {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+}
+
+/**
+ * "Kullanıcıya ata" dropdown'u için store'un yetkili kullanıcıları (StoreUser ↔ PlatformUser).
+ * storeId-scoped; başka store'un üyeleri sızmaz. name yoksa email görüntü-adı olur (ham id UI'a çıkmaz).
+ */
+export async function listAssignableUsers(storeId: string): Promise<AssignableUser[]> {
+  const rows = await prisma.storeUser.findMany({
+    where: { storeId },
+    select: { userId: true, role: true, user: { select: { name: true, email: true } } },
+    orderBy: { createdAt: "asc" },
+  });
+  return rows.map((r) => ({
+    id: r.userId,
+    name: r.user.name ?? r.user.email,
+    email: r.user.email,
+    role: r.role,
+  }));
 }
 
 export async function listExperienceReviews(
@@ -101,6 +140,8 @@ export async function listExperienceReviews(
     }),
   ]);
 
+  const assigneeMap = await resolveAssigneeDisplay(rows.map((r) => r.recoveryCase?.assigneePlatformUserId));
+
   return {
     total,
     rows: rows.map((r) => ({
@@ -121,6 +162,9 @@ export async function listExperienceReviews(
             status: r.recoveryCase.status,
             priority: r.recoveryCase.priority,
             assigneePlatformUserId: r.recoveryCase.assigneePlatformUserId,
+            assigneeName: r.recoveryCase.assigneePlatformUserId
+              ? assigneeMap.get(r.recoveryCase.assigneePlatformUserId) ?? null
+              : null,
             dueAt: r.recoveryCase.dueAt.toISOString(),
             overdue:
               (ACTIVE_RECOVERY_STATUSES as string[]).includes(r.recoveryCase.status) &&
@@ -189,6 +233,8 @@ export interface RecoveryCaseDetail {
   priority: string;
   version: number;
   assigneePlatformUserId: string | null;
+  assigneeName: string | null;
+  assigneeEmail: string | null;
   openedAt: string;
   firstContactAt: string | null;
   dueAt: string;
@@ -197,9 +243,19 @@ export interface RecoveryCaseDetail {
   closedAt: string | null;
   resolutionType: string | null;
   resolutionNote: string | null;
+  goodwillCreditMinor: string;
   review: { id: string; rating: number; comment: string | null; createdAt: string };
-  order: { id: string; orderNumber: string; status: string; cancelReasonCode: string | null };
-  customer: { id: string; name: string; email: string };
+  order: {
+    id: string;
+    orderNumber: string;
+    status: string;
+    cancelReasonCode: string | null;
+    totalMinor: number;
+    currency: string;
+    paymentStatus: string;
+    shoppingCreditUsedMinor: string;
+  };
+  customer: { id: string; name: string; email: string; phone: string | null };
   activities: {
     id: string;
     type: string;
@@ -219,8 +275,13 @@ export async function getRecoveryCaseDetail(storeId: string, caseId: string): Pr
       openedAt: true, firstContactAt: true, dueAt: true, resolvedAt: true, closedAt: true,
       resolutionType: true, resolutionNote: true,
       review: { select: { id: true, rating: true, comment: true, createdAt: true } },
-      order: { select: { id: true, orderNumber: true, status: true, cancelReasonCode: true } },
-      customer: { select: { id: true, firstName: true, lastName: true, email: true } },
+      order: {
+        select: {
+          id: true, orderNumber: true, status: true, cancelReasonCode: true,
+          totalAmount: true, currency: true, paymentStatus: true, shoppingCreditUsedMinor: true,
+        },
+      },
+      customer: { select: { id: true, firstName: true, lastName: true, email: true, phone: true } },
       activities: {
         orderBy: { createdAt: "asc" },
         select: { id: true, type: true, actorId: true, outcome: true, note: true, creditLedgerEntryId: true, createdAt: true },
@@ -229,12 +290,25 @@ export async function getRecoveryCaseDetail(storeId: string, caseId: string): Pr
   });
   if (!kase) return null;
   const now = new Date();
+  const assignee = kase.assigneePlatformUserId
+    ? await prisma.platformUser.findUnique({
+        where: { id: kase.assigneePlatformUserId },
+        select: { name: true, email: true },
+      })
+    : null;
+  // Bu case'e bağlı goodwill (RECOVERY_GOODWILL) kredisinin toplamı — getOrderExperienceForOrder ile aynı sorgu.
+  const goodwill = await prisma.customerCreditLedgerEntry.aggregate({
+    where: { storeId, sourceType: "RECOVERY_GOODWILL", sourceId: kase.id, direction: "CREDIT" },
+    _sum: { amountMinor: true },
+  });
   return {
     caseId: kase.id,
     status: kase.status,
     priority: kase.priority,
     version: kase.version,
     assigneePlatformUserId: kase.assigneePlatformUserId,
+    assigneeName: assignee?.name ?? null,
+    assigneeEmail: assignee?.email ?? null,
     openedAt: kase.openedAt.toISOString(),
     firstContactAt: kase.firstContactAt?.toISOString() ?? null,
     dueAt: kase.dueAt.toISOString(),
@@ -243,12 +317,23 @@ export async function getRecoveryCaseDetail(storeId: string, caseId: string): Pr
     closedAt: kase.closedAt?.toISOString() ?? null,
     resolutionType: kase.resolutionType,
     resolutionNote: kase.resolutionNote,
+    goodwillCreditMinor: (goodwill._sum.amountMinor ?? 0n).toString(),
     review: { id: kase.review.id, rating: kase.review.rating, comment: kase.review.comment, createdAt: kase.review.createdAt.toISOString() },
-    order: { id: kase.order.id, orderNumber: kase.order.orderNumber, status: kase.order.status, cancelReasonCode: kase.order.cancelReasonCode },
+    order: {
+      id: kase.order.id,
+      orderNumber: kase.order.orderNumber,
+      status: kase.order.status,
+      cancelReasonCode: kase.order.cancelReasonCode,
+      totalMinor: kase.order.totalAmount,
+      currency: kase.order.currency,
+      paymentStatus: kase.order.paymentStatus,
+      shoppingCreditUsedMinor: kase.order.shoppingCreditUsedMinor.toString(),
+    },
     customer: {
       id: kase.customer.id,
       name: [kase.customer.firstName, kase.customer.lastName].filter(Boolean).join(" ").trim() || kase.customer.email || "",
       email: kase.customer.email ?? "",
+      phone: kase.customer.phone ?? null,
     },
     activities: kase.activities.map((a) => ({
       id: a.id,

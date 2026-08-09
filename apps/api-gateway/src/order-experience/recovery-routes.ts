@@ -8,6 +8,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AuditAction } from "@prisma/client";
 import {
+  assignableUsersResponseSchema,
   experienceKpiSchema,
   experienceListResponseSchema,
   manualOpenCaseRequestSchema,
@@ -21,6 +22,7 @@ import {
   experienceKpi,
   getOrderExperienceForOrder,
   getRecoveryCaseDetail,
+  listAssignableUsers,
   listExperienceReviews,
   recoveryReport,
   resolveReviewForManualCase,
@@ -117,6 +119,15 @@ export function registerRecoveryAdminRoutes(app: FastifyInstance, deps: Recovery
       dateTo: query.dateTo ? new Date(query.dateTo) : undefined,
     });
     await reply.send(experienceKpiSchema.parse(kpi));
+  });
+
+  // "Kullanıcıya ata" dropdown'u — store'un yetkili kullanıcıları (storeId-scoped; cross-store sızmaz).
+  app.get("/stores/:storeId/order-experience/assignable-users", async (request, reply) => {
+    const params = storeParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const users = await listAssignableUsers(params.storeId);
+    await reply.send(assignableUsersResponseSchema.parse(users));
   });
 
   // TD-174B-2 — Recovery raporu (trend + zamanlama + outcome + goodwill; bounded aralık).
