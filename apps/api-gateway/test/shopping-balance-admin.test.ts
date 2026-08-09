@@ -7,6 +7,7 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
+import Fastify, { type FastifyInstance } from "fastify";
 import { prisma } from "@commerce-os/db";
 import type { CreditLedgerType, CreditSourceType, CreditLotStatus } from "@prisma/client";
 import {
@@ -14,6 +15,7 @@ import {
   shoppingBalanceSummary,
   getCustomerBalanceDetail,
 } from "../src/customer-credit/admin-projection.js";
+import { registerShoppingBalanceAdminRoutes } from "../src/customer-credit/admin-routes.js";
 
 const hasTestDb = Boolean(process.env.DATABASE_URL);
 const dayMs = 24 * 60 * 60 * 1000;
@@ -234,5 +236,76 @@ describe.skipIf(!hasTestDb)("Shopping Balance Admin projections (integration)", 
     expect(await getCustomerBalanceDetail({ storeId: s.A.storeId, customerId: "yok-123" })).toBeNull();
     // Store B müşterisi Store A scope'unda null
     expect(await getCustomerBalanceDetail({ storeId: s.A.storeId, customerId: s.cB1 })).toBeNull();
+  });
+});
+
+// --- Route-level (Fastify inject; guard stub) -------------------------------
+
+function buildApp(access: { actorUserId: string; isSuperAdmin: boolean } | null): FastifyInstance {
+  const app = Fastify();
+  registerShoppingBalanceAdminRoutes(app, {
+    requireStoreAdmin: async (_req, reply, _storeId) => {
+      if (!access) {
+        await reply.code(403).send({ error: { code: "FORBIDDEN", message: "yetki yok" } });
+        return null;
+      }
+      return access;
+    },
+  });
+  return app;
+}
+
+const admin = { actorUserId: "admin-1", isSuperAdmin: false };
+
+describe.skipIf(!hasTestDb)("Shopping Balance Admin routes (integration)", () => {
+  afterEach(async () => {
+    for (const storeId of created.splice(0)) {
+      await prisma.store.delete({ where: { id: storeId } }).catch(() => {});
+    }
+  });
+
+  it("GET liste: data + summary + pagination; para STRING", async () => {
+    const s = await seedScenario();
+    const app = buildApp(admin);
+    const res = await app.inject({ method: "GET", url: `/stores/${s.A.storeId}/shopping-balance` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.pagination.totalItems).toBe(3);
+    expect(body.summary.outstandingLiabilityMinor).toBe("75000");
+    expect(body.summary.expiringSoonMinor).toBe("5000");
+    const a1 = body.data.find((r: { customerId: string }) => r.customerId === s.cA1);
+    expect(typeof a1.availableMinor).toBe("string");
+    expect(a1.availableMinor).toBe("70000");
+    await app.close();
+  });
+
+  it("GET liste: guard reddederse 403", async () => {
+    const s = await seedScenario();
+    const app = buildApp(null);
+    const res = await app.inject({ method: "GET", url: `/stores/${s.A.storeId}/shopping-balance` });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("GET detay: lot + ledger döner", async () => {
+    const s = await seedScenario();
+    const app = buildApp(admin);
+    const res = await app.inject({ method: "GET", url: `/stores/${s.A.storeId}/shopping-balance/${s.cA1}` });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.summary.availableMinor).toBe("70000");
+    expect(body.lots).toHaveLength(3);
+    expect(body.ledger).toHaveLength(5);
+    await app.close();
+  });
+
+  it("GET detay: bilinmeyen müşteri 404; cross-store müşteri 404 (leak-free)", async () => {
+    const s = await seedScenario();
+    const app = buildApp(admin);
+    const r1 = await app.inject({ method: "GET", url: `/stores/${s.A.storeId}/shopping-balance/yok-123` });
+    expect(r1.statusCode).toBe(404);
+    const r2 = await app.inject({ method: "GET", url: `/stores/${s.A.storeId}/shopping-balance/${s.cB1}` });
+    expect(r2.statusCode).toBe(404);
+    await app.close();
   });
 });

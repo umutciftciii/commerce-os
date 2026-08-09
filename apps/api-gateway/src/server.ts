@@ -215,6 +215,7 @@ import { registerShippingAdminRoutes } from "./shipping/routes.js";
 import { registerReturnAdminRoutes } from "./returns/routes-admin.js";
 import { registerRefundAdminRoutes } from "./refunds/routes-admin.js";
 import { registerCustomerCreditAdminRoutes } from "./customer-credit/routes.js";
+import { registerShoppingBalanceAdminRoutes } from "./customer-credit/admin-routes.js";
 import { registerRecoveryAdminRoutes } from "./order-experience/recovery-routes.js";
 import { applyStoreCreditToOrderInTx } from "./customer-credit/checkout.js";
 import { registerPendingWorkRoutes } from "./pending-work/routes.js";
@@ -7888,6 +7889,17 @@ export function createServer(
         : null;
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
+  });
+
+  // Shopping Balance Admin (Müşteri Bakiye Yönetimi) — Finans > Alışveriş Bakiyesi: merkezî
+  // per-müşteri bakiye listesi + KPI özeti + müşteri detayı (lot/ledger). SALT-OKUNUR; store-scoped.
+  registerShoppingBalanceAdminRoutes(app, {
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access
+        ? { actorUserId: access.session.platformUser.id, isSuperAdmin: access.session.platformUser.role === "SUPER_ADMIN" }
+        : null;
+    },
   });
 
   // TODO-174B (ADR-283) — Order Experience Recovery Operations: store-admin Sipariş Deneyimi listesi +

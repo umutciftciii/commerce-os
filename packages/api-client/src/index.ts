@@ -54,6 +54,8 @@ import type {
   AdminIssueCreditRequest,
   AdminAdjustCreditRequest,
   CustomerCreditBalanceResponse,
+  ShoppingBalanceListResponse,
+  ShoppingBalanceDetailDto,
   PaymentProviderConfig,
   PaymentProviderConfigCreateRequest,
   PaymentProviderConfigListResponse,
@@ -410,6 +412,11 @@ export type {
   AdminAdjustCreditRequest,
   CreditLedgerEntryDto,
   CustomerCreditBalanceResponse,
+  ShoppingBalanceListResponse,
+  ShoppingBalanceDetailDto,
+  ShoppingBalanceRowDto,
+  ShoppingBalanceSummaryDto,
+  CreditLotDto,
   // TODO-163 (ADR-208…ADR-213) — Tenant Module & Capability Management.
   StoreModuleState,
   StoreModuleMatrixEntry,
@@ -2583,6 +2590,11 @@ export interface ApiClient {
       // TD-174B-2 — Alışveriş bakiyesi (store credit) finansal raporu.
       creditReport(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<CreditReportDto>;
     };
+    // Shopping Balance Admin (Müşteri Bakiye Yönetimi) — merkezî per-müşteri bakiye listesi + detay.
+    shoppingBalance: {
+      list(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<ShoppingBalanceListResponse>;
+      detail(storeId: string, customerId: string, token?: string): Promise<ShoppingBalanceDetailDto>;
+    };
     // TODO-161 (ADR-114…120) — Sponsored Product Management (kampanya CRUD + dashboard + CSV).
     sponsoredProducts: {
       list(storeId: string, token?: string, query?: Record<string, string | number | undefined>): Promise<SponsoredCampaignListResponse>;
@@ -4444,6 +4456,13 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         // TD-174B-2 — Alışveriş bakiyesi (store credit) finansal raporu.
         creditReport: (storeId, token, query) =>
           getJson<CreditReportDto>(`/stores/${storeId}/finance/credit-report${buildQueryString(query)}`, token),
+      },
+      // Shopping Balance Admin (Müşteri Bakiye Yönetimi).
+      shoppingBalance: {
+        list: (storeId, token, query) =>
+          getJson<ShoppingBalanceListResponse>(`/stores/${storeId}/shopping-balance${buildQueryString(query)}`, token),
+        detail: (storeId, customerId, token) =>
+          getJson<ShoppingBalanceDetailDto>(`/stores/${storeId}/shopping-balance/${customerId}`, token),
       },
       // TODO-161 (ADR-114…120) — Sponsored Product Management.
       sponsoredProducts: {

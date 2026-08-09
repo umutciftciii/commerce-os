@@ -1815,6 +1815,8 @@ export const creditLedgerTypeSchema = z.enum([
   "ADMIN_ADJUSTMENT_CREDIT",
   "ADMIN_ADJUSTMENT_DEBIT",
   "EXPIRE",
+  // TODO-173 (reverse shipment) — iade sonucu lot yeniden-canlandırma/reissue hareketi.
+  "RETURN_CREDIT_RESTORE",
 ]);
 
 export const creditDirectionSchema = z.enum(["CREDIT", "DEBIT"]);
@@ -1882,6 +1884,116 @@ export const customerCreditBalanceResponseSchema = z.object({
 export type AdminIssueCreditRequest = z.infer<typeof adminIssueCreditRequestSchema>;
 export type CreditLedgerEntryDto = z.infer<typeof creditLedgerEntrySchema>;
 export type CustomerCreditBalanceResponse = z.infer<typeof customerCreditBalanceResponseSchema>;
+
+// ============================================================================
+// Shopping Balance Admin (Müşteri Bakiye Yönetimi) — Finans > Alışveriş Bakiyesi
+// Merkezî per-müşteri bakiye listesi + mağaza-geneli KPI özeti + müşteri detayı.
+// Tüm para KANONİK MINOR STRING. `summary` sayfadan/filtreden BAĞIMSIZ (mağaza-geneli).
+// Kaynak: SALT-OKUNUR projeksiyon (admin-projection.ts) — canonical live-lot predikatı.
+// ============================================================================
+
+export const creditSourceTypeSchema = z.enum([
+  "ADMIN_GOODWILL",
+  "RECOVERY_GOODWILL",
+  "ADMIN_ADJUSTMENT",
+  "ORDER_PAYMENT",
+  "ORDER_CANCELLATION",
+  "ORDER_REFUND",
+  "EXPIRY",
+  "SYSTEM",
+  "ORDER_RETURN",
+]);
+
+export const creditLotStatusSchema = z.enum(["ACTIVE", "CONSUMED", "EXPIRED"]);
+
+export const shoppingBalanceSortBySchema = z.enum([
+  "available",
+  "lastMovement",
+  "nearestExpiry",
+  "customer",
+]);
+
+export const shoppingBalanceSourceFilterSchema = z.enum(["GOODWILL", "REFUND_ORIGIN"]);
+
+/** Query flag (querystring "true"/"false" ya da boolean). */
+const booleanQueryFlag = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((v) => v === true || v === "true");
+
+export const shoppingBalanceListQuerySchema = adminListQueryBaseSchema.extend({
+  sortBy: shoppingBalanceSortBySchema.optional(),
+  balancePositive: booleanQueryFlag.optional(),
+  source: shoppingBalanceSourceFilterSchema.optional(),
+  expiringWithinDays: z.coerce.number().int().positive().max(365).optional(),
+});
+
+/** Per-müşteri bakiye bucket'ları (list satırı + detay özeti ortak). */
+export const shoppingBalanceBucketsSchema = z.object({
+  availableMinor: canonicalMinorAmountString,
+  issuedMinor: canonicalMinorAmountString,
+  spentMinor: canonicalMinorAmountString,
+  refundOriginMinor: canonicalMinorAmountString,
+  restoredMinor: canonicalMinorAmountString,
+  goodwillMinor: canonicalMinorAmountString,
+  expiredMinor: canonicalMinorAmountString,
+  nearestExpiryAt: z.string().nullable(),
+  lastMovementAt: z.string().nullable(),
+});
+
+export const shoppingBalanceRowSchema = shoppingBalanceBucketsSchema.extend({
+  customerId: z.string().min(1),
+  customerName: z.string().nullable(),
+  customerEmail: z.string().nullable(),
+  currency: z.string(),
+});
+
+export const shoppingBalanceSummarySchema = z.object({
+  currency: z.string(),
+  outstandingLiabilityMinor: canonicalMinorAmountString,
+  customersWithBalance: z.number().int().nonnegative(),
+  goodwillBalanceMinor: canonicalMinorAmountString,
+  refundOriginBalanceMinor: canonicalMinorAmountString,
+  expiringSoonMinor: canonicalMinorAmountString,
+  expiringWithinDays: z.number().int().positive(),
+});
+
+export const shoppingBalanceListResponseSchema = z.object({
+  data: z.array(shoppingBalanceRowSchema),
+  summary: shoppingBalanceSummarySchema,
+  pagination: adminListPaginationSchema,
+});
+
+export const creditLotDtoSchema = z.object({
+  id: z.string().min(1),
+  sourceType: creditSourceTypeSchema,
+  sourceId: z.string().nullable(),
+  originalAmountMinor: canonicalMinorAmountString,
+  remainingAmountMinor: canonicalMinorAmountString,
+  status: creditLotStatusSchema,
+  issuedAt: z.string(),
+  expiresAt: z.string().nullable(),
+});
+
+export const shoppingBalanceDetailSchema = z.object({
+  customerId: z.string().min(1),
+  customerName: z.string().nullable(),
+  customerEmail: z.string().nullable(),
+  currency: z.string(),
+  summary: shoppingBalanceBucketsSchema,
+  lots: z.array(creditLotDtoSchema),
+  ledger: z.array(creditLedgerEntrySchema),
+});
+
+export type CreditSourceTypeDto = z.infer<typeof creditSourceTypeSchema>;
+export type CreditLotStatusDto = z.infer<typeof creditLotStatusSchema>;
+export type ShoppingBalanceSortBy = z.infer<typeof shoppingBalanceSortBySchema>;
+export type ShoppingBalanceListQuery = z.infer<typeof shoppingBalanceListQuerySchema>;
+export type ShoppingBalanceBucketsDto = z.infer<typeof shoppingBalanceBucketsSchema>;
+export type ShoppingBalanceRowDto = z.infer<typeof shoppingBalanceRowSchema>;
+export type ShoppingBalanceSummaryDto = z.infer<typeof shoppingBalanceSummarySchema>;
+export type ShoppingBalanceListResponse = z.infer<typeof shoppingBalanceListResponseSchema>;
+export type CreditLotDto = z.infer<typeof creditLotDtoSchema>;
+export type ShoppingBalanceDetailDto = z.infer<typeof shoppingBalanceDetailSchema>;
 
 // ============================================================================
 // TODO-174B (ADR-283) — Order Experience Recovery Operations contracts.
