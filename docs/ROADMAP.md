@@ -1640,7 +1640,10 @@ insan-okur TR/EN etiket, RAW ENUM yok) + grant modal (`issueCustomerCredit` reus
 `admin-regression` nightly + cross-store `e2e-store-2` fixture). Karar:
 [ADR-288](adr/ADR-288-shopping-balance-admin.md). Manuel düşürme = TD-SBA-1 (FUTURE).
 
-**IN REVIEW (2026-08-09):** 13 backend integration testi (projeksiyon + route, Run1+Run2 green) +
-mevcut 45 customer-credit testi regresyonsuz; typecheck/lint green; seed↔projeksiyon sözleşmesi SQL ile
-doğrulandı. Browser E2E CI'da doğrulanır (docker store-admin build context'i main; branch route/sayfaları
-için `store-admin-web-e2e` servisi + host `pnpm e2e:store-admin`).
+**CLOSED & DEPLOYED (2026-08-09; PR #208 merge `44d2f03`):** 13 backend integration testi (projeksiyon +
+route, Run1+Run2 green) + mevcut 45 customer-credit testi regresyonsuz; CI `smoke` (ilk store-admin
+`admin-smoke` — login→liste→KPI CI'da GREEN) + `lint · test · build` green. Deploy: docker `api-gateway`
++ `store-admin-web` main'den rebuild+recreate (storefront/worker/postgres/redis DOKUNULMADI). Post-deploy
+safe smoke: deployed gateway route kimliksiz **401** (registered + guarded, 404 değil), store-admin
+`/finance/shopping-balance` 200, BFF kimliksiz 401. Doğrulama fixture'ları (e2e-admin/e2e-store-2)
+FK-güvenli temizlendi. Manuel düşürme = TD-SBA-1 (FUTURE).

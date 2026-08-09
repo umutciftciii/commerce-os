@@ -2891,5 +2891,7 @@ kanonik canlı-lot predikatı (ADR-281..286 / ADR-268 semantiği). Backend: `cus
 + `admin-routes.ts` (`requireStorePlatformAdmin`, cross-store 404). İlk store-admin Playwright harness'ı
 (`admin-smoke` required gate + `admin-regression` nightly + `e2e-store-2` izolasyon fixture). ADR-288.
 
-**IN REVIEW (2026-08-09):** local gate green (typecheck/lint/tests Run1+Run2/diff --check). Manuel bakiye
-düşürme bilinçli kapsam-dışı → TD-SBA-1 (FUTURE). Browser E2E = CI (`smoke` job'a `admin-smoke` adımı eklendi).
+**CLOSED & DEPLOYED (2026-08-09; PR #208 merge `44d2f03`):** local gate + CI `smoke`/`lint · test · build`
+green (ilk store-admin `admin-smoke` CI'da GREEN). Deploy: api-gateway + store-admin-web main'den
+rebuild+recreate; post-deploy safe smoke green (route 401/registered, sayfa 200). Manuel bakiye düşürme
+bilinçli kapsam-dışı → TD-SBA-1 (FUTURE).

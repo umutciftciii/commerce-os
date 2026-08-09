@@ -1,6 +1,6 @@
 # ADR-288 — Shopping Balance Admin (Müşteri Bakiye Yönetimi)
 
-**Durum:** ACCEPTED (2026-08-09; Store Admin > Finans > Alışveriş Bakiyesi).
+**Durum:** ACCEPTED & DEPLOYED (2026-08-09; Store Admin > Finans > Alışveriş Bakiyesi; PR #208 merge `44d2f03`; CI `smoke` (admin-smoke dahil) + `lint · test · build` green; post-deploy safe smoke green — deployed gateway route kimliksiz **401** (registered + guarded), store-admin sayfası 200).
 
 **İlişkili:** ADR-281/282/283/284 (Customer Shopping Balance / Store Credit domaini), ADR-285/286
 (refund destination + non-expiring return credit), ADR-268 (Financial Reporting), ADR-089 (Admin Data
