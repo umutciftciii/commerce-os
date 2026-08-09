@@ -134,9 +134,20 @@ wishlist, product review, order-experience review.
 ## 6. Prod post-deploy smoke (`@prod-smoke`)
 
 - **Anonim, read-only, non-destructive.** Fixture/seed/cleanup/login YOK.
-- Kapsam: storefront home yüklenir; PLP kart + fiyat; PDP variant render + fiyat; arama çalışır;
-  raw enum yok; console/runtime error yok. Gerçek production store slug'ı `E2E_*` env'den.
-- Post-deploy: `pnpm e2e:prod-smoke` (yalnız `prod-smoke` projesi) target `E2E_STOREFRONT_URL`'e.
+- **Explicit target env** (rastgele mevcut ürüne bağlanmaz — silent fallback yasak):
+  - `E2E_STOREFRONT_URL` — production storefront origin.
+  - `E2E_PROD_PRODUCT_SLUG` — PDP kontrolü için bilinen, stabil ürün slug'ı.
+  - `E2E_PROD_CATEGORY_SLUG` (opsiyonel) — PLP kontrolü için bilinen kategori slug'ı.
+  - `E2E_PROD_SEARCH_TERM` (opsiyonel) — arama kontrolü için deterministik terim.
+- **Fallback yok / fail-loud degrade:** Bir target env tanımsızsa o kontrol **başka
+  ürüne/kategoriye silent fallback yapmaz**. Politika: opsiyonel env tanımsızsa ilgili
+  kontrol `test.skip(condition)` ile **açıkça atlanır ve raporda görünür** (prod kapsamını
+  güvenli minimuma düşürür); **zorunlu** `E2E_PROD_PRODUCT_SLUG` yoksa prod-smoke run'ı
+  **açık config error** ile durur (yeşil vermez). Bu, "PDP smoke koştu" yanılsamasını önler.
+- Kapsam (yalnız explicit target'lar üzerinden): storefront home yüklenir; `E2E_PROD_CATEGORY_SLUG`
+  varsa PLP kart + fiyat; `E2E_PROD_PRODUCT_SLUG` üzerinden PDP variant render + fiyat;
+  `E2E_PROD_SEARCH_TERM` varsa arama çalışır; raw enum yok; console/runtime error yok.
+- Post-deploy: `pnpm e2e:prod-smoke` (yalnız `prod-smoke` projesi) target env'lere karşı.
 
 ## 7. CI gate
 
@@ -155,9 +166,25 @@ wishlist, product review, order-experience review.
 9. Cleanup: prefix cleanup + `docker compose down -v` (best-effort, `if: always()`).
 
 **Main/post-deploy:** aynı repo `prod-smoke` profili target environment'a
-`E2E_STOREFRONT_URL` ile koşar (ayrı adım/job; seed/cleanup yok).
+`E2E_STOREFRONT_URL` + `E2E_PROD_PRODUCT_SLUG` (+ opsiyonel category/search) ile koşar
+(ayrı adım/job; seed/cleanup yok).
 
 `ci.yml` (mevcut lint·test·build) korunur; e2e ayrı workflow olarak eklenir.
+
+### 7.1 Required status check governance (kritik)
+
+`.github/workflows/e2e.yml` eklemek **tek başına** onu merge-blocking required check
+yapmaz — required check'ler repo **branch protection / ruleset**'inde tanımlanır.
+
+- **Doğrulama:** merge'den önce `gh api` ile main branch protection / ruleset'inde e2e
+  job'unun status check adının (`e2e / <job-name>`) **required** listesinde olduğu doğrulanır
+  (ör. `gh api repos/:owner/:repo/branches/main/protection`).
+- **Yetki varsa:** required check `gh api` ile eklenir (branch protection `required_status_checks`
+  veya ruleset güncellenir).
+- **Yetki yoksa (fork/permission):** bu bir **açık governance adımı** olarak dokümante edilir
+  (repo admin'in eklemesi gereken tam status-check adı + komut) ve **final raporda required
+  status check kanıtı** (branch protection JSON'daki required checks listesi veya PR
+  "required" rozet çıktısı) gösterilir. "Workflow eklendi = gate zorunlu" varsayımı yapılmaz.
 
 ## 8. Flakiness policy
 
