@@ -66,9 +66,13 @@ export async function generateMetadata({
 }: {
   params: Promise<{ handle: string }>;
 }): Promise<Metadata> {
-  const { handle } = await params;
-  const dict = await getStorefrontDict();
-  const result = await getStorefrontProductByHandle(handle, await getRequestLocale());
+  // PERF-001 — Bağımsız girdiler (route param + sözlük + locale) tek batch; ardından ürün.
+  const [{ handle }, dict, locale] = await Promise.all([
+    params,
+    getStorefrontDict(),
+    getRequestLocale(),
+  ]);
+  const result = await getStorefrontProductByHandle(handle, locale);
 
   if (!result.ok) {
     // Gateway 5xx / ağ hatası (silinmiş DEĞİL): 404 ÜRETME. noindex minimal meta; sayfa error EmptyState render eder.
@@ -89,7 +93,7 @@ export async function generateMetadata({
     canonicalPath,
     robots: { index: true, follow: true },
     siteName: dict.meta.title,
-    locale: await getRequestLocale(),
+    locale,
     openGraph: { type: "website", images },
   });
 }
@@ -99,10 +103,29 @@ export default async function ProductDetailPage({
 }: {
   params: Promise<{ handle: string }>;
 }) {
-  const { handle } = await params;
-  const dict = await getStorefrontDict();
+  // PERF-001 — Route param + sözlük + locale tek batch (waterfall giderildi).
+  const [{ handle }, dict, locale] = await Promise.all([
+    params,
+    getStorefrontDict(),
+    getRequestLocale(),
+  ]);
   const t = dict.detail;
-  const result = await getStorefrontProductByHandle(handle, await getRequestLocale());
+  // PERF-001 — Ürün detayı, slot variant ve modül bayrakları BİRBİRİNDEN BAĞIMSIZ
+  // (slot/modül projeksiyonu ürün gövdesine ihtiyaç duymaz) → eskiden ardışıktı;
+  // tek paralel batch'e alınır. Modül/slot projeksiyonları `cache()`'li olduğundan
+  // ürün 404 olsa bile ekstra maliyet ihmal edilebilir.
+  // TODO-163 Faz 3 (TD-156) — kapalı modüller: veri ÇEKİLMEZ + render EDİLMEZ + client beacon MOUNT
+  // edilmez (event üretilmez). Gateway zaten otoriter (kapalı public uç 404/boş).
+  // TODO-164A — Ürün detay slot variant'ı (STANDARD/GALLERY_FIRST/EDITORIAL).
+  const [result, detailVariant, reviewsOn, recentlyViewedOn, recommendationsOn, wishlistOn] =
+    await Promise.all([
+      getStorefrontProductByHandle(handle, locale),
+      getServerSlotVariant("productDetailLayout", "standard"),
+      isStorefrontModuleEnabled("REVIEWS"),
+      isStorefrontModuleEnabled("RECENTLY_VIEWED"),
+      isStorefrontModuleEnabled("RECOMMENDATIONS"),
+      isStorefrontModuleEnabled("WISHLIST"),
+    ]);
 
   if (!result.ok) {
     const title = result.reason === "no-store" ? t.notFoundTitle : t.errorTitle;
@@ -121,18 +144,6 @@ export default async function ProductDetailPage({
   }
 
   const detail = result.data;
-  const locale = await getRequestLocale();
-  // TODO-164A — Ürün detay slot variant'ı (STANDARD/GALLERY_FIRST/EDITORIAL).
-  const detailVariant = await getServerSlotVariant("productDetailLayout", "standard");
-  // TODO-163 Faz 3 (TD-156) — kapalı modüller: veri ÇEKİLMEZ + render EDİLMEZ + client beacon MOUNT
-  // edilmez (event üretilmez). Gateway zaten otoriter (kapalı public uç 404/boş); bu, boşa çağrıyı
-  // ve ölü UI'ı önler. Capability projeksiyonu `cache()`'li → hepsi tek gateway çağrısı.
-  const [reviewsOn, recentlyViewedOn, recommendationsOn, wishlistOn] = await Promise.all([
-    isStorefrontModuleEnabled("REVIEWS"),
-    isStorefrontModuleEnabled("RECENTLY_VIEWED"),
-    isStorefrontModuleEnabled("RECOMMENDATIONS"),
-    isStorefrontModuleEnabled("WISHLIST"),
-  ]);
   // TODO-159E (ADR-094) — GERÇEK puan/değerlendirme (REVIEWS kapalıysa fetch YOK → sıfır özet).
   const zeroReviewSummary: ReviewSummary = {
     productId: detail.id,

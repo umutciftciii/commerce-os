@@ -1647,3 +1647,18 @@ route, Run1+Run2 green) + mevcut 45 customer-credit testi regresyonsuz; CI `smok
 safe smoke: deployed gateway route kimliksiz **401** (registered + guarded, 404 değil), store-admin
 `/finance/shopping-balance` 200, BFF kimliksiz 401. Doğrulama fixture'ları (e2e-admin/e2e-store-2)
 FK-güvenli temizlendi. Manuel düşürme = TD-SBA-1 (FUTURE).
+
+## PERF-001 — Yerel Storefront & Admin Navigasyon Gecikmesi — 2026-08-10
+
+Yerel/dev runtime'da ~5 sn navigasyon gecikmesi (P0). Ölç → root cause kanıtla → yalnız kanıtlananı
+düzelt disipliniyle çözüldü (feature scope'una dokunulmadı). **Kanıtlanan darboğazlar:** (1) `next dev`
+compile-on-first-hit 4–23 s (dev'e içkin, ayrı), (2) 3 dev sunucusunun Docker'ın 7.75 GiB'ını
+doldurması → aralıklı 5–25 s spike (A/B: admin-web kapalı → p90 ~%33 ↓), (3) storefront layout/PLP/PDP
+BFF **waterfall**'ı (gateway span 1–1.7 s; her uç 4–120 ms ama sıralı). **Elenen:** gateway/DB (warm
+4–120 ms), bind-mount (source imaja COPY'lı, mount yok), turbopack (warm eş, cold daha kötü → red).
+**Fix:** layout 6 sıralı await → tek `Promise.all`; PDP/PLP bağımsız fetch'ler batch'lendi; `admin-web`
+`platform` compose profiline alındı. **Before/after:** warm PLP median 1.72→1.38 s, PDP 1.95→1.38 s
+(max 7.2→1.4 s); gerçek tarayıcı **PLP→PDP tıklama median 957 ms** (eskiden ~5 s). Yeni non-required
+`perf` Playwright projesi (`@perf`, `pnpm e2e:perf`) kaba wall-clock regresyon muhafızı (median,
+warm-up, 6000 ms bütçe). Kalan spike = Docker RAM (TD-200, GUI ayarı). Detay:
+[PERF-001](analysis/PERF-001-navigation-latency.md).

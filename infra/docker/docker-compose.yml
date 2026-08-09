@@ -116,6 +116,14 @@ services:
   # server env'inde tutulur (env_file), NEXT_PUBLIC ile client bundle'a girmez.
   admin-web:
     restart: unless-stopped
+    # PERF-001 — Platform süper-admin konsolu, mağaza yöneticisi/vitrin geliştirme
+    # akışlarının parçası DEĞİLDİR. Her Next dev sunucusu boşta ~1.5-2 GiB tutar;
+    # üçü birden Docker'ın belleğini doldurup (ölçüm: 5.8/7.75 GiB) diğer dev
+    # sunucularında GC/olay-döngüsü stall'larına yol açıyordu (kanıtlanmış A/B:
+    # admin-web kapalıyken vitrin p90 ~%33 düştü). Bu yüzden admin-web artık
+    # `platform` profiline alındı: varsayılan `docker compose up` onu BAŞLATMAZ.
+    # İhtiyaç halinde: `docker compose --profile platform up admin-web`.
+    profiles: ["platform"]
     build:
       context: ../..
       dockerfile: infra/docker/node.Dockerfile

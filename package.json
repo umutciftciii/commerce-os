@@ -42,6 +42,7 @@
     "e2e:admin-smoke": "playwright test --project=admin-smoke",
     "e2e:admin-regression": "playwright test --project=admin-regression",
     "e2e:prod-smoke": "playwright test --project=prod-smoke",
+    "e2e:perf": "playwright test --project=perf",
     "e2e:report": "playwright show-report",
     "db:seed-e2e": "docker compose -f infra/docker/docker-compose.yml exec -T -e APP_ENV=test api-gateway node packages/db/scripts/e2e-seed.mjs",
     "db:cleanup-e2e": "docker compose -f infra/docker/docker-compose.yml exec -T -e APP_ENV=test api-gateway pnpm --filter @commerce-os/db db:cleanup-smoke",

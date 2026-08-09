@@ -63,23 +63,33 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   // deselect/OOS satir da cantada sayilir). Iki yuzey de ayni: misafir cookie adet toplami
   // (getCartCount) ile auth DB cart satir adet toplami. (Ozetteki "N urun" = SECILI+orderable
   // itemCount; rozet ise cantadaki toplam — bilincli ayri semantik.)
-  const authCartProjection = await getAuthCartProjection();
+  // PERF-001 — Kabuk (layout) her tam-sayfa yüklemede çalışır ve eskiden bu bağımsız
+  // BFF çağrılarını SIRAYLA (waterfall) yapıyordu; ölçümde sayfa render'ının en büyük
+  // dilimi bu ardışık gateway çağrıları arasındaki boşluklardı. Hepsi birbirinden
+  // bağımsız (yalnız `locale`'e ihtiyaç duyanlar var; o zaten yukarıda çözüldü),
+  // bu yüzden TEK paralel batch'te toplanır — dedup davranışı (React `cache()`)
+  // değişmez, yalnızca eşzamanlı yayılırlar.
+  const [authCartProjection, customer, campaignSlides, storeInfo, navCategories, theme, cookieStore] =
+    await Promise.all([
+      getAuthCartProjection(),
+      getCurrentCustomer(),
+      // Üst band kampanya slider'ı GERÇEK F4A verisiyle beslenir; slide yoksa statik
+      // duyuru metnine düşer (vitrin asla kırılmaz).
+      getCampaignSlides(locale),
+      // ADR-065 (Faz 3/Site Kabuğu) — Header logo/kelime-işareti store marka
+      // bilgisinden; logo yoksa serif kelime-işareti fallback (SiteHeader içinde).
+      getStoreInfo(),
+      // TODO-158C — Header kategori mega-menü verisi (admin FEATURED_CATEGORIES; getHome cache'li,
+      // ana sayfada gövdeyle paylaşılır). Yapılandırılmamışsa boş → sade nav.
+      getNavCategories(locale),
+      // TODO-158B (ADR-087) — Enterprise Theme Engine: yayınlanmış temanın çözülmüş
+      // CSS'i (custom property override). null → globals.css varsayılanları geçerli.
+      getStoreTheme(),
+      cookies(),
+    ]);
   const cartCount = authCartProjection
     ? authCartProjection.cart.lines.reduce((sum, line) => sum + line.quantity, 0)
     : await getCartCount();
-  const customer = await getCurrentCustomer();
-  // Üst band kampanya slider'ı GERÇEK F4A verisiyle beslenir; slide yoksa statik
-  // duyuru metnine düşer (vitrin asla kırılmaz).
-  const campaignSlides = await getCampaignSlides(locale);
-  // ADR-065 (Faz 3/Site Kabuğu) — Header logo/kelime-işareti store marka
-  // bilgisinden; logo yoksa serif kelime-işareti fallback (SiteHeader içinde).
-  const storeInfo = await getStoreInfo();
-  // TODO-158C — Header kategori mega-menü verisi (admin FEATURED_CATEGORIES; getHome cache'li,
-  // ana sayfada gövdeyle paylaşılır). Yapılandırılmamışsa boş → sade nav.
-  const navCategories = await getNavCategories(locale);
-  // TODO-158B (ADR-087) — Enterprise Theme Engine: yayınlanmış temanın çözülmüş
-  // CSS'i (custom property override). null → globals.css varsayılanları geçerli.
-  const theme = await getStoreTheme();
 
   // TODO-156D (ADR-083) — Site-geneli JSON-LD: Organization (marka) + WebSite (SearchAction).
   // Her sayfada bir kez head/body'ye gömülür; marka adı store bilgisinden, yoksa i18n fallback.
@@ -102,7 +112,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const themeSlots = theme?.slots ?? {};
   // TODO-164B (ADR-237) — Preview highlight yalnız draft-preview bağlamında (cookie
   // varken) mount edilir → production vitrini etkilenmez.
-  const isThemePreview = (await cookies()).get("cos_theme_preview") != null;
+  const isThemePreview = cookieStore.get("cos_theme_preview") != null;
   return (
     <html
       lang={locale}
