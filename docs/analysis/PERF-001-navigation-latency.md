@@ -129,6 +129,16 @@ Ayrıca A/B bellek etkisi: admin-web açık→kapalı p90 3.33→2.23 s (~%33).
 
 ---
 
+## 6a. İlgisiz pre-existing flake fix (gate'i açmak için)
+
+İlk CI koşumunda `lint · test · build` job'u PERF-001 ile **ilgisiz** bir sebeple kırmızıya döndü:
+`apps/store-admin-web/test/recovery-labels.test.ts` "DUE_TODAY" senaryosu `Date.now() + 2s` kullanıyordu.
+`slaState` gün-sınırını YEREL takvim gününe (`isSameDay`) göre belirler; UTC CI runner'ı yerel gün
+sınırına yakın (22:00–24:00 UTC) koşunca `now+2h` ertesi güne taşıp INSIDE dönüyordu (tarih-bağımlı
+flake). Fix: test `now`'ı yerel öğlene sabitler → deterministik (UTC/LA/Kiritimati/GMT-14'te 12/12
+geçer). **Test-only; üretim davranışı değişmez.** Bu, Shopping Balance/recovery feature scope'una
+davranışsal dokunuş DEĞİLDİR; yalnız gate'i açan flaky-test hijyeni.
+
 ## 7. İlgili
 
 - Kod: `apps/storefront-web/app/{layout,products/page,products/[handle]/page}.tsx`
