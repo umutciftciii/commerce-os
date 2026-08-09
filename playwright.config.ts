@@ -7,7 +7,13 @@ export default defineConfig({
   forbidOnly: CI,
   fullyParallel: false,
   retries: CI ? 2 : 0,
-  workers: CI ? 2 : undefined,
+  // Tek worker: smoke/responsive projeleri ayni e2e musterinin DB-tabanli
+  // (server-authoritative) sepetini paylasir (bkz. fixtures/cart.ts). Farkli
+  // spec dosyalari farkli worker'larda calisirsa (workers>1) ayni sepet
+  // uzerinde yaris durumu olusur (ör. 03 ve 04 es zamanli add-to-cart/assert).
+  // fullyParallel:false yalnizca TEK dosya icindeki testleri sirali yapar,
+  // dosyalar arasi izolasyonu SAGLAMAZ — bu yuzden workers:1 gerekli.
+  workers: 1,
   reporter: CI ? [["list"], ["html", { open: "never" }], ["github"]] : [["list"], ["html", { open: "never" }]],
   timeout: 45_000,
   expect: { timeout: 10_000 },
