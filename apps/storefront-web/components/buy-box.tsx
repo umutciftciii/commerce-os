@@ -560,7 +560,10 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
 
           {selected ? (
             <p className="text-xs text-ink-subtle">
-              {t.detail.skuLabel}: <span className="font-medium text-ink-muted">{selected.sku}</span>
+              {t.detail.skuLabel}:{" "}
+              <span data-testid="buybox-sku" className="font-medium text-ink-muted">
+                {selected.sku}
+              </span>
             </p>
           ) : null}
         </div>
@@ -606,7 +609,10 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
           </div>
           {selected ? (
             <p className="mt-2.5 text-xs text-ink-subtle">
-              {t.detail.skuLabel}: <span className="font-medium text-ink-muted">{selected.sku}</span>
+              {t.detail.skuLabel}:{" "}
+              <span data-testid="buybox-sku" className="font-medium text-ink-muted">
+                {selected.sku}
+              </span>
             </p>
           ) : null}
         </div>
