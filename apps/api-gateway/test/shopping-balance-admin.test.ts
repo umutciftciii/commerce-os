@@ -244,7 +244,7 @@ describe.skipIf(!hasTestDb)("Shopping Balance Admin projections (integration)", 
 function buildApp(access: { actorUserId: string; isSuperAdmin: boolean } | null): FastifyInstance {
   const app = Fastify();
   registerShoppingBalanceAdminRoutes(app, {
-    requireStoreAdmin: async (_req, reply, _storeId) => {
+    requireStoreAdmin: async (_req, reply) => {
       if (!access) {
         await reply.code(403).send({ error: { code: "FORBIDDEN", message: "yetki yok" } });
         return null;
