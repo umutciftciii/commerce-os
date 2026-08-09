@@ -1,6 +1,6 @@
 # ADR-287 — Playwright E2E Suite as the Source-of-Truth Release Gate (TODO-176 PR1)
 
-**Durum:** ACCEPTED & DEPLOYED (2026-08-09; PR1; TODO-176).
+**Durum:** ACCEPTED (2026-08-09; PR1; TODO-176).
 
 **İlişkili:** `docs/TESTING.md` (kullanım kılavuzu), `tests/e2e/README.md` (quickstart),
 `docs/superpowers/specs/2026-08-09-todo-176-e2e-regression-suite-design.md` (tasarım spec).

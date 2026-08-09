@@ -6288,7 +6288,7 @@ ve DOKUNULMAZ; bu iş yalnız READ/UI eklemesidir.
 TD-174B-3: 4-viewport gerçek-auth izole-fixture browser smoke PASS (order-detail dağılım ₺300+₺700=₺1000
 invariant · credit outstanding = issued−spent invariant · enterprise-demo PRISTINE). 6 yeni gerçek-DB test.
 
-## ADR-287 — Playwright E2E Suite as the Source-of-Truth Release Gate (TODO-176 PR1) — ACCEPTED & DEPLOYED (2026-08-09)
+## ADR-287 — Playwright E2E Suite as the Source-of-Truth Release Gate (TODO-176 PR1) — ACCEPTED (2026-08-09)
 
 **Karar (birebir):** *"Playwright E2E suite is the source-of-truth automated browser release gate;
 manual browser smoke is exploratory/complementary, not the primary regression mechanism."*
