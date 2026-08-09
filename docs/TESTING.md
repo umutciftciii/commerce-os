@@ -252,3 +252,15 @@ doğrulama. Kalıcı, tekrarlanabilir regresyon garantisi Playwright suite'inden
 - `docs/ROADMAP.md` — TODO-176 durumu.
 - `tests/e2e/README.md` — hızlı başlangıç (bu dokümana pointer).
 - `docs/superpowers/specs/2026-08-09-todo-176-e2e-regression-suite-design.md` — orijinal tasarım spec'i.
+
+## 11. Perf regresyon muhafızı (`perf` projesi — PERF-001)
+
+`tests/e2e/perf/` altında **`@perf`** tag'li kaba (wall-clock) navigasyon gecikmesi muhafızı;
+`pnpm e2e:perf` (`--project=perf`). **Required smoke gate'in DIŞINDA** — wall-clock varyansı merge'i
+gereksiz bloke etmesin diye bilinçli olarak `e2e.yml` required job'una eklenmedi (manuel/nightly).
+
+Tasarım (flaky olmadan anlamlı): (1) her rota önce warm-up ile derlenir — `next dev` cold compile
+ölçüm dışı; (2) her akış 3 kez ölçülür ve **MEDIAN** bütçeyle kıyaslanır — tek seferlik bellek/GC
+spike'ı median'ı bozmaz ama sürekli 4–5 s regresyon yakalanır; (3) cömert bütçe **6000 ms**
+(`PERF_NAV_BUDGET_MS` ile override). Akışlar: home load, PLP load, **PLP→PDP tıklama** (kullanıcının
+bildirdiği tam akış). Bkz. `docs/analysis/PERF-001-navigation-latency.md`.

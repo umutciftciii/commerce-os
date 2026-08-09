@@ -78,14 +78,25 @@ describe("recovery-labels", () => {
       expect(s.label).toBe("Gecikti");
       expect(s.tone).toBe("danger");
     });
+    // PERF-001 (ilgisiz flake fix): `slaState` gün-sınırını `isSameDay` ile YEREL
+    // takvim gününe göre belirler. Eskiden `now = Date.now()` + 2s kullanılınca,
+    // CI yerel gün-sınırına (UTC runner'da 22:00–24:00) yakın koşarsa `now+2h`
+    // ertesi güne taşıp DUE_TODAY yerine INSIDE dönüyordu (tarih-bağımlı flake).
+    // `now` yerel öğlene sabitlenerek +2s aynı gün, +72s farklı gün GARANTİLENİR;
+    // üretim davranışı DEĞİŞMEZ (yalnız test determinizmi).
+    const localNoon = () => {
+      const d = new Date();
+      d.setHours(12, 0, 0, 0);
+      return d.getTime();
+    };
     it("bugün bitiyor → DUE_TODAY", () => {
-      const now = Date.now();
+      const now = localNoon();
       const s = slaState({ status: "ASSIGNED", dueAt: new Date(now + 2 * H).toISOString(), overdue: false }, now);
       expect(s.state).toBe("DUE_TODAY");
       expect(s.label).toBe("Bugün bitiyor");
     });
     it("ileri tarih → INSIDE", () => {
-      const now = Date.now();
+      const now = localNoon();
       const s = slaState({ status: "OPEN", dueAt: new Date(now + 72 * H).toISOString(), overdue: false }, now);
       expect(s.state).toBe("INSIDE");
       expect(s.tone).toBe("neutral");

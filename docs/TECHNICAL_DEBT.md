@@ -2441,3 +2441,22 @@ bilinçli olarak PR1 kapsamı DIŞINDA bırakıldı.
   ile aynı istekte döner; canlı-lot agregasyonu her sayfa/filtre değişiminde tekrar koşar. Admin sayfası
   ve mağaza boyutları için kabul edilebilir; çok-büyük mağazalarda ölçülürse summary ayrı uca alınıp
   kısa-TTL cache'lenebilir. FUTURE.
+
+## TD-200 Yerel dev runtime bellek baskısı (Docker under-provisioned) — PERF-001
+
+- Durum: PARTIAL (kod/compose fix uygulandı; kalan = Docker RAM ayarı)
+- Öncelik: MEDIUM
+- Etki: Docker Desktop varsayılan **7.75 GiB** RAM (host 16 GB) ile üç Next dev sunucusu boşta
+  ~5.8 GiB tutuyor; VM belleğe yaklaşınca GC/olay-döngüsü stall'ları → warm navigasyonlarda aralıklı
+  5–25 s spike + `next dev` health check'lerinde 3 s gecikme (PERF-001 A/B ile kanıtlı: admin-web
+  kapatılınca vitrin p90 ~%33 düştü).
+- Uygulanan: `infra/docker/docker-compose.yml` → `admin-web` `profiles: ["platform"]` (varsayılan
+  `up` başlatmaz; ~1.5 GiB boşalır). `apps/storefront-web` layout/PLP/PDP BFF waterfall'ı
+  paralelleştirildi (warm PLP/PDP median ~%20–30 ↓, spike'lar ciddi azaldı).
+- Kalan (FUTURE, commit edilemez): Docker Desktop RAM'ini **≥12 GiB**'a çıkarmak spike'ları tam
+  giderir (ölçülen kök amplifikatör). Runbook önerisi; kod değişikliği değil.
+- Not (turbopack): `next dev --turbopack` PERF-001'de ölçüldü → warm render webpack ile eş (~2–3 s),
+  cold compile karışık/daha kötü, riskli swap → **benimsenmedi** (kanıtlanmış negatif sonuç). Bkz.
+  `docs/analysis/PERF-001-navigation-latency.md`.
+- Not (dev cold compile): rota başına 4–23 s ilk-hit derleme `next dev`'e içkindir; tam çözüm
+  production build (`next start`) — yerel dev kapsamı dışı. AYRI raporlanır.

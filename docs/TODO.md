@@ -2895,3 +2895,11 @@ kanonik canlı-lot predikatı (ADR-281..286 / ADR-268 semantiği). Backend: `cus
 green (ilk store-admin `admin-smoke` CI'da GREEN). Deploy: api-gateway + store-admin-web main'den
 rebuild+recreate; post-deploy safe smoke green (route 401/registered, sayfa 200). Manuel bakiye düşürme
 bilinçli kapsam-dışı → TD-SBA-1 (FUTURE).
+
+## PERF-001 — Yerel Navigasyon Gecikmesi (P0) — 2026-08-10
+
+Storefront layout/PLP/PDP BFF waterfall'ı `Promise.all` ile paralelleştirildi (warm PLP/PDP median
+~%20–30 ↓; PLP→PDP tıklama ~957 ms). `admin-web` `platform` compose profiline alındı (bellek baskısı;
+A/B ile kanıtlı). Non-required `perf` Playwright projesi (`@perf`, median + warm-up + 6000 ms bütçe)
+eklendi. Turbopack ölçülüp reddedildi (warm eş, cold daha kötü). Kalan = Docker RAM ≥12 GiB (TD-200).
+Detay: `docs/analysis/PERF-001-navigation-latency.md`.

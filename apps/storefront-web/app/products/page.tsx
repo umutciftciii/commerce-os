@@ -72,9 +72,16 @@ export default async function ProductsPage({
   const state = parseServerSearchParams(sp);
   const s = t.search;
   // TODO-158C — Kategori navigasyon şeridi verisi (admin FEATURED_CATEGORIES; cache'li, layout ile paylaşılır).
-  const [result, navCategories] = await Promise.all([
+  // PERF-001 — Slot variant + modül bayrakları (REVIEWS/WISHLIST) aramadan BAĞIMSIZ; eskiden ayrı
+  // ardışık await'lerdi. İlk batch'e alınarak waterfall hop'ları giderilir (kart id'lerine bağlı
+  // wishlist/rating batch'i aşağıda; o gerçek veri bağımlılığıdır ve olduğu gibi kalır).
+  const [result, navCategories, listingVariant, reviewsOn, wishlistOn] = await Promise.all([
     getStorefrontSearch(state),
     getNavCategories(locale),
+    // TODO-164A — Listing slot variant'ı (sunucu; nested async RSC'den kaçınmak için prop olarak geçilir).
+    getServerSlotVariant("productListingLayout", "standard"),
+    isStorefrontModuleEnabled("REVIEWS"),
+    isStorefrontModuleEnabled("WISHLIST"),
   ]);
 
   // Hata eşlemesi (§15): gerçek hata → route error boundary (retry); diğerleri kontrollü UI (sessiz kurtarma).
@@ -111,16 +118,10 @@ export default async function ProductsPage({
 
   const data = result.data;
   const cards = toListingCards(data.products);
-  // TODO-164A — Listing slot variant'ı (sunucu; nested async RSC'den kaçınmak için prop olarak geçilir).
-  const listingVariant = await getServerSlotVariant("productListingLayout", "standard");
   // TODO-159D/159E — Sayfadaki ürünler için TEK batched favori-durum + rating özeti (N+1 yok).
   // TODO-163 Faz 3 (TD-156) — REVIEWS/WISHLIST kapalıysa ilgili batch ÇEKİLMEZ (boşa çağrı yok;
   // kartlarda yıldız/kalp render edilmez). Gateway zaten otoriter.
   const cardIds = cards.map((card) => card.id);
-  const [reviewsOn, wishlistOn] = await Promise.all([
-    isStorefrontModuleEnabled("REVIEWS"),
-    isStorefrontModuleEnabled("WISHLIST"),
-  ]);
   const [savedProductIds, cardRatings] = await Promise.all([
     wishlistOn ? getWishlistStatus(cardIds).then((set) => [...set]) : Promise.resolve<string[]>([]),
     reviewsOn ? getCardRatings(cardIds) : Promise.resolve({}),

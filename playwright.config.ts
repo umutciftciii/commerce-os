@@ -78,6 +78,16 @@ export default defineConfig({
       dependencies: ["store-admin-setup"],
     },
     {
+      // PERF-001 — Kaba (wall-clock) navigasyon gecikmesi regresyon muhafızı.
+      // Vitrin baseURL'i + anonim gezinme (auth GEREKMEZ → `setup` bağımlılığı yok,
+      // yaygın vitrin yolu ölçülür). Required smoke gate'in DIŞINDA: `pnpm e2e:perf`
+      // ile manuel/nightly koşar; wall-clock varyansı merge'i bloke etmez.
+      name: "perf",
+      testDir: "tests/e2e/perf",
+      grep: /@perf/,
+      use: { ...devices["Desktop Chrome"] },
+    },
+    {
       name: "prod-smoke",
       testDir: "tests/e2e/prod-smoke",
       grep: /@prod-smoke/,
