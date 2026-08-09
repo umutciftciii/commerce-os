@@ -1,6 +1,6 @@
 # PERF-001 — Local Storefront & Admin Navigation Latency
 
-**Durum:** CLOSED & DEPLOYED
+**Durum:** CLOSED & DEPLOYED — PR #210 merge `c3c7305` (2026-08-10). Post-deploy: `storefront-web` main'den rebuild+recreate; home/PLP/PDP 200 + render; warm PLP median 1.35 s / PDP 1.54 s.
 **Kapsam:** Yalnız yerel/dev runtime navigasyon gecikmesi (root cause + fix). Production
 observability'nin yerine GEÇMEZ. Feature scope'una (Shopping Balance vb.) dokunulmadı.
 **Yöntem:** Tahminle optimizasyon YOK → önce ölç → root cause'u kanıtla → yalnız kanıtlanan
