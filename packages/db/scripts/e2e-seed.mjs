@@ -115,7 +115,7 @@ async function main() {
 
   const store = await prisma.store.upsert({
     where: { slug: STORE_SLUG },
-    update: { id: STORE_ID, name: "E2E Store", status: "ACTIVE" },
+    update: { name: "E2E Store", status: "ACTIVE" },
     create: { id: STORE_ID, name: "E2E Store", slug: STORE_SLUG, status: "ACTIVE", metadata: { seeded: "e2e" } },
   });
 
@@ -154,7 +154,7 @@ async function main() {
   });
 
   // 4) Cok-varyantli urun e2e-tshirt (priceMinor 20000) + 3 varyant + stok.
-  const tshirt = await upsertActiveProduct(TSHIRT_ID, TSHIRT_SLUG, "E2E T-Shirt", "Deterministic multi-variant product for E2E regression.");
+  const tshirt = await upsertActiveProduct(TSHIRT_ID, TSHIRT_SLUG, "E2E Tshirt", "Deterministic multi-variant product for E2E regression.");
   for (const variant of TSHIRT_VARIANTS) {
     const persisted = await upsertVariant({
       id: variant.id,
