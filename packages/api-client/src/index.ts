@@ -417,6 +417,8 @@ export type {
   ShoppingBalanceRowDto,
   ShoppingBalanceSummaryDto,
   CreditLotDto,
+  CreditSourceTypeDto,
+  CreditLotStatusDto,
   // TODO-163 (ADR-208…ADR-213) — Tenant Module & Capability Management.
   StoreModuleState,
   StoreModuleMatrixEntry,

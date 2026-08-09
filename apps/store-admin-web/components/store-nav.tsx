@@ -200,6 +200,12 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
           label: locale === "tr" ? "Raporlar" : "Reports",
           icon: <PaymentIcon />,
         },
+        {
+          // Shopping Balance Admin (Müşteri Bakiye Yönetimi) — merkezî müşteri bakiye yönetimi.
+          href: "/finance/shopping-balance",
+          label: locale === "tr" ? "Alışveriş Bakiyesi" : "Shopping Balance",
+          icon: <PaymentIcon />,
+        },
       ],
     },
     {

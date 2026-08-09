@@ -318,6 +318,8 @@ import type {
   AdminIssueCreditRequest,
   AdminAdjustCreditRequest,
   CustomerCreditBalanceResponse,
+  ShoppingBalanceListResponse,
+  ShoppingBalanceDetailDto,
 } from "@commerce-os/api-client";
 // TODO-161A.2 (ADR-128/129) — Birleşik ticari akış tipleri api-client'ta ayrıca
 // re-export EDİLMEDİĞİNDEN, metod imzalarından türetilir (contracts'a doğrudan
@@ -1863,6 +1865,12 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+
+  // Shopping Balance Admin (Müşteri Bakiye Yönetimi) — merkezî per-müşteri bakiye listesi + detay.
+  listShoppingBalances: (query?: AdminListRequestQuery) =>
+    call<ShoppingBalanceListResponse>(`/api/finance/shopping-balance${listQueryString(query)}`),
+  getShoppingBalanceDetail: (customerId: string) =>
+    call<ShoppingBalanceDetailDto>(`/api/finance/shopping-balance/${customerId}`),
 
   // Final Polish §5 — Legacy top-level HeroSlide CRUD (`/api/hero-slides` → admin.heroSlides)
   // KALDIRILDI: yinelenen "Ana Sayfa" (/hero) yönetim ekranı redirect'e döndürüldü; vitrin
