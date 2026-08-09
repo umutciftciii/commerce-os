@@ -14,6 +14,7 @@
  *   - basit urun e2e-mug (priceMinor 5000) + tek varyant + stok
  *   - kupon E2E10 (Campaign COUPON_CODE / PERCENT %10 / ACTIVE)
  *   - onceden-var siparis e2e-order-1001 (musteriye bagli, 1 satir e2e-mug x1, PLACED/PAID)
+ *   - musteri teslimat/fatura adresi (Task 9 — checkout sayfasi adres olmadan render OLMAZ)
  *
  * Guvenlik: APP_ENV yalniz development/test/undefined iken kosar (uretim koruma).
  *
@@ -50,6 +51,7 @@ const ORDER_NUMBER = "e2e-order-1001";
 const ORDER_ID = "e2e-order-1001";
 const ORDER_LINE_ID = "e2e-order-1001-line-1";
 const PAYMENT_ATTEMPT_ID = "e2e-order-1001-payment-1";
+const ADDRESS_ID = "e2e-customer-address-1";
 
 const TSHIRT_VARIANTS = [
   { id: "e2e-variant-tshirt-s", sku: "e2e-tshirt-s", title: "S", optionValues: { size: "S" } },
@@ -274,6 +276,42 @@ async function main() {
     },
   });
 
+  // 8) Musteri teslimat adresi (Task 9 — checkout /checkout sayfasi kayitli adres
+  // olmadan CheckoutForm'u HIC render etmez; "Adres ekle" bos-durumuna duser. Sabit
+  // id ile idempotent upsert; varsayilan teslimat/fatura adresi olarak isaretlenir.
+  await prisma.customerAddress.upsert({
+    where: { id: ADDRESS_ID },
+    update: {
+      storeId: store.id,
+      customerId: customer.id,
+      fullName: "E2E Customer",
+      countryCode: "TR",
+      city: "İstanbul",
+      district: "Kadıköy",
+      addressLine1: "Test Sokak No:1",
+      postalCode: "34700",
+      isDefaultShipping: true,
+      isDefaultBilling: true,
+    },
+    create: {
+      id: ADDRESS_ID,
+      storeId: store.id,
+      customerId: customer.id,
+      type: "SHIPPING",
+      addressName: "Ev",
+      fullName: "E2E Customer",
+      phone: "+905551234567",
+      countryCode: "TR",
+      city: "İstanbul",
+      district: "Kadıköy",
+      addressLine1: "Test Sokak No:1",
+      postalCode: "34700",
+      isDefaultShipping: true,
+      isDefaultBilling: true,
+      billingType: "INDIVIDUAL",
+    },
+  });
+
   console.log(
     JSON.stringify({
       ok: true,
@@ -282,6 +320,7 @@ async function main() {
       customer: CUSTOMER_EMAIL,
       coupon: COUPON_CODE,
       order: ORDER_NUMBER,
+      address: ADDRESS_ID,
     }),
   );
 }

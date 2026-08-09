@@ -626,7 +626,7 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
               {t.subtotal}{" "}
               <span className="text-xs text-ink-subtle">· {format(t.itemsLabel, { count: view.itemCount })}</span>
             </dt>
-            <dd className="font-medium text-ink">{s.subtotalLabel}</dd>
+            <dd data-testid="cart-subtotal" className="font-medium text-ink">{s.subtotalLabel}</dd>
           </div>
 
           {/* F4A — Uygulanan indirim satirlari (kupon + otomatik kampanyalar).
@@ -711,7 +711,7 @@ function CartSummary({ view, t, pending }: { view: CartViewModel; t: CartDict; p
             (mevcut disabled={pending} bagı korunur). */}
         <div className="mt-5">
           {view.checkoutReady && !pending ? (
-            <ButtonLink href="/checkout" variant="cta" className="w-full">
+            <ButtonLink href="/checkout" variant="cta" className="w-full" data-testid="checkout-cta">
               {t.checkoutCta}
             </ButtonLink>
           ) : (
