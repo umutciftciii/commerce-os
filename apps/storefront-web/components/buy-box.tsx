@@ -331,7 +331,9 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
             <span className="text-[11px] font-semibold uppercase tracking-wideish text-ink-subtle">
               {t.badges.inCart}
             </span>
-            <span className="text-2xl font-bold text-ink">{autoFinalLabel}</span>
+            <span data-testid="buybox-price" className="text-2xl font-bold text-ink">
+              {autoFinalLabel}
+            </span>
             <span className="inline-flex items-center bg-ink px-1.5 py-0.5 text-[11px] font-bold text-surface">
               {autoCampaign.discountText}
             </span>
@@ -347,7 +349,9 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
         <div className="flex items-baseline gap-2">
           {numeric ? (
             <>
-              <span className="text-2xl font-semibold text-ink">{unitPriceLabel}</span>
+              <span data-testid="buybox-price" className="text-2xl font-semibold text-ink">
+                {unitPriceLabel}
+              </span>
               {compareUnitLabel ? (
                 <span className="text-sm text-ink-subtle line-through">{compareUnitLabel}</span>
               ) : null}
@@ -575,6 +579,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
                 <button
                   key={variant.id}
                   type="button"
+                  data-testid={`variant-option-${variant.sku}`}
                   aria-pressed={active}
                   disabled={soldOut}
                   aria-disabled={soldOut || undefined}
@@ -669,6 +674,7 @@ export function BuyBox({ detail, t }: { detail: StorefrontProductDetail; t: Stor
             <Button
               variant="cta"
               className="w-full"
+              data-testid="add-to-cart"
               disabled={!canAddToCart || isPending}
               onClick={addToCart}
             >
