@@ -6287,3 +6287,18 @@ ve DOKUNULMAZ; bu iş yalnız READ/UI eklemesidir.
 
 TD-174B-3: 4-viewport gerçek-auth izole-fixture browser smoke PASS (order-detail dağılım ₺300+₺700=₺1000
 invariant · credit outstanding = issued−spent invariant · enterprise-demo PRISTINE). 6 yeni gerçek-DB test.
+
+## ADR-287 — Playwright E2E Suite as the Source-of-Truth Release Gate (TODO-176 PR1) — ACCEPTED & DEPLOYED (2026-08-09)
+
+**Karar (birebir):** *"Playwright E2E suite is the source-of-truth automated browser release gate;
+manual browser smoke is exploratory/complementary, not the primary regression mechanism."*
+
+**Bağlam:** Önceki fazlarda (TODO-174/174A/174B/175/174B.2) release gate'in browser bacağı Claude'un
+manuel 4-viewport click-through'uydu — tekrarlanabilir/deterministik değildi ve CI'da çalışmıyordu.
+**Ne kuruldu:** kök `tests/e2e/` + `playwright.config.ts`; dört proje (`setup` gerçek-login storageState,
+`smoke` 8 çekirdek akış, `responsive` küçük viewport-375/1440 subset, `prod-smoke` anonim read-only
+post-deploy); dedike izole `e2e-store` fixture (`e2e-seed.mjs`, idempotent); ayrı merge-blocking
+`.github/workflows/e2e.yml` (required-status-check `e2e / smoke`); flakiness policy (sleep yasak,
+`retries:CI?2:0`, kalıcı skip yasak); `workers:1` (paylaşılan DB-tabanlı sepet nedeniyle serileştirme —
+bilinen açık borç). PR2 kapsamı (reorder/return/refund/balance/wishlist/review/…) FUTURE. Detay:
+[ADR-287](adr/ADR-287-playwright-e2e-release-gate.md), `docs/TESTING.md`, `docs/TECHNICAL_DEBT.md`.

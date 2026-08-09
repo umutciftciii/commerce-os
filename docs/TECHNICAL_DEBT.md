@@ -2361,3 +2361,61 @@ yatay taşma yok. Fixture FK-güvenli teardown: residue=0, inventory net=0, ente
 - **TD-175-3** Return detail (`AdminReturnDetail`) `refundDestination`'ı DTO'da taşımıyor; müşteri hedefi
   RefundPanel'de OrderRefund ledger satırlarından türetiliyor. İstenirse serialize'a additive alan
   eklenip başlıkta gösterilebilir. FUTURE.
+
+## TODO-176 Playwright E2E Regression Suite — açık borç (PR1 sonrası, FUTURE)
+
+PR1 (ADR-287) yalnız altyapı + auth + 8 çekirdek smoke senaryosu + CI gate'i kapsar. Aşağıdakiler
+bilinçli olarak PR1 kapsamı DIŞINDA bırakıldı.
+
+- **TD-176-1 PR2 senaryoları — henüz Playwright kapsamında değil.** Aşağıdaki kritik akışların hiçbiri
+  `tests/e2e/` içinde henüz bir kalıcı test olarak yok (yalnız manuel/exploratory doğrulanmış olabilir):
+  reorder / BUG-CART-006 invariant (`reorder == /cart == checkout` — sipariş tekrar-ver akışının sepet
+  ve checkout ile aynı satır/qty/fiyat kimliğini üretmesi), shopping-balance-only ödeme (TODO-174B),
+  mixed balance+external ödeme, self-servis cancellation (TODO-174), return (TODO-169/171), refund
+  ORIGINAL_PAYMENT (TODO-175), refund SHOPPING_BALANCE (TODO-175), İadelerim listesi/detayı, Alışveriş
+  Bakiyem (hareket geçmişi), wishlist (TODO-159D), ürün review (TODO-159E), order-experience review
+  (TODO-174A). Bu senaryoların her biri ayrı bir plan/PR olarak (`tests/e2e/smoke/` altında yeni spec
+  dosyaları + gerekiyorsa `e2e-seed.mjs`'e additive fixture — PR1'in "yalnız ilk 8 senaryonun ihtiyacını
+  seed'e ekle" kararı gereği bugün seed'de YOK) ele alınmalı. FUTURE.
+- **TD-176-2 Per-worker cart isolation — `workers:1` paralelliği engelliyor.** `smoke`/`responsive`
+  projelerindeki tüm testler **aynı** e2e müşterisinin (`e2e-customer@example.test`) DB-tabanlı
+  (server-authoritative) sepetini paylaşır (bkz. `tests/e2e/fixtures/cart.ts`, `playwright.config.ts`
+  üstündeki yorum). `fullyParallel:false` yalnız dosya-içi sırayı garanti eder, dosyalar-arası
+  izolasyonu SAĞLAMAZ — bu yüzden `workers:1` zorunlu ve suite'i seri çalıştırır (CI süresi doğrudan
+  test sayısıyla orantılı büyür). Gerçek çözüm: her worker'a **ayrı** bir e2e müşterisi/sepet ataması
+  (ör. `e2e-customer-w{workerIndex}@example.test`, `playwright.config.ts` `testInfo.parallelIndex`
+  bazlı fixture seçimi + seed'e N müşteri eklenmesi) — bu, paralelliği yeniden açar. FUTURE.
+- **TD-176-3 `e2e-store` search read-model boş — PLP/arama prod-smoke yolları local'de skip.**
+  `e2e-seed.mjs` yalnız Prisma tablolarına yazar; arama/facet read-model'ini (TODO-154
+  `ProductSearchDocument`/`FacetValue`) besleyen backfill/worker'ı TETİKLEMEZ. Bu yüzden
+  `prod-smoke` projesindeki `E2E_PROD_CATEGORY_SLUG`/`E2E_PROD_SEARCH_TERM` kontrolleri **local**
+  `e2e-store`'a karşı koşulursa boş/uyumsuz sonuç dönebilir (bu iki kontrol PR1'de zaten opsiyonel ve
+  env tanımsızsa görünür `test.skip` ile atlanıyor — ör. `e2e-store` local koşumunda bilinçli olarak
+  tanımlanmıyor). Gerçek veriyle bu iki yolu egzersiz etmek için `e2e-seed.mjs` sonrası search backfill/
+  worker adımı eklenmeli (ör. `db:backfill-enterprise` desenine benzer bir `db:backfill-e2e`, veya
+  worker'ı seed sırasında senkron tetikleme). FUTURE.
+- **TD-176-4 Cross-browser/device matrisi (BrowserStack vb.) — FUTURE.** PR1 yalnız Desktop Chromium
+  (+ küçük responsive-viewport subset, 375/1440) koşar. Gerçek tarayıcı (Safari/Firefox) ve gerçek
+  cihaz matrisi bilinçli olarak kapsam DIŞI bırakıldı (ADR-287 Alternatifler). Değerlendirme kriteri:
+  prod'da tarayıcıya-özel bir regresyon rapor edilirse veya kullanıcı tabanı analytics'i belirli bir
+  tarayıcı/cihaz sınıfında anlamlı pay gösterirse önceliklendirilir. Aday araç: BrowserStack (veya
+  eşdeğeri) Playwright entegrasyonu. FUTURE.
+- **TD-176-5 Required-status-check governance — repo-admin adımı bekliyor.** `.github/workflows/e2e.yml`
+  eklemek onu otomatik olarak branch-protection'da **required** yapmaz. Repo admin'in, `main` branch
+  protection/ruleset'ine tam context adını **`e2e / smoke`** (workflow adı `e2e` + job adı `smoke`)
+  required-status-check olarak eklemesi gerekir — örn.:
+  ```
+  gh api repos/:owner/:repo/branches/main/protection/required_status_checks/contexts \
+    --method POST -f contexts[]='e2e / smoke'
+  ```
+  (veya repo ruleset UI/`gh api .../rulesets`). Bu adım workflow ilk kez bir PR'da çalışıp context'in
+  GitHub'da görünür hale gelmesinden SONRA yapılabilir. PR1 kapsamında bu adım YAPILMADI (repo-admin
+  yetkisi bu task'ın kapsamı dışında) — açık governance notu olarak burada takip edilir. FUTURE.
+- **TD-176-6 Console-error assertion — `next dev` HMR/hydration gürültüsüne karşı kırılgan olabilir.**
+  Smoke testlerindeki `expect(errors).toEqual([])` / `not.toContainText(raw enum)` kontrolleri gerçek
+  `next dev` (host :3100 local, `storefront-web-e2e` CI) sunucusuna karşı koşar — production build
+  değil. Eğer CI'da HMR/hydration kaynaklı benign console/page hatası flaky bir kırmızıya yol açarsa,
+  `tests/e2e/fixtures/` altına bir "bilinen-benign pattern allowlist" yardımcı fonksiyonu (ör.
+  `isBenignDevError(message)`) eklenip yalnız gerçek hatalar assert edilmeli — bugün böyle bir filtre
+  YOK (ham `errors.length === 0` / `toEqual([])`). Şu ana kadar (PR1 gate koşumlarında) gözlemlenmedi;
+  gözlemlenirse eklenecek. FUTURE.

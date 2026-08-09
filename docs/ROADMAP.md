@@ -1595,3 +1595,28 @@ Kararlar: ADR-279 (order experience review) · ADR-280 (refund origin & unified 
 `docs/DECISIONS.md`.
 
 **CLOSED & DEPLOYED (2026-08-07):** PR #192 (merge `43f4e6b`); CI 6m2s PASS. Deploy: api-gateway + storefront-web + store-admin-web main'den rebuild+recreate (bağımlılıklar dokunulmadı); migration deployed DB'de zaten canlı. Post-deploy smoke deployed :4000: müşteri+admin birleşik listeler + kaynak filtresi + order-experience uygunluk yeşil; web app'ler 307. enterprise-demo pristine.
+
+## Playwright E2E Regression Suite — PR1 SHIPPED (TODO-176, 2026-08-09)
+
+Manuel browser smoke'un release gate'in **ana** mekanizması olmaktan çıkarılması: repo-içi kalıcı
+Playwright E2E paketi (kök `tests/e2e/` + kökte `playwright.config.ts`). Dört proje: `setup` (gerçek
+UI login → storageState), `smoke` (Desktop Chromium, `@smoke`, 8 çekirdek akış), `responsive`
+(`@responsive`, viewport 375/1440, küçük kritik subset), `prod-smoke` (`@prod-smoke`, anonim,
+read-only, post-deploy hedef ortama karşı, fail-loud config — `E2E_PROD_PRODUCT_SLUG` zorunlu).
+Dedike izole `e2e-store` fixture'ı (`packages/db/scripts/e2e-seed.mjs`, idempotent, `APP_ENV` guard'lı);
+enterprise-demo'ya dokunulmaz. Local'de storefront host `next dev --port 3100` (`pnpm e2e:storefront`,
+worktree kodu) servis eder — docker `storefront-web` servisi kaynağı volume mount etmediği için worktree
+değişiklikleri o servise yansımaz; CI'da aynı rolü branch checkout'undan build eden
+`storefront-web-e2e` (`infra/docker/docker-compose.e2e.yml`) görür. Merge-blocking CI gate: ayrı
+`.github/workflows/e2e.yml`, required-status-check context `e2e / smoke`. Flakiness policy: sleep
+yasak (web-first `expect`), `retries: CI?2:0`, kalıcı skip yasak; `workers:1` (paylaşılan DB-tabanlı
+e2e müşteri sepeti nedeniyle dosyalar-arası serileştirme — bilinen açık borç, bkz.
+`docs/TECHNICAL_DEBT.md`). Karar: [ADR-287](adr/ADR-287-playwright-e2e-release-gate.md). Kullanım
+kılavuzu: `docs/TESTING.md`.
+
+**PR1 SHIPPED (2026-08-09):** altyapı + auth + 8 çekirdek smoke senaryosu (auth/session · PDP variant ·
+add-to-cart · cart badge · cart persistence · coupon apply/remove+repricing · cart→checkout canonical
+identity · order list/detail) + responsive subset + prod-smoke + CI gate + docs. **PR2 (FUTURE):**
+reorder/BUG-CART-006 invariant, shopping-balance/mixed ödeme, cancellation, return, refund
+(ORIGINAL_PAYMENT/SHOPPING_BALANCE), İadelerim, Alışveriş Bakiyem, wishlist, ürün review,
+order-experience review — bkz. `docs/TECHNICAL_DEBT.md`.
