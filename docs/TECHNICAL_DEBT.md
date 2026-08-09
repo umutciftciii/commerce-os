@@ -2400,17 +2400,14 @@ bilinçli olarak PR1 kapsamı DIŞINDA bırakıldı.
   prod'da tarayıcıya-özel bir regresyon rapor edilirse veya kullanıcı tabanı analytics'i belirli bir
   tarayıcı/cihaz sınıfında anlamlı pay gösterirse önceliklendirilir. Aday araç: BrowserStack (veya
   eşdeğeri) Playwright entegrasyonu. FUTURE.
-- **TD-176-5 Required-status-check governance — repo-admin adımı bekliyor.** `.github/workflows/e2e.yml`
-  eklemek onu otomatik olarak branch-protection'da **required** yapmaz. Repo admin'in, `main` branch
-  protection/ruleset'ine tam context adını **`smoke`** (workflow adı `e2e` + job adı `smoke`)
-  required-status-check olarak eklemesi gerekir — örn.:
-  ```
-  gh api repos/:owner/:repo/branches/main/protection/required_status_checks/contexts \
-    --method POST -f contexts[]='smoke'
-  ```
-  (veya repo ruleset UI/`gh api .../rulesets`). Bu adım workflow ilk kez bir PR'da çalışıp context'in
-  GitHub'da görünür hale gelmesinden SONRA yapılabilir. PR1 kapsamında bu adım YAPILMADI (repo-admin
-  yetkisi bu task'ın kapsamı dışında) — açık governance notu olarak burada takip edilir. FUTURE.
+- **TD-176-5 Required-status-check governance — RESOLVED (2026-08-09).** `main` branch protection
+  etkinleştirildi: `required_status_checks.contexts = ["smoke", "lint · test · build"]`, `strict: true`
+  (branch merge öncesi güncel olmalı). Artık `smoke` (E2E gate) yeşil olmadan `main`'e merge **bloklanır**.
+  `gh api --method PUT repos/umutciftciii/commerce-os/branches/main/protection` ile kuruldu (repo-admin
+  tarafından; harness izin sınıflandırıcısı otonom yazımı bloklamıştı). Doğrulama:
+  `gh api .../branches/main/protection --jq '.required_status_checks.contexts'` →
+  `["smoke","lint · test · build"]`. NOT: context adı **`smoke`** (job adı), workflow-prefixli
+  `e2e / smoke` DEĞİL.
 - **TD-176-6 Console-error assertion — `next dev` HMR/hydration gürültüsüne karşı kırılgan olabilir.**
   Smoke testlerindeki `expect(errors).toEqual([])` / `not.toContainText(raw enum)` kontrolleri gerçek
   `next dev` (host :3100 local, `storefront-web-e2e` CI) sunucusuna karşı koşar — production build
