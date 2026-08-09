@@ -6,11 +6,27 @@ import { afterEach, describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { prisma } from "@commerce-os/db";
 import { createOrderExperienceReview } from "../src/order-experience/service.js";
-import { applyRecoveryAction, openRecoveryCaseForReview } from "../src/order-experience/recovery-service.js";
-import { experienceKpi, getRecoveryCaseDetail, listExperienceReviews, resolveReviewForManualCase } from "../src/order-experience/recovery-read.js";
+import {
+  applyRecoveryAction,
+  backfillMissingRecoveryCasesForStore,
+  openRecoveryCaseForReview,
+} from "../src/order-experience/recovery-service.js";
+import { experienceKpi, getRecoveryCaseDetail, listAssignableUsers, listExperienceReviews, resolveReviewForManualCase } from "../src/order-experience/recovery-read.js";
 
 const hasTestDb = Boolean(process.env.DATABASE_URL);
 const created: string[] = [];
+const createdUsers: string[] = [];
+
+async function seedPlatformUser(name: string | null): Promise<{ id: string; email: string }> {
+  const sfx = randomUUID().slice(0, 12);
+  const email = `pu-${sfx}@e.test`;
+  const u = await prisma.platformUser.create({
+    data: { email, name, passwordHash: "x", role: "SUPPORT_ADMIN" },
+    select: { id: true, email: true },
+  });
+  createdUsers.push(u.id);
+  return u;
+}
 
 async function seedOrder(): Promise<{ storeId: string; customerId: string; orderId: string }> {
   const sfx = randomUUID().slice(0, 12);
@@ -33,6 +49,41 @@ async function review(f: { storeId: string; customerId: string; orderId: string 
 describe.skipIf(!hasTestDb)("Order Experience Recovery (integration)", () => {
   afterEach(async () => {
     for (const storeId of created.splice(0)) await prisma.store.delete({ where: { id: storeId } }).catch(() => {});
+    for (const uid of createdUsers.splice(0)) await prisma.platformUser.delete({ where: { id: uid } }).catch(() => {});
+  });
+
+  it("ASSIGN 'me' → gerçek actor id'ye çözülür (literal 'me' yazılmaz)", async () => {
+    const f = await seedOrder();
+    const r = await review(f, 1);
+    const kase = await prisma.orderRecoveryCase.findUniqueOrThrow({ where: { orderExperienceReviewId: r.id }, select: { id: true } });
+    const res = await applyRecoveryAction({
+      storeId: f.storeId, caseId: kase.id, action: "ASSIGN", actorPlatformUserId: "pu-actor-xyz", assigneePlatformUserId: "me",
+    });
+    expect(res.ok).toBe(true);
+    const after = await prisma.orderRecoveryCase.findUniqueOrThrow({ where: { id: kase.id }, select: { assigneePlatformUserId: true } });
+    expect(after.assigneePlatformUserId).toBe("pu-actor-xyz");
+  });
+
+  it("assignee join: detail assigneeName/assigneeEmail döner (ham id sızmaz)", async () => {
+    const f = await seedOrder();
+    const u = await seedPlatformUser("Ada Yönetici");
+    const r = await review(f, 1);
+    const kase = await prisma.orderRecoveryCase.findUniqueOrThrow({ where: { orderExperienceReviewId: r.id }, select: { id: true } });
+    await applyRecoveryAction({ storeId: f.storeId, caseId: kase.id, action: "ASSIGN", actorPlatformUserId: u.id, assigneePlatformUserId: u.id });
+    const detail = await getRecoveryCaseDetail(f.storeId, kase.id);
+    expect(detail?.assigneePlatformUserId).toBe(u.id);
+    expect(detail?.assigneeName).toBe("Ada Yönetici");
+    expect(detail?.assigneeEmail).toBe(u.email);
+  });
+
+  it("list: assignee join → row.recovery.assigneeName (ham id sızmaz)", async () => {
+    const f = await seedOrder();
+    const u = await seedPlatformUser("Bora Uzman");
+    const r = await review(f, 1);
+    const kase = await prisma.orderRecoveryCase.findUniqueOrThrow({ where: { orderExperienceReviewId: r.id }, select: { id: true } });
+    await applyRecoveryAction({ storeId: f.storeId, caseId: kase.id, action: "ASSIGN", actorPlatformUserId: u.id, assigneePlatformUserId: u.id });
+    const list = await listExperienceReviews(f.storeId, {}, { skip: 0, take: 20 });
+    expect(list.rows[0]?.recovery?.assigneeName).toBe("Bora Uzman");
   });
 
   it("1★ review → otomatik case OPEN, priority HIGH", async () => {
@@ -113,6 +164,51 @@ describe.skipIf(!hasTestDb)("Order Experience Recovery (integration)", () => {
     if (!otherNoNote.ok) expect(otherNoNote.code).toBe("NOTE_REQUIRED");
   });
 
+  it("detail: telefon + sipariş finansal özet (total/currency/paymentStatus/kredi) + goodwill alanı", async () => {
+    const sfx = randomUUID().slice(0, 12);
+    const storeId = `rec-store-${sfx}`;
+    const customerId = `rec-cust-${sfx}`;
+    const orderId = `rec-ord-${sfx}`;
+    await prisma.store.create({ data: { id: storeId, name: `Rec ${sfx}`, slug: `rec-${sfx}` } });
+    await prisma.customer.create({
+      data: { id: customerId, storeId, email: `rec-${sfx}@e.test`, firstName: "Rec", lastName: "User", phone: "+905551112233" },
+    });
+    await prisma.order.create({
+      data: {
+        id: orderId, storeId, orderNumber: `OS-${sfx}`, customerId, customerEmail: `rec-${sfx}@e.test`,
+        currency: "TRY", status: "CANCELLED", totalAmount: 15000, paymentStatus: "PARTIALLY_REFUNDED", shoppingCreditUsedMinor: 2000n,
+      },
+    });
+    created.push(storeId);
+    const r = await createOrderExperienceReview({ storeId, orderId, customerId, rating: 1, comment: null });
+    const kase = await prisma.orderRecoveryCase.findUniqueOrThrow({ where: { orderExperienceReviewId: r.id }, select: { id: true } });
+
+    const detail = await getRecoveryCaseDetail(storeId, kase.id);
+    expect(detail?.customer.phone).toBe("+905551112233");
+    expect(detail?.order.totalMinor).toBe(15000);
+    expect(detail?.order.currency).toBe("TRY");
+    expect(detail?.order.paymentStatus).toBe("PARTIALLY_REFUNDED");
+    expect(detail?.order.shoppingCreditUsedMinor).toBe("2000");
+    expect(detail?.goodwillCreditMinor).toBe("0"); // henüz goodwill kredisi yok
+  });
+
+  it("assignable users: store'un StoreUser'ları isimle listelenir; cross-store izole", async () => {
+    const f = await seedOrder();
+    const u1 = await seedPlatformUser("Cem Yetkili");
+    const u2 = await seedPlatformUser("Deniz Diğer");
+    await prisma.storeUser.create({ data: { storeId: f.storeId, userId: u1.id, role: "MANAGER" } });
+    const f2 = await seedOrder();
+    await prisma.storeUser.create({ data: { storeId: f2.storeId, userId: u2.id, role: "STAFF" } });
+
+    const users = await listAssignableUsers(f.storeId);
+    expect(users.length).toBe(1);
+    expect(users[0]?.id).toBe(u1.id);
+    expect(users[0]?.name).toBe("Cem Yetkili");
+    expect(users[0]?.role).toBe("MANAGER");
+    // Diğer store'un kullanıcısı sızmaz.
+    expect(users.find((u) => u.id === u2.id)).toBeUndefined();
+  });
+
   it("SLA overdue: dueAt geçmiş → overdueOnly listeler + KPI sayar", async () => {
     const f = await seedOrder();
     const r = await review(f, 1);
@@ -124,6 +220,58 @@ describe.skipIf(!hasTestDb)("Order Experience Recovery (integration)", () => {
     expect(kpi.slaOverdueCount).toBe(1);
     expect(kpi.averageRating).toBe(1);
     expect(kpi.totalReviews).toBe(1);
+  });
+
+  it("backfill: case'siz 1★ review → case oluşur (openedAt=review.createdAt, HIGH), idempotent", async () => {
+    const f = await seedOrder();
+    // Root-cause simülasyonu: auto-case eklenmeden önce girilmiş review (case açan servisi ATLA).
+    const past = new Date(Date.now() - 5 * 24 * 3600_000);
+    const orphan = await prisma.orderExperienceReview.create({
+      data: { storeId: f.storeId, orderId: f.orderId, customerId: f.customerId, rating: 1, createdAt: past },
+      select: { id: true },
+    });
+    expect(await prisma.orderRecoveryCase.count({ where: { orderExperienceReviewId: orphan.id } })).toBe(0);
+
+    const res = await backfillMissingRecoveryCasesForStore(f.storeId, { apply: true });
+    expect(res.created).toBe(1);
+    expect(res.scanned).toBe(1);
+
+    const kase = await prisma.orderRecoveryCase.findUniqueOrThrow({
+      where: { orderExperienceReviewId: orphan.id },
+      select: { status: true, priority: true, openedAt: true, dueAt: true },
+    });
+    expect(kase.status).toBe("OPEN");
+    expect(kase.priority).toBe("HIGH");
+    // openedAt review.createdAt'ten türetilmeli (backfill anı değil) → SLA gerçek şikâyet zamanından.
+    expect(kase.openedAt.getTime()).toBe(past.getTime());
+    // HIGH → 24s SLA; dueAt = openedAt + 24s (geçmişte → overdue).
+    expect(kase.dueAt.getTime()).toBe(past.getTime() + 24 * 3600_000);
+
+    // Idempotent: ikinci çalıştırma yeni case üretmez.
+    const again = await backfillMissingRecoveryCasesForStore(f.storeId, { apply: true });
+    expect(again.created).toBe(0);
+  });
+
+  it("backfill dry-run: apply=false → yazma yok; 4-5★/3★ atlanır", async () => {
+    const f = await seedOrder();
+    const orphan2 = await prisma.orderExperienceReview.create({
+      data: { storeId: f.storeId, orderId: f.orderId, customerId: f.customerId, rating: 2 },
+      select: { id: true },
+    });
+    // dry-run: aday sayılır ama yazılmaz.
+    const dry = await backfillMissingRecoveryCasesForStore(f.storeId, { apply: false });
+    expect(dry.scanned).toBe(1);
+    expect(dry.created).toBe(0);
+    expect(await prisma.orderRecoveryCase.count({ where: { orderExperienceReviewId: orphan2.id } })).toBe(0);
+
+    // 4-5★ ve 3★ review'lar backfill kapsamı DIŞI (case gerekmez / manuel).
+    const f2 = await seedOrder();
+    await prisma.orderExperienceReview.create({
+      data: { storeId: f2.storeId, orderId: f2.orderId, customerId: f2.customerId, rating: 5 },
+    });
+    const res2 = await backfillMissingRecoveryCasesForStore(f2.storeId, { apply: true });
+    expect(res2.scanned).toBe(0);
+    expect(res2.created).toBe(0);
   });
 
   it("liste rating bucket filtresi (1-2★) + case'siz 4-5★ görünür", async () => {

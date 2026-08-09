@@ -68,6 +68,8 @@ export async function openRecoveryCaseForReview(
     rating: number;
     mode: "AUTO" | "MANUAL";
     createdByPlatformUserId?: string | null;
+    /** Backfill için: SLA'yı gerçek şikâyet (review) zamanından başlat. Yoksa şimdi. */
+    openedAt?: Date;
   },
 ): Promise<{ id: string; created: boolean } | null> {
   // AUTO yalnız 1-2★; MANUAL yalnız 3★ (4-5★ hiçbir modda case açmaz).
@@ -81,7 +83,7 @@ export async function openRecoveryCaseForReview(
   if (existing) return { id: existing.id, created: false };
 
   const priority = priorityForRating(input.rating);
-  const openedAt = new Date();
+  const openedAt = input.openedAt ?? new Date();
   try {
     const kase = await tx.orderRecoveryCase.create({
       data: {
@@ -109,6 +111,43 @@ export async function openRecoveryCaseForReview(
     }
     throw err;
   }
+}
+
+/**
+ * Backfill: `createOrderExperienceReview` (review-submit) auto-case açan `openRecoveryCaseForReview`'den
+ * ÖNCE deploy edildiği için arada girmiş 1-2★ review'lar case'siz kaldı. Bu fonksiyon o orphan'ları
+ * onarır. Idempotent (@@unique(orderExperienceReviewId) + openRecoveryCaseForReview mevcut case'i döner);
+ * tekrar çalıştırmak yeni case üretmez. SLA gerçek şikâyet zamanından hesaplanır (openedAt=review.createdAt).
+ * 3★ (manuel) ve 4-5★ (case gerekmez) kapsam DIŞI. storeId-scoped. apply=false → yalnız aday sayımı.
+ */
+export async function backfillMissingRecoveryCasesForStore(
+  storeId: string,
+  opts: { apply: boolean; createdByPlatformUserId?: string | null },
+): Promise<{ scanned: number; created: number; skipped: number }> {
+  const orphans = await prisma.orderExperienceReview.findMany({
+    where: { storeId, rating: { lte: 2 }, recoveryCase: { is: null } },
+    select: { id: true, customerId: true, orderId: true, rating: true, createdAt: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!opts.apply) return { scanned: orphans.length, created: 0, skipped: orphans.length };
+
+  let created = 0;
+  for (const r of orphans) {
+    const res = await prisma.$transaction((tx) =>
+      openRecoveryCaseForReview(tx, {
+        storeId,
+        orderExperienceReviewId: r.id,
+        customerId: r.customerId,
+        orderId: r.orderId,
+        rating: r.rating,
+        mode: "AUTO",
+        openedAt: r.createdAt,
+        createdByPlatformUserId: opts.createdByPlatformUserId ?? null,
+      }),
+    );
+    if (res?.created) created += 1;
+  }
+  return { scanned: orphans.length, created, skipped: orphans.length - created };
 }
 
 // ---------------------------------------------------------------------------
@@ -196,7 +235,11 @@ export async function applyRecoveryAction(input: RecoveryActionInput): Promise<R
       updatedByPlatformUserId: input.actorPlatformUserId,
     };
     if (nextStatus) data.status = nextStatus;
-    if (input.action === "ASSIGN") data.assigneePlatformUserId = input.assigneePlatformUserId;
+    if (input.action === "ASSIGN") {
+      // "me" sentinel'i (frontend "Kendime ata") → gerçek aktör id. Diğer id'ler olduğu gibi (kullanıcıya ata).
+      data.assigneePlatformUserId =
+        input.assigneePlatformUserId === "me" ? input.actorPlatformUserId : input.assigneePlatformUserId;
+    }
     if ((input.action === "CONTACT_CALL" || input.action === "CONTACT_EMAIL") && !kase.firstContactAt) {
       data.firstContactAt = now;
     }

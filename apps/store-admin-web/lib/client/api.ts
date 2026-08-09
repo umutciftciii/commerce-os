@@ -307,6 +307,7 @@ import type {
   // TODO-174B — Order Experience Recovery + Store Credit.
   ExperienceListResponse,
   ExperienceKpiDto,
+  AssignableUser,
   RecoveryCaseDetailDto,
   RecoveryActionRequest,
   ManualOpenCaseRequest,
@@ -1840,6 +1841,8 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  // TODO-174B.2 — "Kullanıcıya ata" için store'un yetkili kullanıcıları.
+  listAssignableUsers: () => call<AssignableUser[]>("/api/order-experience/assignable-users"),
   // TD-174B-2 — Recovery raporu (trend + zamanlama + outcome + goodwill).
   getRecoveryReport: (query?: FinanceReportParams) =>
     call<RecoveryReportDto>(`/api/order-experience/report${financeQueryString(query)}`),

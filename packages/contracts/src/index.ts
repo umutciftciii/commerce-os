@@ -1943,11 +1943,21 @@ export const experienceListRowSchema = z.object({
       status: recoveryCaseStatusSchema,
       priority: recoveryPrioritySchema,
       assigneePlatformUserId: z.string().nullable(),
+      assigneeName: z.string().nullable(),
       dueAt: z.string(),
       overdue: z.boolean(),
     })
     .nullable(),
 });
+
+/** "Kullanıcıya ata" dropdown'u — store'un yetkili kullanıcıları (name = ad veya email; ham id UI'a çıkmaz). */
+export const assignableUserSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  email: z.string(),
+  role: z.string(),
+});
+export const assignableUsersResponseSchema = z.array(assignableUserSchema);
 export const experienceListResponseSchema = z.object({
   rows: z.array(experienceListRowSchema),
   total: z.number().int().nonnegative(),
@@ -1980,6 +1990,8 @@ export const recoveryCaseDetailSchema = z.object({
   priority: recoveryPrioritySchema,
   version: z.number().int(),
   assigneePlatformUserId: z.string().nullable(),
+  assigneeName: z.string().nullable(),
+  assigneeEmail: z.string().nullable(),
   openedAt: z.string(),
   firstContactAt: z.string().nullable(),
   dueAt: z.string(),
@@ -1988,9 +2000,19 @@ export const recoveryCaseDetailSchema = z.object({
   closedAt: z.string().nullable(),
   resolutionType: z.string().nullable(),
   resolutionNote: z.string().nullable(),
+  goodwillCreditMinor: canonicalMinorAmountString,
   review: z.object({ id: z.string(), rating: z.number().int(), comment: z.string().nullable(), createdAt: z.string() }),
-  order: z.object({ id: z.string(), orderNumber: z.string(), status: z.string(), cancelReasonCode: z.string().nullable() }),
-  customer: z.object({ id: z.string(), name: z.string(), email: z.string() }),
+  order: z.object({
+    id: z.string(),
+    orderNumber: z.string(),
+    status: z.string(),
+    cancelReasonCode: z.string().nullable(),
+    totalMinor: z.number().int(),
+    currency: z.string(),
+    paymentStatus: z.string(),
+    shoppingCreditUsedMinor: canonicalMinorAmountString,
+  }),
+  customer: z.object({ id: z.string(), name: z.string(), email: z.string(), phone: z.string().nullable() }),
   activities: z.array(recoveryActivitySchema),
 });
 
@@ -2089,6 +2111,7 @@ export type CreditReportDto = z.infer<typeof creditReportSchema>;
 
 export type ExperienceListResponse = z.infer<typeof experienceListResponseSchema>;
 export type ExperienceListRow = z.infer<typeof experienceListRowSchema>;
+export type AssignableUser = z.infer<typeof assignableUserSchema>;
 export type ExperienceKpiDto = z.infer<typeof experienceKpiSchema>;
 export type RecoveryCaseDetailDto = z.infer<typeof recoveryCaseDetailSchema>;
 export type RecoveryActivityDto = z.infer<typeof recoveryActivitySchema>;
