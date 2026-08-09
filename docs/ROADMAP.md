@@ -1662,3 +1662,12 @@ BFF **waterfall**'ı (gateway span 1–1.7 s; her uç 4–120 ms ama sıralı). 
 `perf` Playwright projesi (`@perf`, `pnpm e2e:perf`) kaba wall-clock regresyon muhafızı (median,
 warm-up, 6000 ms bütçe). Kalan spike = Docker RAM (TD-200, GUI ayarı). Detay:
 [PERF-001](analysis/PERF-001-navigation-latency.md).
+
+**CLOSED & DEPLOYED (2026-08-10; PR #210 merge `c3c7305`):** Gate tam yeşil (typecheck · lint · build
+27/27 · unit Run1+Run2 4193/4193 · perf guard) + CI required `lint · test · build` + `smoke`/`admin-smoke`
+GREEN. İlk CI'da PERF-001 ile İLGİSİZ tarih-bağımlı flake (`recovery-labels.test.ts` DUE_TODAY, UTC
+gün-sınırı) deterministik hale getirildi (test-only). Deploy: docker `storefront-web` main'den
+rebuild+recreate (`depends_on` nedeniyle api-gateway aynı kodla recreate; worker/postgres/redis/admin-web
+DOKUNULMADI). Post-deploy safe smoke: home/PLP/PDP 200 + içerik render; **warm PLP median 1.35 s, PDP
+1.54 s** (admin-web açık gerçekçi tam-stack; baseline ~2.08 s). admin-web artık `platform` compose
+profilinde (varsayılan `up` başlatmaz). Kalan spike → Docker RAM ≥12 GiB (TD-200).

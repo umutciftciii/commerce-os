@@ -2903,3 +2903,9 @@ Storefront layout/PLP/PDP BFF waterfall'ı `Promise.all` ile paralelleştirildi 
 A/B ile kanıtlı). Non-required `perf` Playwright projesi (`@perf`, median + warm-up + 6000 ms bütçe)
 eklendi. Turbopack ölçülüp reddedildi (warm eş, cold daha kötü). Kalan = Docker RAM ≥12 GiB (TD-200).
 Detay: `docs/analysis/PERF-001-navigation-latency.md`.
+
+**CLOSED & DEPLOYED (2026-08-10; PR #210 merge `c3c7305`):** local gate + CI `lint · test · build` +
+`smoke`/`admin-smoke` green. Deploy: `storefront-web` main'den rebuild+recreate. Post-deploy warm PLP
+median 1.35 s / PDP 1.54 s (gerçek tarayıcı PLP→PDP tıklama ~957 ms). İlgisiz pre-existing SLA flake
+(recovery-labels) deterministik yapıldı. Kalan = Docker RAM (TD-200). Detay:
+`docs/analysis/PERF-001-navigation-latency.md`.
