@@ -32,6 +32,6 @@ for (const vp of [
     await page.getByTestId("add-to-cart").click();
 
     // Is sonucu: rozet sepete eklenen tek kalemi yansitir (viewporttan bagimsiz).
-    await expect(page.getByTestId("cart-badge")).toHaveText(/1/);
+    await expect(page.getByTestId("cart-badge")).toHaveText("1");
   });
 }

@@ -14,8 +14,8 @@ import { test, expect, ids } from "../fixtures/test-base";
  *
  * "Ham enum sızmadı" kontrolü: durum rozetleri (order-badges.tsx) i18n label'larından
  * render edilir (statusValues/paymentValues/fulfillmentDisplay, packages/i18n/src/locales/*),
- * bu yüzden body'de ham PAID/PENDING/UNPAID/FULFILLED/UNFULFILLED/CANCELLED/DRAFT enum
- * değerleri GÖRÜNMEMELİDİR.
+ * bu yüzden body'de ham OrderStatus/PaymentStatus/FulfillmentStatus/ShipmentStatus (schema.prisma)
+ * enum değerleri GÖRÜNMEMELİDİR — seed siparişinin kendi status'u (PLACED) dahil.
  */
 
 test("@smoke seeded order appears in list and detail renders correctly", async ({ page }) => {
@@ -28,13 +28,15 @@ test("@smoke seeded order appears in list and detail renders correctly", async (
   await item.locator(`a[href^="/account/orders/"]`).click();
   await expect(page).toHaveURL(new RegExp(`/account/orders/${ids.seedOrderNumber}$`));
 
-  // Seed: tam 1 kalem (e2e-mug).
+  // Seed: tam 1 kalem (e2e-mug, adet 1, ₺50,00) → toplam da ₺50,00 (kargo/vergi yok).
   await expect(page.getByTestId("order-detail-line")).toHaveCount(1);
   await expect(page.getByText(new RegExp(ids.simpleProduct.title, "i"))).toBeVisible();
-  await expect(page.getByTestId("order-detail-total")).toBeVisible();
+  await expect(page.getByTestId("order-detail-total")).toContainText("50,00");
 
-  // Ham enum sızmamalı — durum yalnız çevrilmiş (Türkçe) etiketle görünür.
+  // Ham enum sızmamalı — durum yalnız çevrilmiş (Türkçe) etiketle görünür. Seed siparişi
+  // PLACED/PAID/UNFULFILLED taşır (kargo kaydı yok) — PLACED dahil edilerek guard'ın
+  // gerçekten bu siparişin kendi status'unu da denetlediği garanti edilir.
   await expect(page.locator("body")).not.toContainText(
-    /\b(PAID|PENDING|UNPAID|FULFILLED|UNFULFILLED|CANCELLED|DRAFT)\b/,
+    /\b(PAID|PENDING|UNPAID|FULFILLED|UNFULFILLED|CANCELLED|DRAFT|PLACED|CONFIRMED|PARTIAL|DELIVERED|RETURNED)\b/,
   );
 });
