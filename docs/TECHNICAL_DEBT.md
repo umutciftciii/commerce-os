@@ -2402,11 +2402,11 @@ bilinçli olarak PR1 kapsamı DIŞINDA bırakıldı.
   eşdeğeri) Playwright entegrasyonu. FUTURE.
 - **TD-176-5 Required-status-check governance — repo-admin adımı bekliyor.** `.github/workflows/e2e.yml`
   eklemek onu otomatik olarak branch-protection'da **required** yapmaz. Repo admin'in, `main` branch
-  protection/ruleset'ine tam context adını **`e2e / smoke`** (workflow adı `e2e` + job adı `smoke`)
+  protection/ruleset'ine tam context adını **`smoke`** (workflow adı `e2e` + job adı `smoke`)
   required-status-check olarak eklemesi gerekir — örn.:
   ```
   gh api repos/:owner/:repo/branches/main/protection/required_status_checks/contexts \
-    --method POST -f contexts[]='e2e / smoke'
+    --method POST -f contexts[]='smoke'
   ```
   (veya repo ruleset UI/`gh api .../rulesets`). Bu adım workflow ilk kez bir PR'da çalışıp context'in
   GitHub'da görünür hale gelmesinden SONRA yapılabilir. PR1 kapsamında bu adım YAPILMADI (repo-admin

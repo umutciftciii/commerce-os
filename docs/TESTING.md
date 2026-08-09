@@ -130,7 +130,7 @@ enterprise-demo (:3000) hiçbir E2E adımında dokunulmaz.
    video). `tests/e2e/.auth/` (gerçek oturum cookie'si — secret) ve env **asla** artifact'a girmez.
 10. `if: always()` cleanup: `pnpm db:cleanup-e2e` + `docker compose ... down -v` (best-effort).
 
-**Required status check:** context adı **`e2e / smoke`** (workflow adı `e2e` + job adı `smoke`). Bu
+**Required status check:** context adı **`smoke`** (workflow adı `e2e` + job adı `smoke`). Bu
 workflow'u eklemek onu otomatik olarak branch-protection'da required yapmaz — repo-admin ayrı bir adımda
 main branch protection/ruleset'ine bu context'i eklemelidir (bkz. `docs/TECHNICAL_DEBT.md`
 "required-status-check governance").

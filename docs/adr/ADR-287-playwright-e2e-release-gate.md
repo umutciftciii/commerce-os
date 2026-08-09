@@ -1,6 +1,6 @@
 # ADR-287 — Playwright E2E Suite as the Source-of-Truth Release Gate (TODO-176 PR1)
 
-**Durum:** ACCEPTED & DEPLOYED (2026-08-09; PR1; TODO-176; PR #205 merge `9a1eca9`; CI `e2e / smoke` green; post-deploy prod-smoke green).
+**Durum:** ACCEPTED & DEPLOYED (2026-08-09; PR1; TODO-176; PR #205 merge `9a1eca9`; CI `smoke` green; post-deploy prod-smoke green).
 
 **İlişkili:** `docs/TESTING.md` (kullanım kılavuzu), `tests/e2e/README.md` (quickstart),
 `docs/superpowers/specs/2026-08-09-todo-176-e2e-regression-suite-design.md` (tasarım spec).
@@ -47,7 +47,7 @@ Somut olarak:
 3. **Auth gerçek.** Bypass/sahte session yok — `auth.setup.ts` gerçek login formunu kullanır, gerçek
    `commerce_os_customer_session` cookie'sini storageState'e yakalar.
 4. **CI merge-blocking.** Ayrı `.github/workflows/e2e.yml`, job `smoke`; kendi required-status-check
-   context'i (`e2e / smoke`). Başarısızlık artifact'i (playwright-report + test-results) yükler,
+   context'i (`smoke`). Başarısızlık artifact'i (playwright-report + test-results) yükler,
    `.auth/` asla yüklenmez.
 5. **Manuelin rolü daralır, kaybolmaz.** Manuel browser smoke **exploratory/complementary** kalır:
    yeni/karmaşık UX'te ilk-elden doğrulama, Playwright'in henüz kapsamadığı köşe durumlarını keşfetme.

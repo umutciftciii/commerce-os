@@ -1608,13 +1608,13 @@ enterprise-demo'ya dokunulmaz. Local'de storefront host `next dev --port 3100` (
 worktree kodu) servis eder — docker `storefront-web` servisi kaynağı volume mount etmediği için worktree
 değişiklikleri o servise yansımaz; CI'da aynı rolü branch checkout'undan build eden
 `storefront-web-e2e` (`infra/docker/docker-compose.e2e.yml`) görür. Merge-blocking CI gate: ayrı
-`.github/workflows/e2e.yml`, required-status-check context `e2e / smoke`. Flakiness policy: sleep
+`.github/workflows/e2e.yml`, required-status-check context `smoke`. Flakiness policy: sleep
 yasak (web-first `expect`), `retries: CI?2:0`, kalıcı skip yasak; `workers:1` (paylaşılan DB-tabanlı
 e2e müşteri sepeti nedeniyle dosyalar-arası serileştirme — bilinen açık borç, bkz.
 `docs/TECHNICAL_DEBT.md`). Karar: [ADR-287](adr/ADR-287-playwright-e2e-release-gate.md). Kullanım
 kılavuzu: `docs/TESTING.md`.
 
-**PR1 CLOSED & DEPLOYED (2026-08-09; PR #205 merge `9a1eca9`; CI `e2e / smoke` green; post-deploy prod-smoke green — home `<title>` fix canlı doğrulandı):** altyapı + auth + 8 çekirdek smoke senaryosu (auth/session · PDP variant ·
+**PR1 CLOSED & DEPLOYED (2026-08-09; PR #205 merge `9a1eca9`; CI `smoke` green; post-deploy prod-smoke green — home `<title>` fix canlı doğrulandı):** altyapı + auth + 8 çekirdek smoke senaryosu (auth/session · PDP variant ·
 add-to-cart · cart badge · cart persistence · coupon apply/remove+repricing · cart→checkout canonical
 identity · order list/detail) + responsive subset + prod-smoke + CI gate + docs. **PR2 (FUTURE):**
 reorder/BUG-CART-006 invariant, shopping-balance/mixed ödeme, cancellation, return, refund

@@ -6298,7 +6298,7 @@ manuel 4-viewport click-through'uydu — tekrarlanabilir/deterministik değildi 
 **Ne kuruldu:** kök `tests/e2e/` + `playwright.config.ts`; dört proje (`setup` gerçek-login storageState,
 `smoke` 8 çekirdek akış, `responsive` küçük viewport-375/1440 subset, `prod-smoke` anonim read-only
 post-deploy); dedike izole `e2e-store` fixture (`e2e-seed.mjs`, idempotent); ayrı merge-blocking
-`.github/workflows/e2e.yml` (required-status-check `e2e / smoke`); flakiness policy (sleep yasak,
+`.github/workflows/e2e.yml` (required-status-check `smoke`); flakiness policy (sleep yasak,
 `retries:CI?2:0`, kalıcı skip yasak); `workers:1` (paylaşılan DB-tabanlı sepet nedeniyle serileştirme —
 bilinen açık borç). PR2 kapsamı (reorder/return/refund/balance/wishlist/review/…) FUTURE. Detay:
 [ADR-287](adr/ADR-287-playwright-e2e-release-gate.md), `docs/TESTING.md`, `docs/TECHNICAL_DEBT.md`.
