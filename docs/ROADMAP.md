@@ -1596,7 +1596,7 @@ Kararlar: ADR-279 (order experience review) · ADR-280 (refund origin & unified 
 
 **CLOSED & DEPLOYED (2026-08-07):** PR #192 (merge `43f4e6b`); CI 6m2s PASS. Deploy: api-gateway + storefront-web + store-admin-web main'den rebuild+recreate (bağımlılıklar dokunulmadı); migration deployed DB'de zaten canlı. Post-deploy smoke deployed :4000: müşteri+admin birleşik listeler + kaynak filtresi + order-experience uygunluk yeşil; web app'ler 307. enterprise-demo pristine.
 
-## Playwright E2E Regression Suite — PR1 IN REVIEW (TODO-176, 2026-08-09)
+## Playwright E2E Regression Suite — PR1 CLOSED & DEPLOYED (TODO-176, 2026-08-09)
 
 Manuel browser smoke'un release gate'in **ana** mekanizması olmaktan çıkarılması: repo-içi kalıcı
 Playwright E2E paketi (kök `tests/e2e/` + kökte `playwright.config.ts`). Dört proje: `setup` (gerçek
@@ -1614,7 +1614,7 @@ e2e müşteri sepeti nedeniyle dosyalar-arası serileştirme — bilinen açık 
 `docs/TECHNICAL_DEBT.md`). Karar: [ADR-287](adr/ADR-287-playwright-e2e-release-gate.md). Kullanım
 kılavuzu: `docs/TESTING.md`.
 
-**PR1 IN REVIEW (2026-08-09; branch `claude/storefront-e2e-regression-0af485`, henüz merge/deploy YOK):** altyapı + auth + 8 çekirdek smoke senaryosu (auth/session · PDP variant ·
+**PR1 CLOSED & DEPLOYED (2026-08-09; PR #205 merge `9a1eca9`; CI `e2e / smoke` green; post-deploy prod-smoke green — home `<title>` fix canlı doğrulandı):** altyapı + auth + 8 çekirdek smoke senaryosu (auth/session · PDP variant ·
 add-to-cart · cart badge · cart persistence · coupon apply/remove+repricing · cart→checkout canonical
 identity · order list/detail) + responsive subset + prod-smoke + CI gate + docs. **PR2 (FUTURE):**
 reorder/BUG-CART-006 invariant, shopping-balance/mixed ödeme, cancellation, return, refund
