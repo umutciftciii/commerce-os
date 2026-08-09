@@ -26,10 +26,9 @@ export const ids = {
   // kullanılabilir bakiye == grant; STORE_CREDIT bir bakiyedir (asla nakde çevrilmez).
   goodwillCredit: {
     amountMinor: 100000,
-    // NOT: balance-section `fmt` `toLocaleString(undefined)` kullanır (formatMinor DEĞİL) → tutar
-    // TR mağazada bile en-US formatında ("1,000.00") render edilir. Test GERÇEK davranışa göre
-    // assert eder; bu lokalizasyon tutarsızlığı ayrı bir düzeltme görevi olarak işaretlendi (kapsam dışı).
-    availableText: "1,000.00",
+    // balance-section artık locale-otoriter `formatMinor` (tr-TR) kullanır → tutar TR mağazada
+    // "1.000,00" biçiminde render edilir (önceki en-US "1,000.00" lokalizasyon defekti düzeltildi).
+    availableText: "1.000,00",
     // credit.goodwill semantik key'inin TR karşılığı (balance-section DESC map).
     movementText: "Müşteri memnuniyeti kapsamında bakiye eklendi",
   },
