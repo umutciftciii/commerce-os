@@ -3,6 +3,7 @@
  * description SEMANTİK KEY → TR/EN insan-okur copy (raw enum GÖSTERİLMEZ). Sunucu-otoriter veri.
  */
 import type { Locale } from "@commerce-os/i18n";
+import { formatMinor } from "../../../lib/money";
 import type { BalanceData } from "../../../lib/server/balance";
 
 const DESC: Record<string, [string, string]> = {
@@ -31,11 +32,10 @@ function descLabel(key: string, orderNumber: string | null, tr: boolean): string
   return text.replace("{n}", orderNumber ?? "");
 }
 
+// TR mağaza tutarları tr-TR biçiminde ("₺1.000,00") gösterilir. `toLocaleString(undefined, …)`
+// runtime locale'ini yok sayıp en-US ("₺1,000.00") üretiyordu; locale-otoriter `formatMinor`e delege ediyoruz.
 function fmt(minor: string, currency: string): string {
-  const n = Number(minor);
-  const major = (n / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const sym = currency === "TRY" ? "₺" : currency === "USD" ? "$" : currency === "EUR" ? "€" : `${currency} `;
-  return `${sym}${major}`;
+  return formatMinor(Number(minor), currency);
 }
 
 export function BalanceSection({ data, locale }: { data: BalanceData; locale: Locale }) {
