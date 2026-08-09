@@ -1625,3 +1625,22 @@ projesi (`@regression`, smoke gate DIŞINDA): Alışveriş Bakiyem finansal inva
 (ORIGINAL_PAYMENT/SHOPPING_BALANCE) + İadelerim. Additive fixture: reorder order + goodwill kredi grant +
 2 return. **Kalan (TD-176-1 FUTURE):** shopping-balance-only/mixed ödeme, cancellation, return submit,
 wishlist, ürün review, order-experience review (non-idempotent/çok-aktör → dedike fixture+teardown; ayrı PR).
+
+## Shopping Balance Admin (Müşteri Bakiye Yönetimi) — 2026-08-09
+
+Store Admin > **Finans > Alışveriş Bakiyesi**: mağazanın tüm müşteri alışveriş bakiyesi hesaplarının
+merkezî listesi + KPI özeti + müşteri detayı (lot + ledger) + goodwill grant. Yeni finansal domain/model
+YOK — kanonik store-credit domaini (ADR-281..286) reuse edilir. SALT-OKUNUR yüzey (tek yazma = mevcut
+goodwill grant yolu). Finansal otorite **canlı-lot Σ remaining** predikatı; finance report (ADR-268) ile
+birebir semantik. Backend: `customer-credit/admin-projection.ts` (liste raw SQL/N+1-siz + KPI + detay) +
+`admin-routes.ts` (`GET /stores/:storeId/shopping-balance[/:customerId]`, `requireStorePlatformAdmin`,
+cross-store 404). Frontend: ADR-089 Data Grid liste + KPI kartları + detay (lot tablosu + ledger timeline,
+insan-okur TR/EN etiket, RAW ENUM yok) + grant modal (`issueCustomerCredit` reuse, expiring-only). İlk
+**store-admin E2E harness'ı** kuruldu (store-admin login setup + `admin-smoke` required gate adımı +
+`admin-regression` nightly + cross-store `e2e-store-2` fixture). Karar:
+[ADR-288](adr/ADR-288-shopping-balance-admin.md). Manuel düşürme = TD-SBA-1 (FUTURE).
+
+**IN REVIEW (2026-08-09):** 13 backend integration testi (projeksiyon + route, Run1+Run2 green) +
+mevcut 45 customer-credit testi regresyonsuz; typecheck/lint green; seed↔projeksiyon sözleşmesi SQL ile
+doğrulandı. Browser E2E CI'da doğrulanır (docker store-admin build context'i main; branch route/sayfaları
+için `store-admin-web-e2e` servisi + host `pnpm e2e:store-admin`).
