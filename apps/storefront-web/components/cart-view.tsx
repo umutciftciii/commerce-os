@@ -116,7 +116,7 @@ export function CartView({
 
         <ul className="space-y-4" aria-busy={isPending}>
           {view.lines.map((line) => (
-            <li key={line.variantId}>
+            <li key={line.variantId} data-testid="cart-line">
               <CartLineRow
                 line={line}
                 t={t}
@@ -482,7 +482,7 @@ function CartLineRow({
             >
               {line.title}
             </Link>
-            <p className="mt-0.5 text-xs text-ink-muted">{line.variantTitle}</p>
+            <p data-testid="cart-line-variant" className="mt-0.5 text-xs text-ink-muted">{line.variantTitle}</p>
             <p className="mt-0.5 text-xs text-ink-subtle">{line.sku}</p>
             {/* Dilim 6a-refine — Statik kargo tahmini (yalniz satilabilir satirda). */}
             {!unavailable ? (
@@ -574,6 +574,7 @@ function CartLineRow({
 
             <button
               type="button"
+              data-testid="cart-line-remove"
               disabled={pending}
               onClick={() => onRemove(line)}
               aria-label={format(t.removeItemLabel, { title: line.title })}

@@ -121,11 +121,15 @@ export function SiteHeader({
           <Link
             href="/cart"
             aria-label={s.navCart}
+            data-testid="cart-link"
             className="relative inline-flex text-ink transition-colors hover:text-accent"
           >
             <BagIcon />
             {cartCount > 0 ? (
-              <span className="absolute -right-2 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-contrast">
+              <span
+                data-testid="cart-badge"
+                className="absolute -right-2 -top-1.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold text-accent-contrast"
+              >
                 {cartCount}
               </span>
             ) : null}
