@@ -38,13 +38,19 @@ export function buildMetadata(input: BuildMetadataInput): Metadata {
   const canonicalAbsolute = absoluteUrl(input.canonicalPath);
   const ogLocale = input.locale === "en" ? "en_US" : "tr_TR";
 
+  // TODO-176 (Task 11 — prod-smoke bug bulgusu) — Next.js metadata merge, `title` anahtari
+  // KEY OLARAK MEVCUTSA (deger undefined olsa DAHI) ust segment (layout) varsayilanini SIFIRLAR
+  // (bkz. next/dist/lib/metadata/resolvers/resolve-title.js: resolveTitle(undefined, template) →
+  // absolute:""). `input.title` verilmedigi durumlarda (ör. ana sayfa — layout'un varsayilan
+  // siteName basligini devralmak ister) anahtar HIC EKLENMEMELI; aksi halde <title> BOS kalir.
+  const titleField = input.title !== undefined ? { title: input.title } : {};
   const metadata: Metadata = {
-    title: input.title,
+    ...titleField,
     description: input.description,
     alternates: { canonical: input.canonicalPath },
     openGraph: {
       type: input.openGraph?.type ?? "website",
-      title: input.title,
+      ...titleField,
       description: input.description,
       url: canonicalAbsolute,
       siteName: input.siteName,
@@ -53,7 +59,7 @@ export function buildMetadata(input: BuildMetadataInput): Metadata {
     },
     twitter: {
       card: images.length > 0 ? "summary_large_image" : "summary",
-      title: input.title,
+      ...titleField,
       description: input.description,
       ...(images.length > 0 ? { images } : {}),
     },

@@ -52,7 +52,7 @@ export function SearchProductCard({
   const discountBadgePercent = badgePercent(card);
 
   return (
-    <div className="group relative flex flex-col">
+    <div className="group relative flex flex-col" data-testid="product-card">
       {/* TODO-165B — Ortak medya çerçevesi (contain + nötr zemin + kontrollü padding; blocker 6).
           Link tıklama katmanı + overlay'ler children olarak geçer (kalp butonu <a> içinde OLAMAZ →
           Link mutlak-konumlu ince katman, kalp/rozet üstünde). Hover-zoom yalnız görsele (mediaClassName). */}
