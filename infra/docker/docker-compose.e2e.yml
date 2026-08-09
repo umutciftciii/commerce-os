@@ -33,3 +33,32 @@ services:
       timeout: 5s
       retries: 30
       start_period: 40s
+
+  # Shopping Balance Admin E2E — branch checkout'undan build eden store-admin app (CI ONLY).
+  # Mağazayı STORE_ADMIN_DEMO_STORE_SLUG=e2e-store ile seçer; http localhost olduğundan cookie
+  # Secure=false (Playwright oturumu saklayabilsin). :3110 (base store-admin-web :3002 ile çakışmaz).
+  store-admin-web-e2e:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: infra/docker/node.Dockerfile
+    command: pnpm --filter @commerce-os/store-admin-web exec next dev --port 3110
+    environment:
+      SERVICE_NAME: store-admin-web-e2e
+      NODE_ENV: development
+      API_GATEWAY_URL: http://api-gateway:4000
+      STORE_ADMIN_DEMO_STORE_SLUG: e2e-store
+      ADMIN_COOKIE_SECURE: "false"
+      ADMIN_COOKIE_SAME_SITE: lax
+      PORT: 3110
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    ports:
+      - "3110:3110"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3110/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s

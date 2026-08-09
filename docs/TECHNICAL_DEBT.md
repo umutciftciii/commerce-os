@@ -2429,3 +2429,15 @@ bilinçli olarak PR1 kapsamı DIŞINDA bırakıldı.
   `isBenignDevError(message)`) eklenip yalnız gerçek hatalar assert edilmeli — bugün böyle bir filtre
   YOK (ham `errors.length === 0` / `toEqual([])`). Şu ana kadar (PR1 gate koşumlarında) gözlemlenmedi;
   gözlemlenirse eklenecek. FUTURE.
+- **TD-SBA-1 Shopping Balance Admin — ayrılmış "bakiye düşür" (adjustment debit) yüzeyi — FUTURE.**
+  ADR-288 Shopping Balance Admin yüzeyi grant-only'dir. Güvenli manuel düşürme (`adminAdjustBalance` →
+  `ADMIN_ADJUSTMENT_DEBIT`, SUPER_ADMIN-only) domainde zaten mevcut ve Müşteriler > müşteri detayında
+  ("Düzelt") kullanılabilir; ancak merkezî Finans > Alışveriş Bakiyesi yüzeyinde bilinçli olarak
+  gösterilMEDİ (hatalı düşürme = finansal risk; ayrı yetki/onay UX'i hak eder). Gerekirse ayrı bir
+  admin-privileged adjustment yüzeyi olarak ele alınacak (mevcut `adminAdjustBalance` yolunu reuse eder;
+  yeni finansal yazma yolu YOK). FUTURE.
+- **TD-SBA-2 Shopping Balance Admin — mağaza-geneli KPI özeti her sayfalama isteğinde yeniden hesaplanır.**
+  `GET /stores/:storeId/shopping-balance` yanıtı `summary`'yi (filtreden bağımsız mağaza-geneli) liste
+  ile aynı istekte döner; canlı-lot agregasyonu her sayfa/filtre değişiminde tekrar koşar. Admin sayfası
+  ve mağaza boyutları için kabul edilebilir; çok-büyük mağazalarda ölçülürse summary ayrı uca alınıp
+  kısa-TTL cache'lenebilir. FUTURE.

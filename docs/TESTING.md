@@ -32,6 +32,16 @@ test dosyaları). Bu doküman yalnız E2E paketini anlatır.
 | `responsive` | `@responsive` | Desktop Chromium, viewport **375** ve **1440** | storageState reuse | `setup` | Küçük, kritik responsive subset (kırılma taraması; ana akış smoke'ta zaten var) |
 | `regression` | `@regression` | Desktop Chromium | storageState reuse | `setup` | Ağır finansal/lifecycle senaryoları (PR2) — smoke gate DIŞINDA (PR smoke süresini büyütmez); `pnpm e2e:regression` |
 | `prod-smoke` | `@prod-smoke` | Desktop Chromium | **anonim** (storageState/setup YOK) | — | Post-deploy, güvenli/read-only, hedef ortama karşı |
+| `store-admin-setup` | — | — | gerçek UI login (store-admin) | — | `tests/e2e/.auth/store-admin.json` storageState üretir (ADR-288) |
+| `admin-smoke` | `@admin-smoke` | Desktop Chromium | store-admin storageState | `store-admin-setup` | Shopping Balance Admin salt-okunur READ smoke (liste + KPI); **required gate** (e2e `smoke` job'ında koşar) |
+| `admin-regression` | `@admin-regression` | Desktop Chromium | store-admin storageState | `store-admin-setup` | Shopping Balance Admin mutation regresyonu (grant + persistence + cross-store izolasyon); smoke gate DIŞINDA; `pnpm e2e:admin-regression` |
+
+> **Store-admin E2E (ADR-288).** İlk store-admin Playwright kapsamı. `baseURL = STORE_ADMIN_URL`
+> (`E2E_STORE_ADMIN_URL`, CI'da `http://localhost:3110`). CI'da branch checkout'undan build eden
+> `store-admin-web-e2e` servisi (:3110, `STORE_ADMIN_DEMO_STORE_SLUG=e2e-store`, `ADMIN_COOKIE_SECURE=false`)
+> ayağa kalkar; `admin-smoke` required `smoke` job'ının bir adımıdır. Lokal: `pnpm e2e:store-admin`
+> (host `next dev :3110`, branch kodunu servis eder — storefront `pnpm e2e:storefront` deseniyle aynı;
+> docker store-admin build context'i main olduğundan branch route/sayfaları docker'da yoktur).
 
 `workers: 1` — tüm smoke/responsive testleri **aynı** e2e müşterisinin DB-tabanlı (server-authoritative)
 sepetini paylaşır (`tests/e2e/fixtures/cart.ts`); `fullyParallel: false` yalnız dosya-içi sırayı
@@ -48,6 +58,9 @@ pnpm e2e:install       # playwright install --with-deps chromium
 pnpm e2e:smoke         # playwright test --project=smoke (setup önce koşar, dependency)
 pnpm e2e:responsive    # playwright test --project=responsive
 pnpm e2e:regression    # playwright test --project=regression (PR2 finansal/lifecycle senaryoları)
+pnpm e2e:admin-smoke      # playwright test --project=admin-smoke (Shopping Balance Admin READ smoke; store-admin-setup önce koşar)
+pnpm e2e:admin-regression # playwright test --project=admin-regression (grant + persistence + izolasyon)
+pnpm e2e:store-admin      # host next dev :3110 (branch store-admin; STORE_ADMIN_DEMO_STORE_SLUG=e2e-store)
 pnpm e2e:prod-smoke    # playwright test --project=prod-smoke
 pnpm e2e:report        # playwright show-report (son HTML raporunu açar)
 pnpm e2e:storefront    # host `next dev --port 3100`, e2e-store env'iyle (yerel storefront servisi)

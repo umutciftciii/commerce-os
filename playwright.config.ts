@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { STOREFRONT_URL } from "./tests/e2e/fixtures/env";
+import { STOREFRONT_URL, STORE_ADMIN_URL } from "./tests/e2e/fixtures/env";
 
 const CI = !!process.env.CI;
 export default defineConfig({
@@ -25,7 +25,10 @@ export default defineConfig({
     actionTimeout: 10_000,
   },
   projects: [
-    { name: "setup", testMatch: /setup\/.*\.setup\.ts/ },
+    // Müşteri (storefront) login setup — YALNIZ auth.setup.ts (store-admin setup ayrı proje).
+    { name: "setup", testMatch: /setup\/auth\.setup\.ts/ },
+    // Store-admin (platform) login setup — Shopping Balance Admin E2E için ayrı storageState.
+    { name: "store-admin-setup", testMatch: /setup\/store-admin-auth\.setup\.ts/ },
     {
       name: "smoke",
       testDir: "tests/e2e/smoke",
@@ -48,6 +51,31 @@ export default defineConfig({
       grep: /@regression/,
       use: { ...devices["Desktop Chrome"], storageState: "tests/e2e/.auth/customer.json" },
       dependencies: ["setup"],
+    },
+    {
+      // Shopping Balance Admin — hızlı, salt-okunur admin READ smoke (required gate'e uygun).
+      name: "admin-smoke",
+      testDir: "tests/e2e/admin-smoke",
+      grep: /@admin-smoke/,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: STORE_ADMIN_URL,
+        storageState: "tests/e2e/.auth/store-admin.json",
+      },
+      dependencies: ["store-admin-setup"],
+    },
+    {
+      // Shopping Balance Admin — ağır mutation regresyonu (grant + persistence + izolasyon).
+      // Nightly/manuel `pnpm e2e:admin-regression`; PR smoke süresini büyütmez.
+      name: "admin-regression",
+      testDir: "tests/e2e/admin-regression",
+      grep: /@admin-regression/,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: STORE_ADMIN_URL,
+        storageState: "tests/e2e/.auth/store-admin.json",
+      },
+      dependencies: ["store-admin-setup"],
     },
     {
       name: "prod-smoke",

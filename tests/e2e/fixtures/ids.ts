@@ -1,6 +1,19 @@
 export const ids = {
   storeSlug: "e2e-store",
   customer: { email: "e2e-customer@example.test", password: "E2eCustomer!pass1", firstName: "E2E", lastName: "Customer" },
+  // Shopping Balance Admin E2E — store-admin login (SUPER_ADMIN) + cross-store izolasyon fixture'ı.
+  storeAdmin: { email: "e2e-admin@example.test", password: "E2eAdmin!pass1" },
+  shoppingBalanceAdmin: {
+    // Seed'lenen e2e-customer'ın alışveriş bakiyesi (goodwill ₺1.000,00). Liste + detay assert'i.
+    customerName: "E2E Customer",
+    customerEmail: "e2e-customer@example.test",
+    availableText: "1.000,00",
+    // Cross-store: e2e-store-2 müşterisi e2e-store listesinde ASLA görünmemeli.
+    otherStoreCustomerEmail: "e2e-store2-customer@example.test",
+    // Grant sonrası artış doğrulaması: ₺250,00 tanımla → 1.250,00.
+    grantAmountTl: "250",
+    grantedAvailableText: "1.250,00",
+  },
   variantProduct: { slug: "e2e-tshirt", title: "E2E Tshirt", priceMinor: 20000,
     variants: [
       { sku: "e2e-tshirt-s", label: "S" },

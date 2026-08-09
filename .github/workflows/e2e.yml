@@ -23,6 +23,8 @@ jobs:
       APP_ENV: test
       E2E_STOREFRONT_URL: http://localhost:3100
       E2E_GATEWAY_URL: http://localhost:4000
+      # Shopping Balance Admin — branch-built store-admin app (:3110).
+      E2E_STORE_ADMIN_URL: http://localhost:3110
     steps:
       - uses: actions/checkout@v4
 
@@ -45,21 +47,24 @@ jobs:
       # (storefront-web-e2e, :3100). Base `storefront-web` KASITLI olarak
       # baslatilmaz — CI'da branch checkout'undan build eden e2e-store servisi
       # kullanilir (bkz. infra/docker/docker-compose.e2e.yml).
-      - name: Start stack (gateway + e2e storefront + deps)
+      - name: Start stack (gateway + e2e storefront + e2e store-admin + deps)
         run: |
           docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.e2e.yml up -d \
-            postgres redis api-gateway worker storefront-web-e2e
+            postgres redis api-gateway worker storefront-web-e2e store-admin-web-e2e
 
       - name: Wait for health
         run: |
-          for i in $(seq 1 60); do
-            if curl -sf http://localhost:4000/health >/dev/null 2>&1 && curl -sf http://localhost:3100/api/health >/dev/null 2>&1; then
+          for i in $(seq 1 72); do
+            if curl -sf http://localhost:4000/health >/dev/null 2>&1 \
+              && curl -sf http://localhost:3100/api/health >/dev/null 2>&1 \
+              && curl -sf http://localhost:3110/api/health >/dev/null 2>&1; then
               break
             fi
             sleep 5
           done
           curl -sf http://localhost:4000/health
           curl -sf http://localhost:3100/api/health
+          curl -sf http://localhost:3110/api/health
 
       # Fresh CI postgres'te sema yok — seed'den ONCE migrate zorunlu.
       - name: Migrate database
@@ -76,6 +81,11 @@ jobs:
       # calisir. Bu adimin basarisizligi merge'i BLOKE eder (required check).
       - name: Run smoke
         run: pnpm e2e:smoke
+
+      # Shopping Balance Admin — hızlı store-admin READ smoke (store-admin login setup + list/KPI).
+      # Required gate'in parçası; mutation regresyonu (admin-regression) nightly/manuel kalır.
+      - name: Run admin smoke
+        run: pnpm e2e:admin-smoke
 
       # Yalnizca basarisizlikta yukle. tests/e2e/.auth/ (gercek oturum cookie'si
       # — secret) ve env DAHIL EDILMEZ.

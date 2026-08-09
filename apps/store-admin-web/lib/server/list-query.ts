@@ -38,6 +38,18 @@ export const BRAND_PRODUCTS_LIST_KEYS = [...COMMON_KEYS];
 export const CUSTOMER_LIST_KEYS = [...COMMON_KEYS, "status", "hasCredential"];
 
 /**
+ * Shopping Balance Admin (Müşteri Bakiye Yönetimi) — merkezî bakiye listesi anahtarları.
+ * Sunucu-otoriter filtreler (balancePositive/source/expiringWithinDays); doğrulama gateway
+ * contract şemasındadır (shoppingBalanceListQuerySchema).
+ */
+export const SHOPPING_BALANCE_LIST_KEYS = [
+  ...COMMON_KEYS,
+  "balancePositive",
+  "source",
+  "expiringWithinDays",
+];
+
+/**
  * TODO-166 (ADR-265) — Admin Slug & Redirect Management liste anahtarları. Tümü sunucu-otoriter
  * filtrelerdir (origin/type/enabled/entityType, status/hasRedirects); doğrulama gateway contract
  * şemasındadır.

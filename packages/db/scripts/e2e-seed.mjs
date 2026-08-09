@@ -37,6 +37,16 @@ const PLAN_CODE = "e2e-plan";
 const CUSTOMER_EMAIL = "e2e-customer@example.test";
 const CUSTOMER_PASSWORD = "E2eCustomer!pass1";
 const CUSTOMER_ID = "e2e-customer-1";
+// Store-admin login (Shopping Balance Admin E2E) — SUPER_ADMIN platform user; store-admin app
+// mağazayı STORE_ADMIN_DEMO_STORE_SLUG=e2e-store ile seçer (bkz. store-context.ts).
+const ADMIN_EMAIL = "e2e-admin@example.test";
+const ADMIN_PASSWORD = "E2eAdmin!pass1";
+// Cross-store izolasyon: ikinci mağaza + kendi bakiyeli müşterisi. Bu müşteri e2e-store'un
+// alışveriş bakiyesi listesinde ASLA görünmemeli (storeId-first scope).
+const STORE2_SLUG = "e2e-store-2";
+const STORE2_ID = "e2e-store-2";
+const STORE2_CUSTOMER_EMAIL = "e2e-store2-customer@example.test";
+const STORE2_CUSTOMER_ID = "e2e-store2-customer-1";
 const TSHIRT_SLUG = "e2e-tshirt";
 const TSHIRT_ID = "e2e-product-tshirt";
 const TSHIRT_PRICE_MINOR = 20000;
@@ -153,6 +163,15 @@ async function main() {
     where: { customerId: customer.id },
     update: { storeId: store.id, passwordHash },
     create: { storeId: store.id, customerId: customer.id, passwordHash },
+  });
+
+  // 3b) Store-admin platform kullanıcısı (SUPER_ADMIN) — Shopping Balance Admin E2E login'i.
+  //     store-admin app STORE_ADMIN_DEMO_STORE_SLUG=e2e-store ile mağazayı seçer.
+  const adminPasswordHash = await hashPassword(ADMIN_PASSWORD, process.env.PASSWORD_HASH_PEPPER ?? "");
+  await prisma.platformUser.upsert({
+    where: { email: ADMIN_EMAIL },
+    update: { name: "E2E Admin", passwordHash: adminPasswordHash, role: "SUPER_ADMIN" },
+    create: { email: ADMIN_EMAIL, name: "E2E Admin", passwordHash: adminPasswordHash, role: "SUPER_ADMIN" },
   });
 
   // 4) Cok-varyantli urun e2e-tshirt (priceMinor 20000) + 3 varyant + stok.
@@ -447,6 +466,69 @@ async function main() {
     },
   });
 
+  // 9b) Cross-store izolasyon fixture'ı: ikinci mağaza + kendi bakiyeli müşterisi. Shopping Balance
+  //     Admin listesi storeId-first scoped; bu müşteri e2e-store listesinde ASLA görünmemeli.
+  const STORE2_CREDIT_MINOR = 50000; // ₺500,00
+  const store2 = await prisma.store.upsert({
+    where: { slug: STORE2_SLUG },
+    update: { name: "E2E Store 2", status: "ACTIVE" },
+    create: { id: STORE2_ID, name: "E2E Store 2", slug: STORE2_SLUG, status: "ACTIVE", metadata: { seeded: "e2e" } },
+  });
+  const store2Customer = await prisma.customer.upsert({
+    where: { storeId_email: { storeId: store2.id, email: STORE2_CUSTOMER_EMAIL } },
+    update: { firstName: "Other", lastName: "Store", status: "ACTIVE" },
+    create: {
+      id: STORE2_CUSTOMER_ID,
+      storeId: store2.id,
+      email: STORE2_CUSTOMER_EMAIL,
+      firstName: "Other",
+      lastName: "Store",
+      status: "ACTIVE",
+    },
+  });
+  await prisma.customerCreditAccount.upsert({
+    where: { storeId_customerId_currency: { storeId: store2.id, customerId: store2Customer.id, currency: "TRY" } },
+    update: { cachedAvailableMinor: STORE2_CREDIT_MINOR },
+    create: { id: "e2e-store2-credit-account-1", storeId: store2.id, customerId: store2Customer.id, currency: "TRY", cachedAvailableMinor: STORE2_CREDIT_MINOR },
+  });
+  await prisma.customerCreditLot.upsert({
+    where: { id: "e2e-store2-credit-lot-1" },
+    update: { remainingAmountMinor: STORE2_CREDIT_MINOR, status: "ACTIVE", expiresAt: CREDIT_NEVER_EXPIRES },
+    create: {
+      id: "e2e-store2-credit-lot-1",
+      storeId: store2.id,
+      customerId: store2Customer.id,
+      accountId: "e2e-store2-credit-account-1",
+      currency: "TRY",
+      originalAmountMinor: STORE2_CREDIT_MINOR,
+      remainingAmountMinor: STORE2_CREDIT_MINOR,
+      expiresAt: CREDIT_NEVER_EXPIRES,
+      status: "ACTIVE",
+      sourceType: "ADMIN_GOODWILL",
+      issuedByType: "PLATFORM_USER",
+    },
+  });
+  await prisma.customerCreditLedgerEntry.upsert({
+    where: { id: "e2e-store2-credit-entry-1" },
+    update: { amountMinor: STORE2_CREDIT_MINOR, balanceAfterMinor: STORE2_CREDIT_MINOR },
+    create: {
+      id: "e2e-store2-credit-entry-1",
+      storeId: store2.id,
+      customerId: store2Customer.id,
+      accountId: "e2e-store2-credit-account-1",
+      lotId: "e2e-store2-credit-lot-1",
+      type: "ADMIN_GOODWILL_CREDIT",
+      direction: "CREDIT",
+      amountMinor: STORE2_CREDIT_MINOR,
+      balanceAfterMinor: STORE2_CREDIT_MINOR,
+      currency: "TRY",
+      sourceType: "ADMIN_GOODWILL",
+      description: "credit.goodwill",
+      createdByType: "PLATFORM_USER",
+      idempotencyKey: "e2e-store2-goodwill-grant-1",
+    },
+  });
+
   // 10) TODO-176B (PR2) — İade fixture'ları (İadelerim + refund destination invariant). İki iade:
   //     REFUND → SHOPPING_BALANCE (status REQUESTED) ve REFUND → ORIGINAL_PAYMENT (status APPROVED).
   //     Müşteri iade listesi sorgusu STATUS FİLTRESİZ (yalnız storeId+customerId) → ham upsert yüzeye
@@ -508,6 +590,9 @@ async function main() {
       store: STORE_SLUG,
       products: [TSHIRT_SLUG, MUG_SLUG],
       customer: CUSTOMER_EMAIL,
+      storeAdmin: ADMIN_EMAIL,
+      store2: STORE2_SLUG,
+      store2Customer: STORE2_CUSTOMER_EMAIL,
       coupon: COUPON_CODE,
       orders: [ORDER_NUMBER, REORDER_ORDER_NUMBER],
       address: ADDRESS_ID,

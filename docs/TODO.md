@@ -2882,3 +2882,14 @@ Storefront: reverse-shipment section i18n sözlüğü + wizard aria-label/çift-
 storefront), FK-güvenli teardown. Detay: `docs/TECHNICAL_DEBT.md`. **Backend/API/migration değişmedi.**
 
 **CLOSED & DEPLOYED (2026-08-07):** PR #190 (merge `ab1bbec`); CI lint·test·build 5m59s PASS. Deploy: docker `storefront-web` + `store-admin-web` main'den rebuild+recreate (api-gateway/worker/postgres/redis DOKUNULMADI — i18n reverseShipment/wizard yalnız web dict). Post-deploy smoke: store-admin returns list + R000001 detay production build render + SA-1 friendly ödeme rozeti + taşma yok; storefront home/PLP 200, account/returns login-render, reverseShipment key deployed bundle'da. İzole browser-smoke fixture FK-güvenli temizlendi (enterprise-demo R000001 değişmedi).
+
+## Shopping Balance Admin (Müşteri Bakiye Yönetimi) — 2026-08-09
+
+Store Admin > Finans > Alışveriş Bakiyesi: merkezî müşteri bakiye listesi (server-side arama/filtre/sıralama/
+sayfalama, N+1-siz) + KPI özeti + müşteri detayı (lot + ledger) + goodwill grant (reuse). SALT-OKUNUR;
+kanonik canlı-lot predikatı (ADR-281..286 / ADR-268 semantiği). Backend: `customer-credit/admin-projection.ts`
++ `admin-routes.ts` (`requireStorePlatformAdmin`, cross-store 404). İlk store-admin Playwright harness'ı
+(`admin-smoke` required gate + `admin-regression` nightly + `e2e-store-2` izolasyon fixture). ADR-288.
+
+**IN REVIEW (2026-08-09):** local gate green (typecheck/lint/tests Run1+Run2/diff --check). Manuel bakiye
+düşürme bilinçli kapsam-dışı → TD-SBA-1 (FUTURE). Browser E2E = CI (`smoke` job'a `admin-smoke` adımı eklendi).
