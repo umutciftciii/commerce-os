@@ -16,6 +16,9 @@ const CONTEXT_SEGMENT: Record<MediaContext, string> = {
   BRANDING: "branding",
   // TODO-169 (ADR-269) — İade attachment'ları (PRIVATE; public statik servis kapalı).
   RETURN_ATTACHMENT: "returns",
+  // TODO-177 (ADR-289) — Destek ticket ekleri (PRIVATE). PDF için değişken uzantı + regex
+  // güncellemesi Faz B'de (routes-attachment); segment burada tanımlı olmalı (Record tamlığı).
+  SUPPORT_ATTACHMENT: "support",
 };
 
 export function buildStorageKey(storeId: string, context: MediaContext, uuid: string): string {
