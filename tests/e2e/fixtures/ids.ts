@@ -65,6 +65,9 @@ export const ids = {
   // Seeded RESOLVED ticket (S900001) admin inbox + müşteri reopen testleri içindir.
   support: {
     deliveredOrderNumber: "e2e-order-1001",
+    // Seed'lenen mug satırının deterministik id'si (e2e-seed.mjs). Order-line CTA href'i
+    // `?order=<no>&line=<orderLineId>` taşır → müşteri ürün/varyant yeniden seçmez.
+    orderLineId: "e2e-order-1001-line-1",
     orderLineProductTitle: "E2E Mug",
     // Guided flow ilk konu (TR label; ham enum PRODUCT_NOT_WORKING gösterilmez).
     topicLabel: "Ürün çalışmıyor",

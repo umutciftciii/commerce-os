@@ -33,10 +33,29 @@ test("@smoke seeded order appears in list and detail renders correctly", async (
   await expect(page.getByText(new RegExp(ids.simpleProduct.title, "i"))).toBeVisible();
   await expect(page.getByTestId("order-detail-total")).toContainText("50,00");
 
+  // BUG-PS-001 — Order-line "Ürün desteği al" CTA'sı: her satırda görünür ve order+line
+  // bağlamını doğru taşır (müşteri ürün/varyant yeniden seçmez). Bu assertion PR smoke
+  // gate'inde koşar; CTA sessizce kaldırılırsa/bozulursa burada yakalanır. (Ayrıntılı
+  // guided flow yalnız nightly `03-product-support.spec.ts` @regression'da — burada tekrarı yok.)
+  const supportCta = page.getByTestId("support-line-cta").first();
+  await expect(supportCta).toBeVisible();
+  await expect(supportCta).toHaveAttribute(
+    "href",
+    `/account/support/new?order=${ids.seedOrderNumber}&line=${ids.support.orderLineId}`,
+  );
+
   // Ham enum sızmamalı — durum yalnız çevrilmiş (Türkçe) etiketle görünür. Seed siparişi
   // PLACED/PAID/UNFULFILLED taşır (kargo kaydı yok) — PLACED dahil edilerek guard'ın
   // gerçekten bu siparişin kendi status'unu da denetlediği garanti edilir.
   await expect(page.locator("body")).not.toContainText(
     /\b(PAID|PENDING|UNPAID|FULFILLED|UNFULFILLED|CANCELLED|DRAFT|PLACED|CONFIRMED|PARTIAL|DELIVERED|RETURNED)\b/,
   );
+
+  // CTA tıklanınca guided support wizard'ı açılır; ürün bağlamı (order+line'dan sunucu-türetilmiş)
+  // hazır gelir — müşteri ürünü/siparişi yeniden seçmez. (Navigasyon en sonda: enum guard hâlâ
+  // detay sayfasında koşsun.)
+  await supportCta.click();
+  await expect(page).toHaveURL(/\/account\/support\/new/);
+  await expect(page.getByTestId("support-wizard")).toBeVisible();
+  await expect(page.getByTestId("support-context-product")).toContainText(ids.simpleProduct.title);
 });
