@@ -1382,6 +1382,35 @@ export {
   REVIEW_PUBLIC_DEFAULT_PAGE_SIZE,
 } from "@commerce-os/contracts";
 
+// TODO-177 (ADR-289) — Ürün Desteği DTO tipleri (store-admin/platform-admin/storefront BFF için).
+export type {
+  SupportTicketStatusDto,
+  SupportTopicDto,
+  SupportActorTypeDto,
+  SupportQuestionTypeDto,
+  SupportMappingScopeDto,
+  SupportAnswerValue,
+  SupportQuestionGraphDto,
+  SupportResolveRequest,
+  SupportResolveResponse,
+  SupportTicketCreateRequest,
+  SupportMessageCreateRequest,
+  CustomerSupportTicketDetail,
+  AdminSupportTicketListResponse,
+  AdminSupportTicketDetail,
+  AdminSupportActionRequest,
+  PlatformSupportVersionEditRequest,
+} from "@commerce-os/contracts";
+export {
+  supportResolveRequestSchema,
+  supportTicketCreateRequestSchema,
+  supportMessageCreateRequestSchema,
+  adminSupportActionRequestSchema,
+  platformSupportVersionEditRequestSchema,
+  SUPPORT_MESSAGE_MAX,
+  SUPPORT_MAX_ATTACHMENTS,
+} from "@commerce-os/contracts";
+
 /**
  * commerce-os API client — thin, type-safe client over the API gateway.
  *

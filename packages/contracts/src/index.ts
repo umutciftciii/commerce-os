@@ -6847,6 +6847,9 @@ export type CustomerOrderListResponse = z.infer<typeof customerOrderListResponse
 export const customerOrderDetailLineSchema = customerOrderLineSummarySchema.extend({
   unitPriceMinor: z.number().int().nonnegative(),
   lineTotalMinor: z.number().int().nonnegative(),
+  // TODO-177 (ADR-289) — OrderLine.id additive olarak açılır (line-scoped "Ürün desteği al" CTA
+  // için). Sunucu bunu `(storeId, customerId)`'ye karşı YENİDEN doğrular (client-trusted DEĞİL).
+  orderLineId: z.string(),
 });
 
 export const customerOrderAddressSummarySchema = z.object({
@@ -13322,3 +13325,395 @@ export type AdminReturnFastRefundContext = z.infer<typeof adminReturnFastRefundC
 export type AdminReturnFastRefundContextResponse = z.infer<
   typeof adminReturnFastRefundContextResponseSchema
 >;
+
+// =====================================================================================
+// TODO-177 (ADR-289) — Product Support / Ürün Desteği (Faz 1) contracts.
+// z.enum string-literal konvansiyonu (Prisma import YOK). Enum değerleri Prisma enum'larıyla birebir.
+// =====================================================================================
+
+export const supportTicketStatusSchema = z.enum([
+  "OPEN",
+  "WAITING_STORE",
+  "WAITING_CUSTOMER",
+  "RESOLVED",
+  "CLOSED",
+]);
+export type SupportTicketStatusDto = z.infer<typeof supportTicketStatusSchema>;
+
+export const supportTopicSchema = z.enum([
+  "PRODUCT_NOT_WORKING",
+  "DAMAGED_OR_MISSING",
+  "SETUP_USAGE",
+  "WARRANTY_SERVICE",
+  "PRODUCT_INFO",
+  "INVOICE_DOCUMENT",
+  "OTHER",
+]);
+export type SupportTopicDto = z.infer<typeof supportTopicSchema>;
+
+export const supportActorTypeSchema = z.enum(["CUSTOMER", "STORE_ADMIN", "SYSTEM"]);
+export type SupportActorTypeDto = z.infer<typeof supportActorTypeSchema>;
+
+export const supportQuestionTypeSchema = z.enum([
+  "SINGLE_SELECT",
+  "MULTI_SELECT",
+  "BOOLEAN",
+  "SHORT_TEXT",
+  "LONG_TEXT",
+  "INFO",
+  "SELF_SERVICE_RESULT",
+]);
+export type SupportQuestionTypeDto = z.infer<typeof supportQuestionTypeSchema>;
+
+export const supportTransitionMatchKindSchema = z.enum([
+  "OPTION",
+  "BOOLEAN_TRUE",
+  "BOOLEAN_FALSE",
+  "DEFAULT",
+]);
+export const supportTransitionActionSchema = z.enum([
+  "GO_TO_QUESTION",
+  "GO_TO_RESULT",
+  "ESCALATE",
+]);
+export const supportMappingScopeSchema = z.enum(["PRODUCT", "CATEGORY"]);
+export type SupportMappingScopeDto = z.infer<typeof supportMappingScopeSchema>;
+
+export const supportSlaStateSchema = z.enum(["INSIDE", "DUE_TODAY", "OVERDUE", "DONE"]);
+
+export const SUPPORT_MESSAGE_MAX = 4000;
+export const SUPPORT_TEXT_ANSWER_MAX = 2000;
+export const SUPPORT_MAX_ATTACHMENTS = 6;
+
+// answerValue: SINGLE/MULTI_SELECT → optionKeys[]; BOOLEAN → boolean; SHORT/LONG_TEXT → string.
+export const supportAnswerValueSchema = z.union([
+  z.object({ optionKeys: z.array(z.string().min(1)).max(50) }),
+  z.object({ boolean: z.boolean() }),
+  z.object({ text: z.string().max(SUPPORT_TEXT_ANSWER_MAX) }),
+]);
+export type SupportAnswerValue = z.infer<typeof supportAnswerValueSchema>;
+
+// --- Question graph DTO (resolved published version; client-driven traversal) ---
+
+export const supportQuestionOptionDtoSchema = z.object({
+  key: z.string(),
+  label: z.string(),
+  sortOrder: z.number().int(),
+});
+export const supportQuestionDtoSchema = z.object({
+  key: z.string(),
+  type: supportQuestionTypeSchema,
+  prompt: z.string(),
+  helpText: z.string().nullable(),
+  sortOrder: z.number().int(),
+  required: z.boolean(),
+  isEntry: z.boolean(),
+  options: z.array(supportQuestionOptionDtoSchema),
+});
+export const supportTransitionDtoSchema = z.object({
+  fromKey: z.string(),
+  matchKind: supportTransitionMatchKindSchema,
+  matchOptionKey: z.string().nullable(),
+  action: supportTransitionActionSchema,
+  toKey: z.string().nullable(),
+  sortOrder: z.number().int(),
+});
+export const supportQuestionGraphDtoSchema = z.object({
+  questionSetId: z.string(),
+  questionSetVersionId: z.string(),
+  version: z.number().int(),
+  entryQuestionKey: z.string(),
+  questions: z.array(supportQuestionDtoSchema),
+  transitions: z.array(supportTransitionDtoSchema),
+});
+export type SupportQuestionGraphDto = z.infer<typeof supportQuestionGraphDtoSchema>;
+
+export const supportWarrantyDtoSchema = z.object({
+  warrantyEndsAt: z.string().nullable(),
+  anchorSource: z.enum(["SHIPMENT_DELIVERED", "ORDER_CREATED", "NONE"]),
+  inWarranty: z.boolean().nullable(),
+});
+export const supportContextDtoSchema = z.object({
+  orderNumber: z.string(),
+  orderLineId: z.string(),
+  productTitle: z.string(),
+  variantTitle: z.string().nullable(),
+  topic: supportTopicSchema,
+});
+
+// --- Customer requests ---
+
+export const supportResolveRequestSchema = z.object({
+  orderNumber: z.string().min(1),
+  orderLineId: z.string().min(1),
+  topic: supportTopicSchema,
+});
+export type SupportResolveRequest = z.infer<typeof supportResolveRequestSchema>;
+
+export const supportResolveResponseSchema = z.object({
+  graph: supportQuestionGraphDtoSchema,
+  context: supportContextDtoSchema,
+  warranty: supportWarrantyDtoSchema,
+});
+export type SupportResolveResponse = z.infer<typeof supportResolveResponseSchema>;
+
+export const supportAnswerInputSchema = z.object({
+  questionKey: z.string().min(1),
+  value: supportAnswerValueSchema,
+});
+export const supportTicketCreateRequestSchema = z.object({
+  orderNumber: z.string().min(1),
+  orderLineId: z.string().min(1),
+  topic: supportTopicSchema,
+  questionSetVersionId: z.string().min(1),
+  answers: z.array(supportAnswerInputSchema).max(50),
+  attachments: z.array(z.string().min(1)).max(SUPPORT_MAX_ATTACHMENTS).optional(),
+  attemptedResolutionKey: z.string().max(200).optional(),
+  attemptedResolutionText: z.string().max(SUPPORT_TEXT_ANSWER_MAX).optional(),
+});
+export type SupportTicketCreateRequest = z.infer<typeof supportTicketCreateRequestSchema>;
+
+export const supportMessageCreateRequestSchema = z.object({
+  body: z.string().min(1).max(SUPPORT_MESSAGE_MAX),
+  attachments: z.array(z.string().min(1)).max(SUPPORT_MAX_ATTACHMENTS).optional(),
+});
+export type SupportMessageCreateRequest = z.infer<typeof supportMessageCreateRequestSchema>;
+
+// --- Ticket DTOs (shared shapes) ---
+
+export const supportAttachmentDtoSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  url: z.string(),
+});
+export const supportAnswerSnapshotDtoSchema = z.object({
+  questionKey: z.string(),
+  questionPrompt: z.string(),
+  questionType: supportQuestionTypeSchema,
+  value: supportAnswerValueSchema,
+  sortOrder: z.number().int(),
+});
+export const supportMessageDtoSchema = z.object({
+  id: z.string(),
+  actorType: supportActorTypeSchema,
+  body: z.string(),
+  createdAt: z.string(),
+  attachments: z.array(supportAttachmentDtoSchema),
+});
+export const supportSlaDtoSchema = z.object({
+  cycle: z.number().int(),
+  firstResponseDueAt: z.string(),
+  resolutionDueAt: z.string(),
+  firstResponseState: supportSlaStateSchema,
+  resolutionState: supportSlaStateSchema,
+});
+
+// --- Customer ticket DTO ---
+
+export const customerSupportTicketListItemSchema = z.object({
+  ticketNumber: z.string(),
+  status: supportTicketStatusSchema,
+  topic: supportTopicSchema,
+  productTitle: z.string(),
+  lastActivityAt: z.string(),
+  createdAt: z.string(),
+});
+export const customerSupportTicketDetailSchema = z.object({
+  ticketNumber: z.string(),
+  status: supportTicketStatusSchema,
+  topic: supportTopicSchema,
+  productTitle: z.string(),
+  variantTitle: z.string().nullable(),
+  orderNumber: z.string(),
+  createdAt: z.string(),
+  lastActivityAt: z.string(),
+  resolvedAt: z.string().nullable(),
+  reopenCount: z.number().int(),
+  canReopen: z.boolean(),
+  warranty: supportWarrantyDtoSchema,
+  suggestedResolutionText: z.string().nullable(),
+  answers: z.array(supportAnswerSnapshotDtoSchema),
+  messages: z.array(supportMessageDtoSchema),
+  attachments: z.array(supportAttachmentDtoSchema),
+  sla: supportSlaDtoSchema,
+});
+export type CustomerSupportTicketDetail = z.infer<typeof customerSupportTicketDetailSchema>;
+export const customerSupportTicketListResponseSchema = z.object({
+  tickets: z.array(customerSupportTicketListItemSchema),
+});
+export const customerSupportTicketDetailResponseSchema = z.object({
+  ticket: customerSupportTicketDetailSchema,
+});
+export const customerSupportAttachmentUploadResponseSchema = z.object({ mediaId: z.string() });
+
+// --- Admin ticket DTO ---
+
+export const adminSupportTicketListItemSchema = z.object({
+  ticketId: z.string(),
+  ticketNumber: z.string(),
+  customerName: z.string().nullable(),
+  customerEmail: z.string(),
+  productTitle: z.string(),
+  orderNumber: z.string(),
+  topic: supportTopicSchema,
+  status: supportTicketStatusSchema,
+  assigneeName: z.string().nullable(),
+  firstResponseState: supportSlaStateSchema,
+  resolutionState: supportSlaStateSchema,
+  lastActivityAt: z.string(),
+});
+export const adminSupportTicketListResponseSchema = z.object({
+  items: z.array(adminSupportTicketListItemSchema),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+});
+export type AdminSupportTicketListResponse = z.infer<typeof adminSupportTicketListResponseSchema>;
+export const adminSupportTicketDetailSchema = z.object({
+  ticketId: z.string(),
+  ticketNumber: z.string(),
+  status: supportTicketStatusSchema,
+  topic: supportTopicSchema,
+  version: z.number().int(),
+  customerName: z.string().nullable(),
+  customerEmail: z.string(),
+  productTitle: z.string(),
+  variantTitle: z.string().nullable(),
+  orderNumber: z.string(),
+  orderId: z.string(),
+  createdAt: z.string(),
+  lastActivityAt: z.string(),
+  firstResponseAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+  reopenCount: z.number().int(),
+  assigneePlatformUserId: z.string().nullable(),
+  assigneeName: z.string().nullable(),
+  warranty: supportWarrantyDtoSchema,
+  suggestedResolutionText: z.string().nullable(),
+  answers: z.array(supportAnswerSnapshotDtoSchema),
+  messages: z.array(supportMessageDtoSchema),
+  attachments: z.array(supportAttachmentDtoSchema),
+  timeline: z.array(
+    z.object({
+      id: z.string(),
+      fromStatus: supportTicketStatusSchema.nullable(),
+      toStatus: supportTicketStatusSchema,
+      actorType: supportActorTypeSchema,
+      eventType: z.string().nullable(),
+      note: z.string().nullable(),
+      createdAt: z.string(),
+    }),
+  ),
+  sla: supportSlaDtoSchema,
+});
+export type AdminSupportTicketDetail = z.infer<typeof adminSupportTicketDetailSchema>;
+export const adminSupportTicketDetailResponseSchema = z.object({ ticket: adminSupportTicketDetailSchema });
+
+export const supportExpectedVersionSchema = z.number().int().nonnegative();
+export const adminSupportActionRequestSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("ASSIGN"),
+    expectedVersion: supportExpectedVersionSchema,
+    assigneePlatformUserId: z.string().min(1), // "me" sentinel resolves to actor server-side
+  }),
+  z.object({
+    action: z.literal("SET_STATUS"),
+    expectedVersion: supportExpectedVersionSchema,
+    toStatus: supportTicketStatusSchema,
+    note: z.string().max(SUPPORT_MESSAGE_MAX).optional(),
+  }),
+]);
+export type AdminSupportActionRequest = z.infer<typeof adminSupportActionRequestSchema>;
+export const adminSupportMessageCreateRequestSchema = supportMessageCreateRequestSchema;
+
+// --- Platform (question-set management) ---
+
+export const platformSupportQuestionSetCreateRequestSchema = z.object({
+  key: z.string().min(1).max(120),
+  title: z.string().min(1).max(200),
+  description: z.string().max(1000).optional(),
+  isDefault: z.boolean().optional(),
+});
+export const platformSupportQuestionSetUpdateRequestSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).nullable().optional(),
+  status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+});
+export const platformSupportVersionCreateRequestSchema = z.object({
+  cloneFromVersionId: z.string().optional(),
+});
+export const platformSupportQuestionInputSchema = z.object({
+  key: z.string().min(1).max(120),
+  type: supportQuestionTypeSchema,
+  prompt: z.string().min(1).max(2000),
+  helpText: z.string().max(2000).nullable().optional(),
+  sortOrder: z.number().int().nonnegative(),
+  required: z.boolean().optional(),
+  isEntry: z.boolean().optional(),
+  options: z
+    .array(
+      z.object({
+        key: z.string().min(1).max(120),
+        label: z.string().min(1).max(400),
+        sortOrder: z.number().int().nonnegative(),
+      }),
+    )
+    .optional(),
+});
+export const platformSupportTransitionInputSchema = z.object({
+  fromKey: z.string().min(1),
+  matchKind: supportTransitionMatchKindSchema,
+  matchOptionKey: z.string().nullable().optional(),
+  action: supportTransitionActionSchema,
+  toKey: z.string().nullable().optional(),
+  sortOrder: z.number().int().nonnegative(),
+});
+export const platformSupportVersionEditRequestSchema = z.object({
+  questions: z.array(platformSupportQuestionInputSchema).min(1),
+  transitions: z.array(platformSupportTransitionInputSchema),
+});
+export type PlatformSupportVersionEditRequest = z.infer<
+  typeof platformSupportVersionEditRequestSchema
+>;
+export const platformSupportMappingUpsertRequestSchema = z.object({
+  scope: supportMappingScopeSchema,
+  targetId: z.string().min(1),
+  topic: supportTopicSchema,
+  questionSetId: z.string().min(1),
+});
+export const platformSupportTopicDefaultUpsertRequestSchema = z.object({
+  topic: supportTopicSchema,
+  questionSetId: z.string().min(1),
+});
+export const platformSupportGraphValidationResponseSchema = z.object({
+  ok: z.boolean(),
+  errors: z.array(z.object({ code: z.string(), detail: z.string() })),
+});
+export const platformSupportQuestionSetSummarySchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  isDefault: z.boolean(),
+  status: z.enum(["ACTIVE", "INACTIVE"]),
+  latestPublishedVersion: z.number().int().nullable(),
+  versionCount: z.number().int(),
+});
+export const platformSupportQuestionSetListResponseSchema = z.object({
+  items: z.array(platformSupportQuestionSetSummarySchema),
+});
+export const platformSupportVersionDtoSchema = z.object({
+  id: z.string(),
+  version: z.number().int(),
+  status: z.enum(["DRAFT", "PUBLISHED", "ARCHIVED"]),
+  publishedAt: z.string().nullable(),
+  questions: z.array(supportQuestionDtoSchema),
+  transitions: z.array(supportTransitionDtoSchema),
+});
+export const platformSupportQuestionSetDetailSchema = platformSupportQuestionSetSummarySchema.extend({
+  versions: z.array(platformSupportVersionDtoSchema),
+});
+export const platformSupportQuestionSetDetailResponseSchema = z.object({
+  questionSet: platformSupportQuestionSetDetailSchema,
+});
