@@ -59,11 +59,11 @@ export function SupportGuidedWizard({
 
   const [draft, setDraft] = useState<FlowAnswerValue>({});
   const [validationError, setValidationError] = useState<string | null>(null);
+  // Yalnız mevcut soru anahtarı değişince taslağı senkronla (answers kasıtlı olarak bağımlılık
+  // DEĞİL — GERİ/İLERİ'de önceki cevap korunur, her render'da sıfırlanmaz).
   useEffect(() => {
     if (currentKey) setDraft(state.answers[currentKey] ?? {});
     setValidationError(null);
-    // Yalnız mevcut soru anahtarı değişince taslağı senkronla (cevap korunur).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentKey]);
 
   // Escalation formu

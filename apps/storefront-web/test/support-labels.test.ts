@@ -16,7 +16,7 @@ import {
  */
 
 const t = getDictionary("tr").storefront.account.support;
-const fmt = (_iso: string) => "10.08.2026";
+const fmt = () => "10.08.2026";
 
 describe("enum → label", () => {
   it("topic/status/actor insan-okur etiket döner (raw enum değil)", () => {
