@@ -25,8 +25,12 @@
  * kostugu icin ayni pepper env'ini paylasir → hash/verify tutarli.
  */
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "@commerce-os/auth";
+
+const SEED_DIR = dirname(fileURLToPath(import.meta.url));
 
 const prisma = new PrismaClient();
 
@@ -614,7 +618,7 @@ async function main() {
 
   // (b) Published question-set'ler + 7 topic default (tek doğruluk kaynağı seed graph JSON).
   const supportSets = JSON.parse(
-    readFileSync(new URL("../prisma/support-default-question-sets.json", import.meta.url), "utf8"),
+    readFileSync(join(SEED_DIR, "../prisma/support-default-question-sets.json"), "utf8"),
   ).sets;
   const supportVersionByTopic = {};
   for (const set of supportSets) {
