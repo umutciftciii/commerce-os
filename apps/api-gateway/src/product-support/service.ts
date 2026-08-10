@@ -16,7 +16,7 @@ import {
 import { resolveQuestionSet } from "./resolution.js";
 import { computeWarrantyEligibility } from "./warranty.js";
 import { evaluateStatusTransition, evaluateReopen, type SupportActor } from "./status-map.js";
-import { slaStateFor } from "./sla.js";
+import { liveSlaSnapshot, slaStateFor } from "./sla.js";
 import {
   projectGraph,
   projectCustomerTicketDetail,
@@ -690,9 +690,22 @@ export async function listAdminTickets(storeId: string, f: AdminListFilters) {
   if (f.assigneePlatformUserId) where.assigneePlatformUserId = f.assigneePlatformUserId;
   if (f.topic) where.topic = f.topic;
   if (f.slaRisk) {
-    // Phase-1 approximation (TD-177-2): any snapshot overdue on an active ticket flags risk.
+    // TD-177-2: yalnız LIVE (en yüksek) cycle değerlendirilir. Aktif bir ticket'ta live snapshot,
+    // tek `resolvedAt:null` olan snapshot'tır — reopen ancak RESOLVED sonrası olur, dolayısıyla
+    // önceki cycle'lar resolved (resolvedAt≠null) olur. `resolvedAt:null` koşulu historical
+    // overdue-resolved cycle'ları eler → reopen'lı ticket'larda false-positive yok. Risk =
+    // live snapshot'ta resolution VEYA first-response OVERDUE; bu, inbox SLA rozetinin kanonik
+    // hesabıyla (live snapshot + slaStateFor "OVERDUE") birebir aynıdır.
     where.status = { in: ACTIVE_TICKET_STATUSES };
-    where.slaSnapshots = { some: { resolutionDueAt: { lt: f.now } } };
+    where.slaSnapshots = {
+      some: {
+        resolvedAt: null,
+        OR: [
+          { resolutionDueAt: { lt: f.now } },
+          { firstResponseMetAt: null, firstResponseDueAt: { lt: f.now } },
+        ],
+      },
+    };
   }
   if (f.search && f.search.trim()) {
     const q = f.search.trim();
@@ -734,9 +747,8 @@ export async function listAdminTickets(storeId: string, f: AdminListFilters) {
 
   const items = rows.map((r) => {
     const terminal = r.status === "RESOLVED" || r.status === "CLOSED";
-    const live = r.slaSnapshots.length
-      ? r.slaSnapshots.reduce((a, b) => (b.cycle > a.cycle ? b : a))
-      : null;
+    // TD-177-2: SLA rozeti yalnız live (en yüksek) cycle'dan; historical cycle'lar KPI'ya girmez.
+    const live = liveSlaSnapshot(r.slaSnapshots);
     return {
       ticketId: r.id,
       ticketNumber: r.ticketNumber,

@@ -562,3 +562,105 @@ describe.skipIf(!hasDb)("Product Support — service (live DB)", () => {
     expect(others).toHaveLength(0);
   });
 });
+
+/**
+ * TD-177-2 — Admin inbox `slaRisk` filtresi YALNIZ live (en yüksek) SupportSlaSnapshot cycle'ını
+ * değerlendirmeli. Reopen ile oluşan eski (historical) cycle'lar overdue olsa bile — o cycle
+ * resolved edildiği için — false-positive üretmemeli. Filtre, inbox SLA rozetiyle (live snapshot
+ * + slaStateFor) aynı kanonik OVERDUE kavramını kullanır.
+ */
+describe.skipIf(!hasDb)("Product Support — TD-177-2 SLA risk (live cycle only)", () => {
+  const NOW = new Date("2026-06-01T12:00:00.000Z");
+  const PAST = new Date("2026-05-01T00:00:00.000Z");
+  const FUTURE = new Date("2026-07-01T00:00:00.000Z");
+
+  type Snap = { cycle: number; frDue: Date; frMet: Date | null; resDue: Date; resolved: Date | null };
+
+  async function ticketWith(
+    base: Awaited<ReturnType<typeof seedBase>>,
+    versionId: string,
+    snapshots: Snap[],
+    status: "OPEN" | "WAITING_STORE" | "WAITING_CUSTOMER" | "RESOLVED" | "CLOSED",
+  ) {
+    const tn = await seedTicket(base, versionId);
+    const t = await prisma.supportTicket.findFirstOrThrow({
+      where: { storeId: base.storeId, ticketNumber: tn },
+      select: { id: true },
+    });
+    // createTicketFromGuidedFlow cycle 1 kurdu → kaldırıp senaryonun snapshot'larını kur.
+    await prisma.supportSlaSnapshot.deleteMany({ where: { ticketId: t.id } });
+    for (const s of snapshots) {
+      await prisma.supportSlaSnapshot.create({
+        data: {
+          storeId: base.storeId,
+          ticketId: t.id,
+          cycle: s.cycle,
+          topic: "PRODUCT_NOT_WORKING",
+          firstResponseDueAt: s.frDue,
+          firstResponseMetAt: s.frMet,
+          resolutionDueAt: s.resDue,
+          resolvedAt: s.resolved,
+        },
+      });
+    }
+    await prisma.supportTicket.update({ where: { id: t.id }, data: { status } });
+    return t.id;
+  }
+
+  it("historical overdue-resolved cycle → risk DEĞİL (live cycle temiz)", async () => {
+    const base = await seedBase();
+    const { versionId } = await seedPublishedSet(base.sfx);
+    await ticketWith(
+      base,
+      versionId,
+      [
+        { cycle: 1, frDue: PAST, frMet: PAST, resDue: PAST, resolved: PAST }, // eski, overdue AMA resolved
+        { cycle: 2, frDue: FUTURE, frMet: NOW, resDue: FUTURE, resolved: null }, // live, temiz
+      ],
+      "OPEN",
+    );
+    const list = await listAdminTickets(base.storeId, { slaRisk: true, page: 1, pageSize: 20, now: NOW });
+    expect(list.total).toBe(0);
+  });
+
+  it("live cycle resolution overdue → risk", async () => {
+    const base = await seedBase();
+    const { versionId } = await seedPublishedSet(base.sfx);
+    await ticketWith(
+      base,
+      versionId,
+      [{ cycle: 1, frDue: PAST, frMet: PAST, resDue: PAST, resolved: null }],
+      "WAITING_STORE",
+    );
+    const list = await listAdminTickets(base.storeId, { slaRisk: true, page: 1, pageSize: 20, now: NOW });
+    expect(list.total).toBe(1);
+    expect(list.items[0].resolutionState).toBe("OVERDUE");
+  });
+
+  it("live cycle first-response overdue (yanıtsız) → risk (badge ile tutarlı)", async () => {
+    const base = await seedBase();
+    const { versionId } = await seedPublishedSet(base.sfx);
+    await ticketWith(
+      base,
+      versionId,
+      [{ cycle: 1, frDue: PAST, frMet: null, resDue: FUTURE, resolved: null }],
+      "OPEN",
+    );
+    const list = await listAdminTickets(base.storeId, { slaRisk: true, page: 1, pageSize: 20, now: NOW });
+    expect(list.total).toBe(1);
+    expect(list.items[0].firstResponseState).toBe("OVERDUE");
+  });
+
+  it("terminal ticket (RESOLVED/CLOSED) → risk DEĞİL (aktif status kapısı)", async () => {
+    const base = await seedBase();
+    const { versionId } = await seedPublishedSet(base.sfx);
+    await ticketWith(
+      base,
+      versionId,
+      [{ cycle: 1, frDue: PAST, frMet: null, resDue: PAST, resolved: null }],
+      "RESOLVED",
+    );
+    const list = await listAdminTickets(base.storeId, { slaRisk: true, page: 1, pageSize: 20, now: NOW });
+    expect(list.total).toBe(0);
+  });
+});
