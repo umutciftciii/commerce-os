@@ -131,6 +131,8 @@ describe("F3B.3 customer account helpers", () => {
 
   it("customerOrderDetailLineSchema inherits imageUrl from the summary line (extend)", () => {
     const base = {
+      // TODO-177 (B7) — order-line desteği için orderLineId zorunlu alan (guided support CTA bağlamı).
+      orderLineId: "line_1",
       variantId: "var_1",
       productSlug: "hoodie",
       sku: "HD-M",

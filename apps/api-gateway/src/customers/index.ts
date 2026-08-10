@@ -1516,6 +1516,9 @@ function serializeCustomerOrderDetail(
       quantity: line.quantity,
       unitPriceMinor: line.unitPriceAmount,
       lineTotalMinor: line.totalAmount,
+      // TODO-177 (ADR-289) — OrderLine.id additive (line-scoped destek CTA). Zaten select'te var
+      // (kapak URL anahtarı); sunucu bunu destek akışında (storeId, customerId)'ye karşı re-validate eder.
+      orderLineId: line.id,
       // ALLOWLIST: yalnız türetilmiş kapak URL'i (satır-bazında); productId/storageKey DTO'ya girmez.
       imageUrl: coverUrlByLineId.get(line.id) ?? null,
       // TODO-165 (ADR-252) — moda snapshot (immutable; fashion-dışı satırda null).

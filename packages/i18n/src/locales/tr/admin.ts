@@ -76,6 +76,7 @@ export const trAdmin = {
     themeLibrary: "Tema Kütüphanesi",
     themeManagement: "Tema Yönetimi",
     plans: "Paketler",
+    questionSets: "Soru Setleri",
     systemHealth: "Sistem Sağlığı",
     settings: "Ayarlar",
   },

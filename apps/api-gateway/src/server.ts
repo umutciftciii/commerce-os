@@ -221,6 +221,12 @@ import { applyStoreCreditToOrderInTx } from "./customer-credit/checkout.js";
 import { registerPendingWorkRoutes } from "./pending-work/routes.js";
 import { registerReturnAttachmentServeRoutes } from "./returns/routes-attachment.js";
 import { registerReturnCustomerRoutes } from "./returns/routes-customer.js";
+// TODO-177 (ADR-289) — Ürün Desteği (guided support + ticket) rotaları.
+import { registerSupportAdminRoutes } from "./product-support/routes-admin.js";
+import { registerSupportPlatformRoutes } from "./product-support/routes-platform.js";
+import { registerSupportCustomerRoutes } from "./product-support/routes-customer.js";
+import { registerSupportAttachmentServeRoutes } from "./product-support/routes-attachment.js";
+import { createLogSupportNotificationDispatcher } from "./product-support/notification.js";
 import { registerOrderExperienceRoutes } from "./order-experience/routes.js";
 import {
   createPrismaShippingWebhookPersistence,
@@ -7859,6 +7865,22 @@ export function createServer(
     mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
   });
 
+  // TODO-177 (ADR-289) — Ürün Desteği: store-admin inbox (capability PRODUCT_SUPPORT) + platform
+  // question-set yönetimi (SUPER_ADMIN/platform). Customer + attachment rotaları MEDIA bölümünden
+  // SONRA kaydedilir (mediaStorage bağımlılığı). Bildirim: honest stub (in-app primary; e-posta UNCONFIGURED).
+  const supportNotifications = createLogSupportNotificationDispatcher(logger);
+  registerSupportAdminRoutes(app, {
+    requireStoreAdmin: requireStoreAdminForModule("PRODUCT_SUPPORT"),
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    notifications: supportNotifications,
+  });
+  registerSupportPlatformRoutes(app, {
+    requirePlatform: async (request, reply) => {
+      const session = await requirePlatformAdmin(request, reply);
+      return session ? { actorUserId: session.platformUser.id } : null;
+    },
+  });
+
   // TODO-170 (ADR-272) — Refund Ledger & Payment Reversal: store-admin refund başlat/yenile/tekrar/iptal +
   // manuel tamamlama (AYRI güçlü yetki: SUPER_ADMIN). Store-scoped; cross-store 404.
   registerRefundAdminRoutes(app, {
@@ -8179,6 +8201,24 @@ export function createServer(
     config,
     customers,
     storage: mediaStorage,
+    resolvePublicStore,
+  });
+  // TODO-177 (ADR-289) — Ürün Desteği müşteri + attachment serve rotaları (mediaStorage bağımlılığı).
+  registerSupportCustomerRoutes(app, {
+    config,
+    customers,
+    storage: mediaStorage,
+    resolvePublicStore,
+    notifications: supportNotifications,
+  });
+  registerSupportAttachmentServeRoutes(app, {
+    storage: mediaStorage,
+    requireStoreAdmin: async (request, reply, storeId) => {
+      const access = await requireStorePlatformAdmin(request, reply, storeId);
+      return access ? { actorUserId: access.session.platformUser.id } : null;
+    },
+    resolveCustomer: (request, storeId) =>
+      resolveCustomerFromRequest(request, storeId, { customers, config }),
     resolvePublicStore,
   });
   // TODO-174A (ADR-279) — Sipariş deneyimi değerlendirmesi (iptal edilmiş + teslim-edilmemiş sipariş).

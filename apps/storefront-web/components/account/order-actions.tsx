@@ -64,7 +64,6 @@ export function OrderActions({
 }) {
   const [pending, startTransition] = useTransition();
   const [buyAgain, setBuyAgain] = useState<BuyAgainState>({ status: "idle" });
-  const [panel, setPanel] = useState<null | "support">(null);
   // TODO-169 (blocker #5 regresyon) — review paneli AYRI aç/kapa state'i. Panel action-bar'ın DIŞINDA
   // (altında) render edilir → aksiyon çubuğu SABİT kalır, iade CTA alt satıra İTİLMEZ.
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -76,15 +75,9 @@ export function OrderActions({
   const cancelEnabled = canCancel && cancelSummary !== null && cancelT !== undefined;
 
   function runBuyAgain() {
-    setPanel(null);
     startTransition(async () => {
       setBuyAgain(await buyAgainAction(orderNumber));
     });
-  }
-
-  function togglePanel(next: "support") {
-    setBuyAgain({ status: "idle" });
-    setPanel((current) => (current === next ? null : next));
   }
 
   return (
@@ -108,9 +101,8 @@ export function OrderActions({
             {pending ? t.buyAgain.pending : t.actions.buyAgain}
           </Button>
         ) : null}
-        <Button size="sm" variant="secondary" onClick={() => togglePanel("support")}>
-          {t.actions.support}
-        </Button>
+        {/* TODO-177 (ADR-289) — Order-level destek placeholder'ı KALDIRILDI; Ürün Desteği artık
+            order detayında order-line bağlamlı CTA'dır (SupportLineCta). */}
         {/* TODO-174A — İptal edilmiş + teslim-edilmemiş siparişte ürün-review CTA'sı (disabled)
             YERİNE aktif "Sipariş deneyimini değerlendir" CTA'sı gösterilir. Aksi hâlde mevcut
             ürün-review CTA'sı korunur (DELIVERED akışı değişmez). */}
@@ -191,8 +183,6 @@ export function OrderActions({
           {buyAgain.reason === "none-available" ? t.buyAgain.unavailable : t.buyAgain.error}
         </Alert>
       ) : null}
-
-      {panel === "support" ? <Alert tone="info">{t.support.note}</Alert> : null}
     </div>
   );
 }

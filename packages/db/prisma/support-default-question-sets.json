@@ -1,0 +1,106 @@
+{
+  "_comment": "ADR-289 (TODO-177) — Platform DEFAULT question-set seed (SINGLE SOURCE OF TRUTH). Consumed by packages/db seed (.mjs) and validated by apps/api-gateway question-engine seed-graph test. Deterministic; each set has exactly one entry, covers every option or a DEFAULT, no cycles, at least one SELF_SERVICE_RESULT, and a reachable escalation path (ticket always possible). Copy is Turkish (product default language).",
+  "sets": [
+    {
+      "key": "default-product-not-working",
+      "topic": "PRODUCT_NOT_WORKING",
+      "title": "Ürün çalışmıyor — Varsayılan",
+      "description": "Ürünün açılmaması/çalışmaması için temel guided akış.",
+      "questions": [
+        { "key": "entry", "type": "SINGLE_SELECT", "prompt": "Ürün hiç açılmıyor mu, yoksa açılıp sonra mı sorun çıkarıyor?", "sortOrder": 0, "required": true, "isEntry": true, "options": [ { "key": "no_power", "label": "Hiç açılmıyor", "sortOrder": 0 }, { "key": "intermittent", "label": "Açılıyor ama sorunlu", "sortOrder": 1 } ] },
+        { "key": "checked_power", "type": "BOOLEAN", "prompt": "Cihazı farklı bir prize/kabloya taktınız mı?", "sortOrder": 1, "required": true, "isEntry": false, "options": [] },
+        { "key": "result_power", "type": "SELF_SERVICE_RESULT", "prompt": "Farklı bir priz ve orijinal adaptörle deneyin; 30 saniye basılı tutarak sıfırlayın. Sorun sürerse destek talebi oluşturabilirsiniz.", "sortOrder": 2, "required": false, "isEntry": false, "options": [] }
+      ],
+      "transitions": [
+        { "fromKey": "entry", "matchKind": "OPTION", "matchOptionKey": "no_power", "action": "GO_TO_QUESTION", "toKey": "checked_power", "sortOrder": 0 },
+        { "fromKey": "entry", "matchKind": "DEFAULT", "matchOptionKey": null, "action": "ESCALATE", "toKey": null, "sortOrder": 1 },
+        { "fromKey": "checked_power", "matchKind": "BOOLEAN_FALSE", "matchOptionKey": null, "action": "GO_TO_RESULT", "toKey": "result_power", "sortOrder": 0 },
+        { "fromKey": "checked_power", "matchKind": "DEFAULT", "matchOptionKey": null, "action": "ESCALATE", "toKey": null, "sortOrder": 1 }
+      ]
+    },
+    {
+      "key": "default-damaged-or-missing",
+      "topic": "DAMAGED_OR_MISSING",
+      "title": "Hasarlı / eksik — Varsayılan",
+      "description": "Hasarlı veya eksik ürün için guided akış.",
+      "questions": [
+        { "key": "entry", "type": "SINGLE_SELECT", "prompt": "Ürün hasarlı mı yoksa paket eksik mi geldi?", "sortOrder": 0, "required": true, "isEntry": true, "options": [ { "key": "damaged", "label": "Hasarlı geldi", "sortOrder": 0 }, { "key": "missing", "label": "Eksik/parça yok", "sortOrder": 1 } ] },
+        { "key": "result_doc", "type": "SELF_SERVICE_RESULT", "prompt": "Hasar/eksik durumunda paket ve ürün fotoğraflarını hazırlayın; destek talebi oluştururken ekleyebilirsiniz.", "sortOrder": 1, "required": false, "isEntry": false, "options": [] }
+      ],
+      "transitions": [
+        { "fromKey": "entry", "matchKind": "OPTION", "matchOptionKey": "damaged", "action": "GO_TO_RESULT", "toKey": "result_doc", "sortOrder": 0 },
+        { "fromKey": "entry", "matchKind": "DEFAULT", "matchOptionKey": null, "action": "ESCALATE", "toKey": null, "sortOrder": 1 }
+      ]
+    },
+    {
+      "key": "default-setup-usage",
+      "topic": "SETUP_USAGE",
+      "title": "Kurulum / kullanım — Varsayılan",
+      "description": "Kurulum ve kullanım desteği için guided akış.",
+      "questions": [
+        { "key": "entry", "type": "SINGLE_SELECT", "prompt": "Kurulum mu yoksa günlük kullanım mı hakkında yardım istiyorsunuz?", "sortOrder": 0, "required": true, "isEntry": true, "options": [ { "key": "setup", "label": "Kurulum", "sortOrder": 0 }, { "key": "usage", "label": "Kullanım", "sortOrder": 1 } ] },
+        { "key": "result_guide", "type": "SELF_SERVICE_RESULT", "prompt": "Ürünle gelen hızlı başlangıç kılavuzunu izleyin. Adımlar çözmezse destek talebi oluşturabilirsiniz.", "sortOrder": 1, "required": false, "isEntry": false, "options": [] }
+      ],
+      "transitions": [
+        { "fromKey": "entry", "matchKind": "OPTION", "matchOptionKey": "setup", "action": "GO_TO_RESULT", "toKey": "result_guide", "sortOrder": 0 },
+        { "fromKey": "entry", "matchKind": "OPTION", "matchOptionKey": "usage", "action": "GO_TO_RESULT", "toKey": "result_guide", "sortOrder": 1 },
+        { "fromKey": "entry", "matchKind": "DEFAULT", "matchOptionKey": null, "action": "ESCALATE", "toKey": null, "sortOrder": 2 }
+      ]
+    },
+    {
+      "key": "default-warranty-service",
+      "topic": "WARRANTY_SERVICE",
+      "title": "Garanti / servis — Varsayılan",
+      "description": "Garanti ve servis talepleri için guided akış (eligibility gösterilir; escalation her zaman açık).",
+      "questions": [
+        { "key": "entry", "type": "SINGLE_SELECT", "prompt": "Garanti kapsamında onarım mı yoksa garanti durumu bilgisi mi istiyorsunuz?", "sortOrder": 0, "required": true, "isEntry": true, "options": [ { "key": "repair", "label": "Onarım talebi", "sortOrder": 0 }, { "key": "status", "label": "Garanti durumu", "sortOrder": 1 } ] },
+        { "key": "result_status", "type": "SELF_SERVICE_RESULT", "prompt": "Garanti durumu ve bitiş tarihi bu ekranda gösterilir. Onarım için destek talebi oluşturabilirsiniz.", "sortOrder": 1, "required": false, "isEntry": false, "options": [] }
+      ],
+      "transitions": [
+        { "fromKey": "entry", "matchKind": "OPTION", "matchOptionKey": "status", "action": "GO_TO_RESULT", "toKey": "result_status", "sortOrder": 0 },
+        { "fromKey": "entry", "matchKind": "DEFAULT", "matchOptionKey": null, "action": "ESCALATE", "toKey": null, "sortOrder": 1 }
+      ]
+    },
+    {
+      "key": "default-product-info",
+      "topic": "PRODUCT_INFO",
+      "title": "Ürün bilgisi — Varsayılan",
+      "description": "Ürün bilgisi soruları için guided akış.",
+      "questions": [
+        { "key": "entry", "type": "SINGLE_SELECT", "prompt": "Hangi konuda bilgi istiyorsunuz?", "sortOrder": 0, "required": true, "isEntry": true, "options": [ { "key": "specs", "label": "Teknik özellikler", "sortOrder": 0 }, { "key": "compat", "label": "Uyumluluk", "sortOrder": 1 } ] },
+        { "key": "result_specs", "type": "SELF_SERVICE_RESULT", "prompt": "Ürün özellikleri ürün sayfasındaki açıklama ve özellik tablosunda yer alır. Ek soru için destek talebi oluşturabilirsiniz.", "sortOrder": 1, "required": false, "isEntry": false, "options": [] }
+      ],
+      "transitions": [
+        { "fromKey": "entry", "matchKind": "OPTION", "matchOptionKey": "specs", "action": "GO_TO_RESULT", "toKey": "result_specs", "sortOrder": 0 },
+        { "fromKey": "entry", "matchKind": "DEFAULT", "matchOptionKey": null, "action": "ESCALATE", "toKey": null, "sortOrder": 1 }
+      ]
+    },
+    {
+      "key": "default-invoice-document",
+      "topic": "INVOICE_DOCUMENT",
+      "title": "Fatura / doküman — Varsayılan",
+      "description": "Fatura ve doküman talepleri için guided akış.",
+      "questions": [
+        { "key": "entry", "type": "SINGLE_SELECT", "prompt": "Hangi dokümana ihtiyacınız var?", "sortOrder": 0, "required": true, "isEntry": true, "options": [ { "key": "invoice", "label": "Fatura", "sortOrder": 0 }, { "key": "other_doc", "label": "Diğer doküman", "sortOrder": 1 } ] },
+        { "key": "result_invoice", "type": "SELF_SERVICE_RESULT", "prompt": "Faturanız sipariş detayında yer alır ve hesabınızdan indirilebilir. Bulamazsanız destek talebi oluşturabilirsiniz.", "sortOrder": 1, "required": false, "isEntry": false, "options": [] }
+      ],
+      "transitions": [
+        { "fromKey": "entry", "matchKind": "OPTION", "matchOptionKey": "invoice", "action": "GO_TO_RESULT", "toKey": "result_invoice", "sortOrder": 0 },
+        { "fromKey": "entry", "matchKind": "DEFAULT", "matchOptionKey": null, "action": "ESCALATE", "toKey": null, "sortOrder": 1 }
+      ]
+    },
+    {
+      "key": "default-other",
+      "topic": "OTHER",
+      "title": "Diğer — Varsayılan",
+      "description": "Diğer konular için guided akış (her zaman escalation ile biter).",
+      "questions": [
+        { "key": "entry", "type": "LONG_TEXT", "prompt": "Sorununuzu kısaca açıklayın.", "sortOrder": 0, "required": true, "isEntry": true, "options": [] },
+        { "key": "result_other", "type": "SELF_SERVICE_RESULT", "prompt": "Açıklamanız alındı. Yardımcı bir çözüm bulunamazsa destek ekibimize iletebilirsiniz.", "sortOrder": 1, "required": false, "isEntry": false, "options": [] }
+      ],
+      "transitions": [
+        { "fromKey": "entry", "matchKind": "DEFAULT", "matchOptionKey": null, "action": "GO_TO_RESULT", "toKey": "result_other", "sortOrder": 0 }
+      ]
+    }
+  ]
+}

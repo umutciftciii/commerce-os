@@ -1982,6 +1982,29 @@ room, no code now):
   kullanır (etkilenmez). Aynı bounded-scan sınıfı: `pdp-404-public-catalog-max`.
 - İlişki: BUG-CART-002.
 
+## Product Support (ADR-289 / TODO-177) — debt kalemleri
+
+TODO-177 Faz 1 (Ürün Desteği: guided support + ticket) tamamlandı (Faz A–G; runtime Playwright + full gate GREEN).
+İlgili debt kalemleri:
+
+- **TD-177-1 (FUTURE, düşük):** `SupportQuestionSetMapping` polimorfik `targetId` FK taşımaz (PRODUCT/CATEGORY scope
+  scalar). Hedef silinirse satır INERT kalır (resolution yalnız canlı id eşler). api-gateway'de `product.delete` /
+  `productCategory.delete` çağrı yeri yok (soft-archive ARCHIVED) → orphan mapping pratikte oluşmaz. Doğal hard-delete
+  akışı eklenirse cleanup hook gerekir.
+- **TD-177-2 (RESOLVED, Faz E):** Admin inbox `slaRisk` filtresi eskiden `slaSnapshots some overdue` idi → reopen'lı
+  ticket'larda historical (resolved) cycle false-positive üretiyordu. Düzeltme: `some { resolvedAt:null, OR[resolution
+  overdue, first-response overdue] }` (invariant: aktif ticket'ta yalnız en yüksek/live cycle `resolvedAt=null`); inbox
+  SLA rozeti + filtre kanonik olarak `liveSlaSnapshot`+`slaStateFor` kullanır. +4 integration +5 unit; runtime doğrulandı.
+- **TD-177-3 (FUTURE, düşük):** Platform question-set mapping read-back endpoint yok (assignment-only; okuma FUTURE).
+  Admin UI mapping'i yalnız yazar, mevcut atamaları listelemez.
+- **TD-177-4 (FUTURE, düşük):** Customer/admin answer snapshot yalnız option KEY tutar (label değil) + detay ekranında
+  question graph yok → guided cevap özetinde SELECT değerleri gösterilmez (ham teknik anahtar sızmaması için); BOOLEAN/
+  TEXT gösterilir. Snapshot'a option label eklenirse SELECT değerleri de gösterilebilir.
+
+**Bildirim (honest stub — TD-110 sınıfı):** `SupportNotificationDispatcher` in-app event (`SupportTicketStatusHistory`
++ `SupportTicketMessage`) yazar; e-posta dispatcher **UNCONFIGURED/honest stub**'tır — `isConfigured=false ⇒ delivery
+"UNCONFIGURED"`, ASLA sahte "SENT" üretmez. Gerçek e-posta provider entegrasyonu scope DIŞI / FUTURE.
+
 ## Returns Management Foundation — açık future kalemler (ADR-269 / TODO-169)
 
 - **Gerçek provider refund + OrderRefund ledger (TD-RET-1 → TODO-170):** bu faz yalnız `RefundIntent` (PENDING)

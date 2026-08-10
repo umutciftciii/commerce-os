@@ -19,6 +19,7 @@ import { resolveReturnWindowLabel } from "../../../../lib/returns-summary";
 import { resolveOrderReview, resolveOrderExperience } from "../../../../lib/orders-review";
 import { OrderStatusBadges } from "../../../../components/account/order-badges";
 import { OrderActions } from "../../../../components/account/order-actions";
+import { SupportLineCta } from "../../../../components/account/support/support-line-cta";
 import { ShipmentTracking } from "../../../../components/account/shipment-tracking";
 import { ReturnsDeepLinkFocus } from "../../../../components/account/returns/returns-deep-link-focus";
 import { Alert, ButtonLink, Container, Heading, ProductMediaFrame, Subheading } from "../../../../components/ui";
@@ -150,6 +151,14 @@ export default async function OrderDetailPage({
                   ) : null}
                   <span className="block text-xs text-ink-subtle">
                     {line.sku} · ×{line.quantity}
+                  </span>
+                  {/* TODO-177 (ADR-289) — Order-line bağlamlı Ürün Desteği giriş noktası. */}
+                  <span className="mt-1 block">
+                    <SupportLineCta
+                      orderNumber={order.orderNumber}
+                      orderLineId={line.orderLineId}
+                      label={o.actions.support}
+                    />
                   </span>
                 </span>
                 <span className="shrink-0 text-sm font-medium text-ink">

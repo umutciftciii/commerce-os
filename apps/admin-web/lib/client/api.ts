@@ -37,6 +37,18 @@ import type {
   PlatformMeResponse,
   SessionTiming,
   PlatformUserContract,
+  // TODO-177 (ADR-289) — Ürün Desteği question-set yönetimi.
+  PlatformSupportQuestionSetListResponse,
+  PlatformSupportQuestionSetDetailResponse,
+  PlatformSupportGraphValidationResponse,
+  PlatformSupportQuestionSetCreateRequest,
+  PlatformSupportQuestionSetUpdateRequest,
+  PlatformSupportVersionCreateRequest,
+  PlatformSupportVersionEditRequest,
+  PlatformSupportMappingUpsertRequest,
+  PlatformSupportTopicDefaultUpsertRequest,
+  AdminProductSelectorResponse,
+  AdminCategorySelectorResponse,
 } from "@commerce-os/api-client";
 
 /**
@@ -237,6 +249,71 @@ export const adminApi = {
       method: "PUT",
       body: JSON.stringify(input),
     }),
+
+  // TODO-177 (ADR-289) — Ürün Desteği question-set yönetimi (platform-only).
+  listQuestionSets: () =>
+    call<PlatformSupportQuestionSetListResponse>("/api/admin/support/question-sets"),
+  createQuestionSet: (input: PlatformSupportQuestionSetCreateRequest) =>
+    mutatingCall<PlatformSupportQuestionSetDetailResponse>("/api/admin/support/question-sets", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  getQuestionSet: (id: string) =>
+    call<PlatformSupportQuestionSetDetailResponse>(`/api/admin/support/question-sets/${id}`),
+  updateQuestionSet: (id: string, input: PlatformSupportQuestionSetUpdateRequest) =>
+    mutatingCall<PlatformSupportQuestionSetDetailResponse>(
+      `/api/admin/support/question-sets/${id}`,
+      { method: "PATCH", body: JSON.stringify(input) },
+    ),
+  createQuestionSetVersion: (id: string, input: PlatformSupportVersionCreateRequest) =>
+    mutatingCall<PlatformSupportQuestionSetDetailResponse>(
+      `/api/admin/support/question-sets/${id}/versions`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  editQuestionSetVersion: (versionId: string, input: PlatformSupportVersionEditRequest) =>
+    mutatingCall<{ ok: boolean }>(`/api/admin/support/versions/${versionId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  validateQuestionSetVersion: (versionId: string) =>
+    mutatingCall<PlatformSupportGraphValidationResponse>(
+      `/api/admin/support/versions/${versionId}/validate`,
+      { method: "POST" },
+    ),
+  publishQuestionSetVersion: (versionId: string) =>
+    mutatingCall<{ ok: boolean }>(`/api/admin/support/versions/${versionId}/publish`, {
+      method: "POST",
+    }),
+  archiveQuestionSetVersion: (versionId: string) =>
+    mutatingCall<{ ok: boolean }>(`/api/admin/support/versions/${versionId}/archive`, {
+      method: "POST",
+    }),
+  upsertSupportMapping: (storeId: string, input: PlatformSupportMappingUpsertRequest) =>
+    mutatingCall<{ ok: boolean }>(`/api/admin/support/mappings/${storeId}`, {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  deleteSupportMapping: (
+    storeId: string,
+    input: Omit<PlatformSupportMappingUpsertRequest, "questionSetId">,
+  ) =>
+    mutatingCall<{ ok: boolean }>(`/api/admin/support/mappings/${storeId}`, {
+      method: "DELETE",
+      body: JSON.stringify(input),
+    }),
+  upsertSupportTopicDefault: (input: PlatformSupportTopicDefaultUpsertRequest) =>
+    mutatingCall<{ ok: boolean }>("/api/admin/support/topic-defaults", {
+      method: "PUT",
+      body: JSON.stringify(input),
+    }),
+  searchStoreProducts: (storeId: string, search: string) =>
+    call<AdminProductSelectorResponse>(
+      `/api/admin/support/stores/${storeId}/products?search=${encodeURIComponent(search)}`,
+    ),
+  searchStoreCategories: (storeId: string, search: string) =>
+    call<AdminCategorySelectorResponse>(
+      `/api/admin/support/stores/${storeId}/categories?search=${encodeURIComponent(search)}`,
+    ),
 
   // System health
   systemHealth: () => call<SystemHealth>("/api/system/health"),

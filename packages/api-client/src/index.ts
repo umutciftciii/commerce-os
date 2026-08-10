@@ -385,6 +385,23 @@ import type {
   StoreModuleState,
 } from "@commerce-os/contracts";
 
+// TODO-177 (ADR-289) — Platform support question-set request/response types (admin.support methods).
+import type {
+  PlatformSupportQuestionSetCreateRequest,
+  PlatformSupportQuestionSetUpdateRequest,
+  PlatformSupportVersionCreateRequest,
+  PlatformSupportVersionEditRequest,
+  PlatformSupportMappingUpsertRequest,
+  PlatformSupportTopicDefaultUpsertRequest,
+  PlatformSupportQuestionSetListResponse,
+  PlatformSupportQuestionSetDetailResponse,
+  PlatformSupportGraphValidationResponse,
+  AdminSupportTicketListResponse,
+  AdminSupportTicketDetail,
+  AdminSupportActionRequest,
+  SupportMessageCreateRequest,
+} from "@commerce-os/contracts";
+
 /**
  * Frontend'in ihtiyac duydugu kontrat tipleri buradan re-export edilir. Boylece
  * app'ler `packages/contracts`'a dogrudan bagimli olmadan (tek type-safe kanal
@@ -1382,6 +1399,48 @@ export {
   REVIEW_PUBLIC_DEFAULT_PAGE_SIZE,
 } from "@commerce-os/contracts";
 
+// TODO-177 (ADR-289) — Ürün Desteği DTO tipleri (store-admin/platform-admin/storefront BFF için).
+export type {
+  SupportTicketStatusDto,
+  SupportTopicDto,
+  SupportActorTypeDto,
+  SupportQuestionTypeDto,
+  SupportMappingScopeDto,
+  SupportAnswerValue,
+  SupportQuestionGraphDto,
+  SupportResolveRequest,
+  SupportResolveResponse,
+  SupportTicketCreateRequest,
+  SupportMessageCreateRequest,
+  CustomerSupportTicketDetail,
+  AdminSupportTicketListResponse,
+  AdminSupportTicketDetail,
+  AdminSupportActionRequest,
+  PlatformSupportVersionEditRequest,
+  PlatformSupportQuestionSetCreateRequest,
+  PlatformSupportQuestionSetUpdateRequest,
+  PlatformSupportVersionCreateRequest,
+  PlatformSupportMappingUpsertRequest,
+  PlatformSupportTopicDefaultUpsertRequest,
+  PlatformSupportQuestionSetSummary,
+  PlatformSupportVersionDto,
+  PlatformSupportQuestionSetDetail,
+  PlatformSupportQuestionSetListResponse,
+  PlatformSupportQuestionSetDetailResponse,
+  PlatformSupportGraphValidationResponse,
+  SupportQuestionDto,
+  SupportTransitionDto,
+} from "@commerce-os/contracts";
+export {
+  supportResolveRequestSchema,
+  supportTicketCreateRequestSchema,
+  supportMessageCreateRequestSchema,
+  adminSupportActionRequestSchema,
+  platformSupportVersionEditRequestSchema,
+  SUPPORT_MESSAGE_MAX,
+  SUPPORT_MAX_ATTACHMENTS,
+} from "@commerce-os/contracts";
+
 /**
  * commerce-os API client — thin, type-safe client over the API gateway.
  *
@@ -1546,6 +1605,50 @@ export interface ApiClient {
           token?: string,
         ): Promise<PlanCapabilitiesResponse>;
       };
+    };
+    // TODO-177 (ADR-289) — Ürün Desteği question-set yönetimi (platform-only; /platform/support/*).
+    support: {
+      list(token?: string): Promise<PlatformSupportQuestionSetListResponse>;
+      create(
+        input: PlatformSupportQuestionSetCreateRequest,
+        token?: string,
+      ): Promise<PlatformSupportQuestionSetDetailResponse>;
+      get(id: string, token?: string): Promise<PlatformSupportQuestionSetDetailResponse>;
+      update(
+        id: string,
+        input: PlatformSupportQuestionSetUpdateRequest,
+        token?: string,
+      ): Promise<PlatformSupportQuestionSetDetailResponse>;
+      createVersion(
+        id: string,
+        input: PlatformSupportVersionCreateRequest,
+        token?: string,
+      ): Promise<PlatformSupportQuestionSetDetailResponse>;
+      editVersion(
+        versionId: string,
+        input: PlatformSupportVersionEditRequest,
+        token?: string,
+      ): Promise<{ ok: boolean }>;
+      validateVersion(
+        versionId: string,
+        token?: string,
+      ): Promise<PlatformSupportGraphValidationResponse>;
+      publishVersion(versionId: string, token?: string): Promise<{ ok: boolean }>;
+      archiveVersion(versionId: string, token?: string): Promise<{ ok: boolean }>;
+      upsertMapping(
+        storeId: string,
+        input: PlatformSupportMappingUpsertRequest,
+        token?: string,
+      ): Promise<{ ok: boolean }>;
+      deleteMapping(
+        storeId: string,
+        input: Omit<PlatformSupportMappingUpsertRequest, "questionSetId">,
+        token?: string,
+      ): Promise<{ ok: boolean }>;
+      upsertTopicDefault(
+        input: PlatformSupportTopicDefaultUpsertRequest,
+        token?: string,
+      ): Promise<{ ok: boolean }>;
     };
     categories: {
       // TODO-159A (ADR-089) — Admin Data Grid query'si (page/pageSize/search/sort/status).
@@ -2385,6 +2488,29 @@ export interface ApiClient {
       // TD-174B-1 — Tek-sipariş deneyim özeti (order-detail kartı). Review yoksa null.
       byOrder(storeId: string, orderId: string, token?: string): Promise<OrderExperienceSummaryDto | null>;
       // TODO-174B.2 — "Kullanıcıya ata" için store'un yetkili kullanıcıları.
+      assignableUsers(storeId: string, token?: string): Promise<AssignableUser[]>;
+    };
+    // TODO-177 (ADR-289) — Ürün Desteği store-admin inbox/detail/aksiyon (storeId-scoped).
+    // NOT: `admin.support` platform question-set yönetimidir; ticket inbox ayrı namespace.
+    productSupport: {
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<AdminSupportTicketListResponse>;
+      detail(storeId: string, ticketId: string, token?: string): Promise<{ ticket: AdminSupportTicketDetail }>;
+      reply(
+        storeId: string,
+        ticketId: string,
+        input: SupportMessageCreateRequest,
+        token?: string,
+      ): Promise<{ ticket: AdminSupportTicketDetail }>;
+      action(
+        storeId: string,
+        ticketId: string,
+        input: AdminSupportActionRequest,
+        token?: string,
+      ): Promise<{ ticket: AdminSupportTicketDetail }>;
       assignableUsers(storeId: string, token?: string): Promise<AssignableUser[]>;
     };
     // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
@@ -3314,6 +3440,81 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             ),
         },
       },
+      // TODO-177 (ADR-289) — Ürün Desteği question-set yönetimi (/platform/support/*).
+      support: {
+        list: (token) =>
+          getJson<PlatformSupportQuestionSetListResponse>("/platform/support/question-sets", token),
+        create: (input, token) =>
+          sendJson<PlatformSupportQuestionSetDetailResponse>(
+            "/platform/support/question-sets",
+            "POST",
+            input,
+            token,
+          ),
+        get: (id, token) =>
+          getJson<PlatformSupportQuestionSetDetailResponse>(
+            `/platform/support/question-sets/${id}`,
+            token,
+          ),
+        update: (id, input, token) =>
+          sendJson<PlatformSupportQuestionSetDetailResponse>(
+            `/platform/support/question-sets/${id}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        createVersion: (id, input, token) =>
+          sendJson<PlatformSupportQuestionSetDetailResponse>(
+            `/platform/support/question-sets/${id}/versions`,
+            "POST",
+            input,
+            token,
+          ),
+        editVersion: (versionId, input, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/versions/${versionId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        validateVersion: (versionId, token) =>
+          sendJson<PlatformSupportGraphValidationResponse>(
+            `/platform/support/versions/${versionId}/validate`,
+            "POST",
+            undefined,
+            token,
+          ),
+        publishVersion: (versionId, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/versions/${versionId}/publish`,
+            "POST",
+            undefined,
+            token,
+          ),
+        archiveVersion: (versionId, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/versions/${versionId}/archive`,
+            "POST",
+            undefined,
+            token,
+          ),
+        upsertMapping: (storeId, input, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/stores/${storeId}/mappings`,
+            "PUT",
+            input,
+            token,
+          ),
+        deleteMapping: (storeId, input, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/stores/${storeId}/mappings`,
+            "DELETE",
+            input,
+            token,
+          ),
+        upsertTopicDefault: (input, token) =>
+          sendJson<{ ok: boolean }>(`/platform/support/topic-defaults`, "PUT", input, token),
+      },
       categories: {
         list: (storeId, token, query) =>
           getJson<ProductCategoryListResponse>(
@@ -4199,6 +4400,29 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getJson<OrderExperienceSummaryDto | null>(`/stores/${storeId}/order-experience/orders/${orderId}`, token),
         assignableUsers: (storeId, token) =>
           getJson<AssignableUser[]>(`/stores/${storeId}/order-experience/assignable-users`, token),
+      },
+      // TODO-177 (ADR-289) — Ürün Desteği store-admin inbox/detail/aksiyon (question-set'ten ayrı).
+      productSupport: {
+        list: (storeId, token, query) =>
+          getJson<AdminSupportTicketListResponse>(`/stores/${storeId}/support/tickets${buildQueryString(query)}`, token),
+        detail: (storeId, ticketId, token) =>
+          getJson<{ ticket: AdminSupportTicketDetail }>(`/stores/${storeId}/support/tickets/${ticketId}`, token),
+        reply: (storeId, ticketId, input, token) =>
+          sendJson<{ ticket: AdminSupportTicketDetail }>(
+            `/stores/${storeId}/support/tickets/${ticketId}/messages`,
+            "POST",
+            input,
+            token,
+          ),
+        action: (storeId, ticketId, input, token) =>
+          sendJson<{ ticket: AdminSupportTicketDetail }>(
+            `/stores/${storeId}/support/tickets/${ticketId}/actions`,
+            "POST",
+            input,
+            token,
+          ),
+        assignableUsers: (storeId, token) =>
+          getJson<AssignableUser[]>(`/stores/${storeId}/support/assignable-users`, token),
       },
       // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
       customerCredit: {

@@ -308,6 +308,10 @@ import type {
   ExperienceListResponse,
   ExperienceKpiDto,
   AssignableUser,
+  AdminSupportTicketListResponse,
+  AdminSupportTicketDetail,
+  AdminSupportActionRequest,
+  SupportMessageCreateRequest,
   RecoveryCaseDetailDto,
   RecoveryActionRequest,
   ManualOpenCaseRequest,
@@ -1845,6 +1849,23 @@ export const storeApi = {
     }),
   // TODO-174B.2 — "Kullanıcıya ata" için store'un yetkili kullanıcıları.
   listAssignableUsers: () => call<AssignableUser[]>("/api/order-experience/assignable-users"),
+
+  // TODO-177 (ADR-289) — Ürün Desteği inbox/detail/aksiyon (server-authoritative; expectedVersion).
+  listSupportTickets: (query?: AdminListRequestQuery) =>
+    call<AdminSupportTicketListResponse>(`/api/support${listQueryString(query)}`),
+  getSupportTicket: (ticketId: string) =>
+    call<{ ticket: AdminSupportTicketDetail }>(`/api/support/${encodeURIComponent(ticketId)}`),
+  supportReply: (ticketId: string, input: SupportMessageCreateRequest) =>
+    mutatingCall<{ ticket: AdminSupportTicketDetail }>(`/api/support/${encodeURIComponent(ticketId)}/messages`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  supportAction: (ticketId: string, input: AdminSupportActionRequest) =>
+    mutatingCall<{ ticket: AdminSupportTicketDetail }>(`/api/support/${encodeURIComponent(ticketId)}/actions`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  listSupportAssignableUsers: () => call<AssignableUser[]>("/api/support/assignable-users"),
   // TD-174B-2 — Recovery raporu (trend + zamanlama + outcome + goodwill).
   getRecoveryReport: (query?: FinanceReportParams) =>
     call<RecoveryReportDto>(`/api/order-experience/report${financeQueryString(query)}`),

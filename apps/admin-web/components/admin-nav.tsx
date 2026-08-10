@@ -7,6 +7,7 @@ import {
   DashboardIcon,
   HealthIcon,
   PlanIcon,
+  QuestionSetIcon,
   StoreIcon,
   ThemeIcon,
   ThemeLibraryIcon,
@@ -22,6 +23,7 @@ export function AdminNav() {
     { href: "/theme-library", label: t.themeLibrary, icon: <ThemeLibraryIcon /> },
     { href: "/themes", label: t.themeManagement, icon: <ThemeIcon /> },
     { href: "/plans", label: t.plans, icon: <PlanIcon /> },
+    { href: "/question-sets", label: t.questionSets, icon: <QuestionSetIcon /> },
     { href: "/system-health", label: t.systemHealth, icon: <HealthIcon /> },
     // §8 — İnert "Ayarlar" placeholder'ı (tüm alanlar disabled, gerçek işlev yok) nav'dan
     // KALDIRILDI; /settings route'u dashboard'a yönlenir (aktif feature gibi gösterilmez).

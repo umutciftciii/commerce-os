@@ -16,8 +16,21 @@ const CONTEXT_SEGMENT: Record<MediaContext, string> = {
   BRANDING: "branding",
   // TODO-169 (ADR-269) — İade attachment'ları (PRIVATE; public statik servis kapalı).
   RETURN_ATTACHMENT: "returns",
+  // TODO-177 (ADR-289) — Destek ticket ekleri (PRIVATE). PDF için değişken uzantı + regex
+  // güncellemesi Faz B'de (routes-attachment); segment burada tanımlı olmalı (Record tamlığı).
+  SUPPORT_ATTACHMENT: "support",
 };
 
-export function buildStorageKey(storeId: string, context: MediaContext, uuid: string): string {
-  return `stores/${storeId}/${CONTEXT_SEGMENT[context]}/${uuid}.webp`;
+/**
+ * TODO-177 (ADR-289) — `ext` opsiyonel (varsayilan "webp", geriye uyumlu: mevcut 3-arg cagrilar
+ * degismez). Destek PDF ekleri icin "pdf" gecilir; LocalDiskDriver regex'i webp|pdf kabul eder.
+ * Uzanti allowlist'i: yalniz "webp" | "pdf" (arbitrary uzanti kabul edilmez).
+ */
+export function buildStorageKey(
+  storeId: string,
+  context: MediaContext,
+  uuid: string,
+  ext: "webp" | "pdf" = "webp",
+): string {
+  return `stores/${storeId}/${CONTEXT_SEGMENT[context]}/${uuid}.${ext}`;
 }

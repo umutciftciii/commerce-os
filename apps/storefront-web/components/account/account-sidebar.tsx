@@ -44,6 +44,7 @@ export function AccountSidebar({
   section,
   caps,
   activeReturns = false,
+  activeSupport = false,
 }: {
   t: AccountDict;
   section: AccountSection;
@@ -51,6 +52,8 @@ export function AccountSidebar({
   caps?: Record<string, boolean>;
   // TODO-169 — İadeler ayrı route'tur (/account/returns), section değil; aktiflik ayrı işaretlenir.
   activeReturns?: boolean;
+  // TODO-177 — Ürün Desteği ayrı route (/account/support); PRODUCT_SUPPORT core-always-on (gizlenmez).
+  activeSupport?: boolean;
 }) {
   const profileActive = PROFILE_GROUP.includes(section);
   const on = (key: string) => caps?.[key] !== false;
@@ -64,6 +67,9 @@ export function AccountSidebar({
       </Link>
       <Link href="/account/returns" className={itemClass(activeReturns)}>
         {t.menu.returns}
+      </Link>
+      <Link href="/account/support" className={itemClass(activeSupport)}>
+        {t.menu.support}
       </Link>
       <Link href="/account?section=requests" className={itemClass(section === "requests")}>
         {t.menu.requests}

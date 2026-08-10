@@ -59,4 +59,19 @@ export const ids = {
       statusText: "Onaylandı",
     },
   ],
+  // TODO-177 (ADR-289) Faz F — Ürün Desteği fixture'ları. Order-1001'in mug satırı
+  // (warrantyMonths=12 + DELIVERED shipment → warranty anchor). 7 published DEFAULT
+  // question-set + topic default seed'lidir; guided flow topic→soru→branch çalışır.
+  // Seeded RESOLVED ticket (S900001) admin inbox + müşteri reopen testleri içindir.
+  support: {
+    deliveredOrderNumber: "e2e-order-1001",
+    orderLineProductTitle: "E2E Mug",
+    // Guided flow ilk konu (TR label; ham enum PRODUCT_NOT_WORKING gösterilmez).
+    topicLabel: "Ürün çalışmıyor",
+    // Entry sorusunun prompt'u (JSON seed graph'tan; branching doğrulaması için).
+    entryPromptFragment: "hiç açılmıyor",
+    // Seeded RESOLVED ticket (müşteri resolve edemez → reopen testi için seed).
+    seededTicketNumber: "S900001",
+    seededTicketStatusText: "Çözüldü",
+  },
 } as const;

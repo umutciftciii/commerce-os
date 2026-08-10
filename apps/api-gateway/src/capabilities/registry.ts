@@ -28,6 +28,9 @@ export type StoreModuleKey =
   | "PAYMENTS"
   | "SHIPPING"
   | "AUDIT_SECURITY"
+  // TODO-177 (ADR-289) — Ürün Desteği (guided support + ticket). CORE/always-on (returns gibi
+  // her mağazada erişilebilir; kapatılamaz). Platform question-set içeriğine bağlıdır.
+  | "PRODUCT_SUPPORT"
   // ── OPTIONAL ────────────────────────────────────────────────────────────────
   | "REVIEWS"
   | "WISHLIST"
@@ -79,6 +82,7 @@ export const STORE_MODULE_REGISTRY: readonly StoreModuleDefinition[] = [
   { key: "PAYMENTS", group: "sales", labelTr: "Ödeme Sağlayıcılar", labelEn: "Payments", descriptionTr: "Ödeme sağlayıcı yapılandırması. Çekirdek.", core: true, baselineEnabled: true },
   { key: "SHIPPING", group: "sales", labelTr: "Kargo", labelEn: "Shipping", descriptionTr: "Kargo sağlayıcı/tarife/gönderi. Çekirdek.", core: true, baselineEnabled: true },
   { key: "AUDIT_SECURITY", group: "system", labelTr: "Denetim & Güvenlik", labelEn: "Audit & Security", descriptionTr: "Denetim kaydı/güvenlik. Çekirdek.", core: true, baselineEnabled: true },
+  { key: "PRODUCT_SUPPORT", group: "sales", labelTr: "Ürün Desteği", labelEn: "Product Support", descriptionTr: "Sipariş/ürün bağlamlı guided destek + ticket. Çekirdek (always-on).", core: true, baselineEnabled: true },
   // ── OPTIONAL ────────────────────────────────────────────────────────────────
   { key: "REVIEWS", group: "sales", labelTr: "Değerlendirmeler", labelEn: "Reviews", descriptionTr: "Ürün değerlendirme ve puanları.", core: false, baselineEnabled: true, requires: ["CATALOG"] },
   { key: "WISHLIST", group: "sales", labelTr: "İstek Listesi", labelEn: "Wishlist", descriptionTr: "Müşteri istek listesi (kalp).", core: false, baselineEnabled: true, requires: ["CUSTOMER_LISTS"] },

@@ -1671,3 +1671,12 @@ rebuild+recreate (`depends_on` nedeniyle api-gateway aynı kodla recreate; worke
 DOKUNULMADI). Post-deploy safe smoke: home/PLP/PDP 200 + içerik render; **warm PLP median 1.35 s, PDP
 1.54 s** (admin-web açık gerçekçi tam-stack; baseline ~2.08 s). admin-web artık `platform` compose
 profilinde (varsayılan `up` başlatmaz). Kalan spike → Docker RAM ≥12 GiB (TD-200).
+
+## TODO-177 — Product Support / Ürün Desteği Faz 1 (ADR-289)
+
+Order/ürün-bağlamlı guided support + ticket domain'i: context→topic→deterministik soru ağacı→self-service→
+escalation ticket; store-admin support inbox + platform-admin question-set yönetimi. Return/refund/cancel'a
+DOKUNULMADI (read-pattern reuse). **GATE GREEN & SHIP HAZIR (Faz A–G):** runtime Playwright (storefront
+@regression 4 + admin @admin-regression 1 + smoke regresyonsuz) gerçek stack'te GREEN; full gate
+(unit/integration/component + typecheck/lint/build + additive migration) GREEN. Bildirim = in-app event +
+**honest e-posta stub** (UNCONFIGURED; sahte SENT yok). TD-177-2 RESOLVED; TD-177-1/3/4 FUTURE.
