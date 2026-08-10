@@ -81,6 +81,28 @@ export function slaStateBadge(state: SlaStateKind, tr: boolean): { label: string
   return { label: tr ? entry.label[0] : entry.label[1], tone: entry.tone };
 }
 
+/**
+ * Guided cevap özeti değeri (admin detay). BOOLEAN→Evet/Hayır, TEXT→metin. SELECT için `null`:
+ * snapshot yalnız option KEY tutar (label değil) + detayda graph yoktur → ham teknik anahtar
+ * (opt_broken vb.) ASLA gösterilmez (TD-177-4). Prompt tek başına yeterli özet.
+ */
+export function supportAnswerValue(
+  answer: { questionType: string; value: { boolean?: boolean; text?: string; optionKeys?: string[] } },
+  tr: boolean,
+): string | null {
+  if (answer.questionType === "BOOLEAN" && typeof answer.value.boolean === "boolean") {
+    return answer.value.boolean ? (tr ? "Evet" : "Yes") : tr ? "Hayır" : "No";
+  }
+  if (
+    (answer.questionType === "SHORT_TEXT" || answer.questionType === "LONG_TEXT") &&
+    typeof answer.value.text === "string" &&
+    answer.value.text.trim().length > 0
+  ) {
+    return answer.value.text;
+  }
+  return null;
+}
+
 /** Filtre dropdown'ları için tek kaynak (map anahtarları). */
 export const supportStatusKeys = Object.keys(STATUS);
 export const supportTopicKeys = Object.keys(TOPIC);

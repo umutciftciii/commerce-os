@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   slaStateBadge,
   supportActorLabel,
+  supportAnswerValue,
   supportStatusKeys,
   supportStatusLabel,
   supportStatusTone,
@@ -40,6 +41,18 @@ describe("ticket-labels — SLA badge", () => {
     expect(slaStateBadge("DUE_TODAY", true)).toEqual({ label: "Bugün doluyor", tone: "warning" });
     expect(slaStateBadge("INSIDE", true)).toEqual({ label: "SLA içinde", tone: "neutral" });
     expect(slaStateBadge("DONE", true)).toEqual({ label: "Tamamlandı", tone: "success" });
+  });
+});
+
+describe("ticket-labels — guided cevap özeti (raw key leak yok)", () => {
+  it("BOOLEAN → Evet/Hayır; TEXT → metin", () => {
+    expect(supportAnswerValue({ questionType: "BOOLEAN", value: { boolean: true } }, true)).toBe("Evet");
+    expect(supportAnswerValue({ questionType: "BOOLEAN", value: { boolean: false } }, false)).toBe("No");
+    expect(supportAnswerValue({ questionType: "SHORT_TEXT", value: { text: "ses yok" } }, true)).toBe("ses yok");
+  });
+  it("SELECT → null (option KEY asla gösterilmez)", () => {
+    expect(supportAnswerValue({ questionType: "SINGLE_SELECT", value: { optionKeys: ["opt_broken"] } }, true)).toBeNull();
+    expect(supportAnswerValue({ questionType: "MULTI_SELECT", value: { optionKeys: ["a", "b"] } }, true)).toBeNull();
   });
 });
 
