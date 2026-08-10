@@ -24,7 +24,7 @@ test.describe("Product Support (storefront)", () => {
 
     // Entry (SINGLE_SELECT): "Hiç açılmıyor" → branch → checked_power
     await expect(page.getByTestId("support-question-entry")).toBeVisible();
-    await page.getByText("Hiç açılmıyor").click();
+    await page.getByRole("radio", { name: "Hiç açılmıyor" }).click();
     await page.getByTestId("support-wizard-next").click();
 
     // checked_power (BOOLEAN): "Hayır" → self-service result
@@ -48,7 +48,7 @@ test.describe("Product Support (storefront)", () => {
     await page.getByTestId("support-topic-PRODUCT_NOT_WORKING").click();
     await page.getByTestId("support-topic-continue").click();
 
-    await page.getByText("Hiç açılmıyor").click();
+    await page.getByRole("radio", { name: "Hiç açılmıyor" }).click();
     await page.getByTestId("support-wizard-next").click();
     // "Evet" → ESCALATE (dead-end yok; ticket her zaman mümkün)
     await page.getByRole("button", { name: "Evet" }).click();
