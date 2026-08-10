@@ -1086,6 +1086,17 @@ export const trStorefront = {
         submitting: "Gönderiliyor…",
         error: "Destek talebi oluşturulamadı. Lütfen tekrar deneyin.",
       },
+      photo: {
+        addPhoto: "Fotoğraf / PDF ekle",
+        uploading: "Yükleniyor",
+        failed: "Başarısız",
+        remove: "Eki kaldır",
+        privacyWarning:
+          "Lütfen kimlik, kart bilgisi veya kişisel veri içeren dosya eklemeyin. Yalnız sorununuzu gösterin.",
+        limitReached: "En fazla 6 dosya ekleyebilirsiniz.",
+        invalidType: "Yalnız JPEG, PNG, WebP veya PDF formatı.",
+        tooLarge: "Dosya çok büyük (en fazla 5 MB).",
+      },
       detail: {
         heading: "Destek talebi",
         ticketNumber: "Talep No",

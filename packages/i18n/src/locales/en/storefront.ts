@@ -1053,6 +1053,17 @@ export const enStorefront: StorefrontDictionary = {
         submitting: "Sending…",
         error: "The support request could not be created. Please try again.",
       },
+      photo: {
+        addPhoto: "Add photo / PDF",
+        uploading: "Uploading",
+        failed: "Failed",
+        remove: "Remove attachment",
+        privacyWarning:
+          "Please do not attach files containing ID, card or personal data. Show only your issue.",
+        limitReached: "You can add up to 6 files.",
+        invalidType: "Only JPEG, PNG, WebP or PDF format.",
+        tooLarge: "File is too large (max 5 MB).",
+      },
       detail: {
         heading: "Support request",
         ticketNumber: "Request no.",

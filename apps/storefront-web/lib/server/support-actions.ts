@@ -42,7 +42,6 @@ export async function resolveSupportAction(
 
 /** Destek talebi oluşturma. Başarıda ticketNumber döner → istemci detaya yönlendirir. */
 export type CreateSupportTicketState =
-  | { status: "idle" }
   | { status: "success"; ticketNumber: string }
   | { status: "error"; code: string | null; httpStatus: number };
 
@@ -59,7 +58,6 @@ export async function createSupportTicketAction(
 
 /** Talep detayı üzerinde mesaj/yeniden-açma aksiyonlarının ortak sonucu. */
 export type SupportTicketActionState =
-  | { status: "idle" }
   | { status: "success" }
   | { status: "error"; code: string | null; httpStatus: number };
 

@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef, useState } from "react";
 import { cn } from "@commerce-os/ui";
+import { IMAGE_MIME_TYPES, attachmentPreviewKind, isTypeAccepted } from "../../lib/attachment";
 
 /**
  * TODO-169 — İade fotoğrafı yükleme kontrolü (editoryel kit, istemci).
@@ -21,6 +22,8 @@ export type PhotoUploadResult = { ok: true; mediaId: string } | { ok: false };
 interface PhotoItem {
   key: string;
   previewUrl: string;
+  previewKind: "image" | "pdf";
+  fileName: string;
   status: "uploading" | "done" | "error";
   mediaId?: string;
 }
@@ -36,8 +39,6 @@ export interface PhotoUploadLabels {
   tooLarge: string;
 }
 
-// Gateway yalnız JPEG/PNG/WebP kabul eder (ADR-269 §8 pipeline); istemci de aynı sınırı uygular.
-const ACCEPTED = ["image/jpeg", "image/png", "image/webp"];
 const MAX_BYTES = 5_242_880; // 5 MB — gateway MAX_ATTACHMENT_BYTES ile bire bir.
 
 export function PhotoUpload({
@@ -47,6 +48,7 @@ export function PhotoUpload({
   max = 6,
   disabled = false,
   describedById,
+  accept = IMAGE_MIME_TYPES,
 }: {
   onUpload: (file: File) => Promise<PhotoUploadResult>;
   /** Başarıyla yüklenmiş mediaId listesi değiştikçe çağrılır. */
@@ -56,6 +58,11 @@ export function PhotoUpload({
   disabled?: boolean;
   /** Tetikleyiciye bağlanacak yardım metni id'si (aria-describedby). */
   describedById?: string;
+  /**
+   * Kabul edilen MIME kümesi. Default GÖRSEL (iade akışı; regresyon yok). Destek akışı
+   * `SUPPORT_ATTACHMENT_MIME_TYPES` (görsel + PDF) geçer. Gateway upload kabulüyle hizalı.
+   */
+  accept?: readonly string[];
 }) {
   const [items, setItems] = useState<PhotoItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +92,7 @@ export function PhotoUpload({
     if (Array.from(fileList).length > remaining) setError(labels.limitReached);
 
     for (const file of files) {
-      if (!ACCEPTED.includes(file.type)) {
+      if (!isTypeAccepted(file.type, accept)) {
         setError(labels.invalidType);
         continue;
       }
@@ -95,7 +102,13 @@ export function PhotoUpload({
       }
       const key = `${file.name}-${file.size}-${Date.now()}-${Math.random()}`;
       const previewUrl = URL.createObjectURL(file);
-      const pending: PhotoItem = { key, previewUrl, status: "uploading" };
+      const pending: PhotoItem = {
+        key,
+        previewUrl,
+        previewKind: attachmentPreviewKind(file.type),
+        fileName: file.name,
+        status: "uploading",
+      };
       setItems((prev) => [...prev, pending]);
 
       const result = await onUpload(file);
@@ -136,15 +149,32 @@ export function PhotoUpload({
         <ul className="flex flex-wrap gap-2">
           {items.map((item) => (
             <li key={item.key} className="relative h-20 w-20 border border-line bg-surface-muted">
-              {/* Yerel önizleme (blob) — private attachment geri fetch EDİLMEZ. */}
-              <img
-                src={item.previewUrl}
-                alt=""
-                className={cn(
-                  "h-full w-full object-cover",
-                  item.status !== "done" && "opacity-50",
-                )}
-              />
+              {/* Yerel önizleme (blob) — private attachment geri fetch EDİLMEZ. PDF blob'u
+                  <img> ile gösterilemez → dosya adı + "PDF" göstergesi. */}
+              {item.previewKind === "pdf" ? (
+                <span
+                  className={cn(
+                    "flex h-full w-full flex-col items-center justify-center gap-1 px-1 text-center",
+                    item.status !== "done" && "opacity-50",
+                  )}
+                >
+                  <span className="text-[10px] font-semibold uppercase tracking-wideish text-ink-muted">
+                    PDF
+                  </span>
+                  <span className="line-clamp-2 break-all text-[9px] leading-tight text-ink-subtle">
+                    {item.fileName}
+                  </span>
+                </span>
+              ) : (
+                <img
+                  src={item.previewUrl}
+                  alt=""
+                  className={cn(
+                    "h-full w-full object-cover",
+                    item.status !== "done" && "opacity-50",
+                  )}
+                />
+              )}
               {item.status === "uploading" ? (
                 <span className="absolute inset-0 flex items-center justify-center bg-surface/70 text-[10px] uppercase tracking-wideish text-ink-muted">
                   {labels.uploading}
@@ -173,7 +203,7 @@ export function PhotoUpload({
           ref={inputRef}
           id={inputId}
           type="file"
-          accept={ACCEPTED.join(",")}
+          accept={accept.join(",")}
           multiple
           className="sr-only"
           disabled={disabled || atLimit}
