@@ -341,6 +341,9 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
       // logo/favicon deseni): sessiz koparma yerine 409 ile acik reddedilir.
       homeHeroCount,
       homeFeaturedCount,
+      // TODO-177 (ADR-289) — Destek ticket ekleri (SupportTicketAttachment.mediaAssetId onDelete:
+      // Restrict). Kullanimdaki medya 409 ile acik reddedilir (P2003/500 yerine).
+      supportAttachmentCount,
     ] = await Promise.all([
         prisma.productImage.count({
           where: { mediaId: params.mediaId, storeId: params.storeId },
@@ -369,6 +372,9 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
         prisma.homeFeaturedCategory.count({
           where: { imageMediaId: params.mediaId, storeId: params.storeId },
         }),
+        prisma.supportTicketAttachment.count({
+          where: { mediaAssetId: params.mediaId, storeId: params.storeId },
+        }),
       ]);
 
     const usedIn: string[] = [];
@@ -379,6 +385,7 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
     if (attributeValueCount > 0) usedIn.push("ProductAttributeValue");
     if (homeHeroCount > 0) usedIn.push("HomeHeroSlide");
     if (homeFeaturedCount > 0) usedIn.push("HomeFeaturedCategory");
+    if (supportAttachmentCount > 0) usedIn.push("SupportTicketAttachment");
 
     if (usedIn.length > 0) {
       // `usedIn` structured `details` altina konur: api-client hata zarfinda yalniz

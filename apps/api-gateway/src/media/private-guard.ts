@@ -46,10 +46,12 @@ function fullyDecode(path: string): string | null {
 /**
  * Bir `/media/**` isteğinin verdict'i:
  *  - "ok"        → public statik servise geçebilir
- *  - "private"   → `returns` segmentine ulaşıyor → 404 (gizlilik; enumerable değil)
+ *  - "private"   → `returns`/`support` segmentine ulaşıyor → 404 (gizlilik; enumerable değil)
  *  - "malformed" → bozuk encoding / traversal / kontrol karakteri → 400
  * `/media/` ile başlamayan istekler bu guard'ın konusu değildir → "ok".
  */
+const PRIVATE_SEGMENTS = new Set(["returns", "support"]);
+
 export function classifyMediaRequestPath(rawUrl: string): MediaPathVerdict {
   const rawPath = rawUrl.split(/[?#]/)[0] ?? rawUrl;
   if (!rawPath.startsWith("/media/")) return "ok";
@@ -63,6 +65,7 @@ export function classifyMediaRequestPath(rawUrl: string): MediaPathVerdict {
   const norm = decoded.replace(/\\/g, "/");
   const segments = norm.split("/");
   if (segments.some((s) => s === "..")) return "malformed"; // path traversal
-  if (segments.some((s) => s.toLowerCase() === "returns")) return "private";
+  // PRIVATE segmentler (public statik servisten SIZMAZ): returns (ADR-269), support (ADR-289).
+  if (segments.some((s) => PRIVATE_SEGMENTS.has(s.toLowerCase()))) return "private";
   return "ok";
 }

@@ -19,7 +19,10 @@ import type { StorageDriver } from "./storage.js";
 // bu yuzden hyphen'e izin verilir, aksi halde hyphenli store'a upload 500 verir.
 // TODO-169 (ADR-269) — `returns` segmenti iade attachment'ları (PRIVATE) içindir; public
 // statik servis bu path'i onRequest guard'ıyla 404'ler, erişim yalnız auth-gate'li route'tan.
-const STORAGE_KEY_PATTERN = /^stores\/[a-z0-9-]+\/(products|categories|hero|branding|returns)\/[^/]+\.webp$/;
+// TODO-177 (ADR-289) — `support` segmenti destek ticket ekleri (PRIVATE) içindir. PDF ekleri
+// için uzanti `.pdf` de kabul edilir (webp|pdf); diger uzantilar (or. .exe) reddedilir.
+const STORAGE_KEY_PATTERN =
+  /^stores\/[a-z0-9-]+\/(products|categories|hero|branding|returns|support)\/[^/]+\.(webp|pdf)$/;
 
 export type StorageKeyErrorCode = "INVALID_STORAGE_KEY" | "PATH_TRAVERSAL_BLOCKED";
 
