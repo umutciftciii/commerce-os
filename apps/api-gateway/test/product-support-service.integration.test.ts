@@ -526,6 +526,32 @@ describe.skipIf(!hasDb)("Product Support — service (live DB)", () => {
     await app.close();
   });
 
+  it("question-set writes are platform-only (guard denies non-platform)", async () => {
+    const { registerSupportPlatformRoutes } = await import("../src/product-support/routes-platform");
+    const app = Fastify({ logger: false });
+    app.setErrorHandler(async (error, _req, reply) => {
+      const { z } = await import("zod");
+      if (error instanceof z.ZodError) return reply.code(400).send({ error: { code: "VALIDATION", message: "x" } });
+      return reply.code(500).send({ error: { code: "INTERNAL", message: "x" } });
+    });
+    // guard simulates a non-platform actor → 403, returns null (no write path)
+    registerSupportPlatformRoutes(app, {
+      requirePlatform: async (_req, reply) => {
+        await reply.code(403).send({ error: { code: "FORBIDDEN", message: "platform only" } });
+        return null;
+      },
+    });
+    const before = await prisma.supportQuestionSet.count();
+    const res = await app.inject({
+      method: "POST",
+      url: "/platform/support/question-sets",
+      payload: { key: `should-not-${randomUUID().slice(0, 8)}`, title: "nope" },
+    });
+    expect(res.statusCode).toBe(403);
+    expect(await prisma.supportQuestionSet.count()).toBe(before); // no write happened
+    await app.close();
+  });
+
   it("customer ticket list is scoped to the owner", async () => {
     const base = await seedBase();
     const { versionId } = await seedPublishedSet(base.sfx);
