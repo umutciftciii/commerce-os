@@ -385,6 +385,19 @@ import type {
   StoreModuleState,
 } from "@commerce-os/contracts";
 
+// TODO-177 (ADR-289) — Platform support question-set request/response types (admin.support methods).
+import type {
+  PlatformSupportQuestionSetCreateRequest,
+  PlatformSupportQuestionSetUpdateRequest,
+  PlatformSupportVersionCreateRequest,
+  PlatformSupportVersionEditRequest,
+  PlatformSupportMappingUpsertRequest,
+  PlatformSupportTopicDefaultUpsertRequest,
+  PlatformSupportQuestionSetListResponse,
+  PlatformSupportQuestionSetDetailResponse,
+  PlatformSupportGraphValidationResponse,
+} from "@commerce-os/contracts";
+
 /**
  * Frontend'in ihtiyac duydugu kontrat tipleri buradan re-export edilir. Boylece
  * app'ler `packages/contracts`'a dogrudan bagimli olmadan (tek type-safe kanal
@@ -1400,6 +1413,19 @@ export type {
   AdminSupportTicketDetail,
   AdminSupportActionRequest,
   PlatformSupportVersionEditRequest,
+  PlatformSupportQuestionSetCreateRequest,
+  PlatformSupportQuestionSetUpdateRequest,
+  PlatformSupportVersionCreateRequest,
+  PlatformSupportMappingUpsertRequest,
+  PlatformSupportTopicDefaultUpsertRequest,
+  PlatformSupportQuestionSetSummary,
+  PlatformSupportVersionDto,
+  PlatformSupportQuestionSetDetail,
+  PlatformSupportQuestionSetListResponse,
+  PlatformSupportQuestionSetDetailResponse,
+  PlatformSupportGraphValidationResponse,
+  SupportQuestionDto,
+  SupportTransitionDto,
 } from "@commerce-os/contracts";
 export {
   supportResolveRequestSchema,
@@ -1575,6 +1601,50 @@ export interface ApiClient {
           token?: string,
         ): Promise<PlanCapabilitiesResponse>;
       };
+    };
+    // TODO-177 (ADR-289) — Ürün Desteği question-set yönetimi (platform-only; /platform/support/*).
+    support: {
+      list(token?: string): Promise<PlatformSupportQuestionSetListResponse>;
+      create(
+        input: PlatformSupportQuestionSetCreateRequest,
+        token?: string,
+      ): Promise<PlatformSupportQuestionSetDetailResponse>;
+      get(id: string, token?: string): Promise<PlatformSupportQuestionSetDetailResponse>;
+      update(
+        id: string,
+        input: PlatformSupportQuestionSetUpdateRequest,
+        token?: string,
+      ): Promise<PlatformSupportQuestionSetDetailResponse>;
+      createVersion(
+        id: string,
+        input: PlatformSupportVersionCreateRequest,
+        token?: string,
+      ): Promise<PlatformSupportQuestionSetDetailResponse>;
+      editVersion(
+        versionId: string,
+        input: PlatformSupportVersionEditRequest,
+        token?: string,
+      ): Promise<{ ok: boolean }>;
+      validateVersion(
+        versionId: string,
+        token?: string,
+      ): Promise<PlatformSupportGraphValidationResponse>;
+      publishVersion(versionId: string, token?: string): Promise<{ ok: boolean }>;
+      archiveVersion(versionId: string, token?: string): Promise<{ ok: boolean }>;
+      upsertMapping(
+        storeId: string,
+        input: PlatformSupportMappingUpsertRequest,
+        token?: string,
+      ): Promise<{ ok: boolean }>;
+      deleteMapping(
+        storeId: string,
+        input: Omit<PlatformSupportMappingUpsertRequest, "questionSetId">,
+        token?: string,
+      ): Promise<{ ok: boolean }>;
+      upsertTopicDefault(
+        input: PlatformSupportTopicDefaultUpsertRequest,
+        token?: string,
+      ): Promise<{ ok: boolean }>;
     };
     categories: {
       // TODO-159A (ADR-089) — Admin Data Grid query'si (page/pageSize/search/sort/status).
@@ -3342,6 +3412,81 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
               token,
             ),
         },
+      },
+      // TODO-177 (ADR-289) — Ürün Desteği question-set yönetimi (/platform/support/*).
+      support: {
+        list: (token) =>
+          getJson<PlatformSupportQuestionSetListResponse>("/platform/support/question-sets", token),
+        create: (input, token) =>
+          sendJson<PlatformSupportQuestionSetDetailResponse>(
+            "/platform/support/question-sets",
+            "POST",
+            input,
+            token,
+          ),
+        get: (id, token) =>
+          getJson<PlatformSupportQuestionSetDetailResponse>(
+            `/platform/support/question-sets/${id}`,
+            token,
+          ),
+        update: (id, input, token) =>
+          sendJson<PlatformSupportQuestionSetDetailResponse>(
+            `/platform/support/question-sets/${id}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        createVersion: (id, input, token) =>
+          sendJson<PlatformSupportQuestionSetDetailResponse>(
+            `/platform/support/question-sets/${id}/versions`,
+            "POST",
+            input,
+            token,
+          ),
+        editVersion: (versionId, input, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/versions/${versionId}`,
+            "PATCH",
+            input,
+            token,
+          ),
+        validateVersion: (versionId, token) =>
+          sendJson<PlatformSupportGraphValidationResponse>(
+            `/platform/support/versions/${versionId}/validate`,
+            "POST",
+            undefined,
+            token,
+          ),
+        publishVersion: (versionId, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/versions/${versionId}/publish`,
+            "POST",
+            undefined,
+            token,
+          ),
+        archiveVersion: (versionId, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/versions/${versionId}/archive`,
+            "POST",
+            undefined,
+            token,
+          ),
+        upsertMapping: (storeId, input, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/stores/${storeId}/mappings`,
+            "PUT",
+            input,
+            token,
+          ),
+        deleteMapping: (storeId, input, token) =>
+          sendJson<{ ok: boolean }>(
+            `/platform/support/stores/${storeId}/mappings`,
+            "DELETE",
+            input,
+            token,
+          ),
+        upsertTopicDefault: (input, token) =>
+          sendJson<{ ok: boolean }>(`/platform/support/topic-defaults`, "PUT", input, token),
       },
       categories: {
         list: (storeId, token, query) =>

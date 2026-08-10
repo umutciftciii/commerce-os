@@ -73,6 +73,7 @@ export const enAdmin: AdminDictionary = {
     themeLibrary: "Theme Library",
     themeManagement: "Theme Management",
     plans: "Plans",
+    questionSets: "Question Sets",
     systemHealth: "System Health",
     settings: "Settings",
   },

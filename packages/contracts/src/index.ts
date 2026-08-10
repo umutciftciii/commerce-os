@@ -13717,3 +13717,38 @@ export const platformSupportQuestionSetDetailSchema = platformSupportQuestionSet
 export const platformSupportQuestionSetDetailResponseSchema = z.object({
   questionSet: platformSupportQuestionSetDetailSchema,
 });
+
+// TODO-177 (ADR-289) — Platform support question-set inferred types (api-client + admin-web BFF).
+export type PlatformSupportQuestionSetCreateRequest = z.infer<
+  typeof platformSupportQuestionSetCreateRequestSchema
+>;
+export type PlatformSupportQuestionSetUpdateRequest = z.infer<
+  typeof platformSupportQuestionSetUpdateRequestSchema
+>;
+export type PlatformSupportVersionCreateRequest = z.infer<
+  typeof platformSupportVersionCreateRequestSchema
+>;
+export type PlatformSupportMappingUpsertRequest = z.infer<
+  typeof platformSupportMappingUpsertRequestSchema
+>;
+export type PlatformSupportTopicDefaultUpsertRequest = z.infer<
+  typeof platformSupportTopicDefaultUpsertRequestSchema
+>;
+export type PlatformSupportQuestionSetSummary = z.infer<
+  typeof platformSupportQuestionSetSummarySchema
+>;
+export type PlatformSupportVersionDto = z.infer<typeof platformSupportVersionDtoSchema>;
+export type PlatformSupportQuestionSetDetail = z.infer<
+  typeof platformSupportQuestionSetDetailSchema
+>;
+export type PlatformSupportQuestionSetListResponse = z.infer<
+  typeof platformSupportQuestionSetListResponseSchema
+>;
+export type PlatformSupportQuestionSetDetailResponse = z.infer<
+  typeof platformSupportQuestionSetDetailResponseSchema
+>;
+export type PlatformSupportGraphValidationResponse = z.infer<
+  typeof platformSupportGraphValidationResponseSchema
+>;
+export type SupportQuestionDto = z.infer<typeof supportQuestionDtoSchema>;
+export type SupportTransitionDto = z.infer<typeof supportTransitionDtoSchema>;

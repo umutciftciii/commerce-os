@@ -77,6 +77,17 @@ export function HealthIcon() {
   );
 }
 
+// TODO-177 (ADR-289) — Ürün Desteği soru setleri (yardım/soru baloncuğu).
+export function QuestionSetIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+      <path d="M9.5 9a2.5 2.5 0 1 1 3 2.4c-.6.2-1 .8-1 1.6" />
+      <path d="M11.5 16h.01" />
+    </svg>
+  );
+}
+
 export function SettingsIcon() {
   return (
     <svg {...base} aria-hidden>
