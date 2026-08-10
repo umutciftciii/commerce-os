@@ -13518,6 +13518,7 @@ export const customerSupportTicketListItemSchema = z.object({
   lastActivityAt: z.string(),
   createdAt: z.string(),
 });
+export type CustomerSupportTicketListItem = z.infer<typeof customerSupportTicketListItemSchema>;
 export const customerSupportTicketDetailSchema = z.object({
   ticketNumber: z.string(),
   status: supportTicketStatusSchema,
