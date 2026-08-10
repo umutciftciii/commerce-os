@@ -9,6 +9,8 @@ import { format } from "@commerce-os/i18n";
 import type { StorefrontDictionary } from "@commerce-os/i18n";
 import type {
   SupportActorTypeDto,
+  SupportAnswerValue,
+  SupportQuestionTypeDto,
   SupportResolveResponse,
   SupportTicketStatusDto,
   SupportTopicDto,
@@ -35,6 +37,31 @@ export function supportErrorMessage(code: string | null, t: SupportDict): string
     return t.errors[code as keyof SupportDict["errors"]];
   }
   return t.errors.generic;
+}
+
+/**
+ * Guided cevap özeti değeri (müşteri-güvenli). BOOLEAN→Evet/Hayır, TEXT→metin. SELECT için
+ * `null` döner: answer snapshot yalnız option KEY'i taşır (label değil) ve detay ekranında graph
+ * yoktur — ham teknik anahtar (opt_broken vb.) ASLA gösterilmez. Prompt tek başına yeterli özet.
+ * (TD-177-4: snapshot'ın option label taşıması FUTURE; o zaman burada label gösterilebilir.)
+ */
+export function answerSummaryText(
+  answer: { questionType: SupportQuestionTypeDto; value: SupportAnswerValue },
+  t: SupportDict,
+): string | null {
+  switch (answer.questionType) {
+    case "BOOLEAN":
+      return "boolean" in answer.value
+        ? answer.value.boolean
+          ? t.wizard.booleanYes
+          : t.wizard.booleanNo
+        : null;
+    case "SHORT_TEXT":
+    case "LONG_TEXT":
+      return "text" in answer.value && answer.value.text.trim().length > 0 ? answer.value.text : null;
+    default:
+      return null;
+  }
 }
 
 /**

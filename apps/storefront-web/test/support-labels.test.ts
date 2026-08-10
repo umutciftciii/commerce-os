@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { getDictionary } from "@commerce-os/i18n";
 import {
   actorLabel,
+  answerSummaryText,
   statusLabel,
   supportErrorMessage,
   topicLabel,
@@ -67,5 +68,20 @@ describe("warrantyText", () => {
       fmt,
     );
     expect(text).toBe(t.warranty.unknown);
+  });
+});
+
+describe("answerSummaryText — guided cevap özeti (raw key leak yok)", () => {
+  it("BOOLEAN → Evet/Hayır", () => {
+    expect(answerSummaryText({ questionType: "BOOLEAN", value: { boolean: true } }, t)).toBe(t.wizard.booleanYes);
+    expect(answerSummaryText({ questionType: "BOOLEAN", value: { boolean: false } }, t)).toBe(t.wizard.booleanNo);
+  });
+  it("SHORT_TEXT/LONG_TEXT → metin değeri", () => {
+    expect(answerSummaryText({ questionType: "SHORT_TEXT", value: { text: "kısa not" } }, t)).toBe("kısa not");
+    expect(answerSummaryText({ questionType: "LONG_TEXT", value: { text: "uzun açıklama" } }, t)).toBe("uzun açıklama");
+  });
+  it("SELECT → null (option KEY'i asla gösterilmez; graph yok, label türetilemez)", () => {
+    expect(answerSummaryText({ questionType: "SINGLE_SELECT", value: { optionKeys: ["opt_broken"] } }, t)).toBeNull();
+    expect(answerSummaryText({ questionType: "MULTI_SELECT", value: { optionKeys: ["opt_a", "opt_b"] } }, t)).toBeNull();
   });
 });
