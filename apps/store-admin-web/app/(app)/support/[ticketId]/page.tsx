@@ -208,6 +208,7 @@ export default function SupportTicketDetailPage({ params }: { params: Promise<{ 
                           <a
                             key={att.id}
                             href={attachmentHref(att.id)}
+                            data-testid="ticket-attachment-link"
                             target="_blank"
                             rel="noreferrer"
                             className="inline-flex items-center gap-1 rounded border border-white/10 px-2 py-0.5 text-xs text-white/70 hover:bg-white/[0.06]"
@@ -230,6 +231,7 @@ export default function SupportTicketDetailPage({ params }: { params: Promise<{ 
                     <a
                       key={att.id}
                       href={attachmentHref(att.id)}
+                            data-testid="ticket-attachment-link"
                       target="_blank"
                       rel="noreferrer"
                       className="inline-flex items-center gap-1 rounded border border-white/10 px-2 py-0.5 text-xs text-white/70 hover:bg-white/[0.06]"
@@ -256,7 +258,7 @@ export default function SupportTicketDetailPage({ params }: { params: Promise<{ 
                   maxLength={4000}
                   disabled={busy}
                 />
-                <Button onClick={() => void submitReply()} disabled={busy || reply.trim().length === 0}>
+                <Button onClick={() => void submitReply()} disabled={busy || reply.trim().length === 0} data-testid="ticket-reply-submit">
                   {busy ? (tr ? "Gönderiliyor…" : "Sending…") : tr ? "Yanıtla" : "Reply"}
                 </Button>
               </div>
@@ -283,10 +285,10 @@ export default function SupportTicketDetailPage({ params }: { params: Promise<{ 
             </p>
             {!closed ? (
               <div className="mt-3 flex flex-wrap gap-2">
-                <Button variant="secondary" onClick={() => void runAction({ action: "ASSIGN", assigneePlatformUserId: "me" })} disabled={busy}>
+                <Button variant="secondary" onClick={() => void runAction({ action: "ASSIGN", assigneePlatformUserId: "me" })} disabled={busy} data-testid="ticket-assign-me">
                   {tr ? "Kendime ata" : "Assign to me"}
                 </Button>
-                <Button variant="secondary" onClick={() => setAssignModal(true)} disabled={busy || assignees.length === 0}>
+                <Button variant="secondary" onClick={() => setAssignModal(true)} disabled={busy || assignees.length === 0} data-testid="ticket-assign-user">
                   {tr ? "Kullanıcıya ata" : "Assign user"}
                 </Button>
               </div>
@@ -296,12 +298,12 @@ export default function SupportTicketDetailPage({ params }: { params: Promise<{ 
           <SurfaceCard title={tr ? "Durum" : "Status"}>
             <div className="flex flex-wrap gap-2">
               {!closed && !resolved ? (
-                <Button onClick={() => void runAction({ action: "SET_STATUS", toStatus: "RESOLVED" })} disabled={busy}>
+                <Button onClick={() => void runAction({ action: "SET_STATUS", toStatus: "RESOLVED" })} disabled={busy} data-testid="ticket-status-resolve">
                   {tr ? "Çözüldü olarak işaretle" : "Mark resolved"}
                 </Button>
               ) : null}
               {!closed ? (
-                <Button variant="secondary" onClick={() => void runAction({ action: "SET_STATUS", toStatus: "CLOSED" })} disabled={busy}>
+                <Button variant="secondary" onClick={() => void runAction({ action: "SET_STATUS", toStatus: "CLOSED" })} disabled={busy} data-testid="ticket-status-close">
                   {tr ? "Kapat" : "Close"}
                 </Button>
               ) : null}
@@ -343,7 +345,7 @@ export default function SupportTicketDetailPage({ params }: { params: Promise<{ 
               </Button>
               <Button
                 onClick={() => void runAction({ action: "ASSIGN", assigneePlatformUserId: assignUserId })}
-                disabled={busy || assignUserId.length === 0}
+                disabled={busy || assignUserId.length === 0} data-testid="ticket-assign-submit"
               >
                 {tr ? "Ata" : "Assign"}
               </Button>

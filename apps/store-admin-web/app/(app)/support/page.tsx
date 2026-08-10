@@ -186,6 +186,7 @@ function SupportInboxView() {
       cell: (t) => (
         <Link
           href={`/support/${t.ticketId}`}
+          data-testid="ticket-row-link"
           className="inline-flex h-8 items-center justify-center rounded-lg border border-white/10 px-3 text-sm font-medium text-white/80 transition-colors hover:bg-white/[0.06] hover:text-white"
         >
           {tr ? "Aç" : "Open"}

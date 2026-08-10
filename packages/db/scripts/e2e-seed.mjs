@@ -24,6 +24,7 @@
  * `process.env.PASSWORD_HASH_PEPPER ?? ""` ile hash'ler; seed gateway CONTAINER'i icinde
  * kostugu icin ayni pepper env'ini paylasir → hash/verify tutarli.
  */
+import { readFileSync } from "node:fs";
 import { PrismaClient } from "@prisma/client";
 import { hashPassword } from "@commerce-os/auth";
 
@@ -584,6 +585,138 @@ async function main() {
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // TODO-177 (ADR-289) Faz F — Product Support fixtures (additive; yalnız e2e- satırlar).
+  // Idempotent upsert; demo/enterprise-demo/üretime dokunmaz. 7 topic default ZORUNLU
+  // (resolution MISSING_TOPIC_DEFAULT guard); question-set version PUBLISHED olmalı.
+  // ---------------------------------------------------------------------------
+  // (a) Garanti anchor: mug ürününe warrantyMonths + order-1001'e DELIVERED shipment.
+  await prisma.product.update({ where: { id: MUG_ID }, data: { warrantyMonths: 12 } });
+  const supportShipProvider = await prisma.shippingProviderConfig.upsert({
+    where: { id: "e2e-ship-provider-1" },
+    update: {},
+    create: { id: "e2e-ship-provider-1", storeId: STORE_ID, provider: "MOCK", displayName: "E2E Mock" },
+  });
+  await prisma.shipment.upsert({
+    where: { id: "e2e-shipment-1001" },
+    update: { status: "DELIVERED", deliveredAt: new Date("2026-08-01T00:00:00.000Z") },
+    create: {
+      id: "e2e-shipment-1001",
+      storeId: STORE_ID,
+      orderId: ORDER_ID,
+      providerConfigId: supportShipProvider.id,
+      provider: "MOCK",
+      referenceId: "E2E-SHP-1001",
+      status: "DELIVERED",
+      deliveredAt: new Date("2026-08-01T00:00:00.000Z"),
+    },
+  });
+
+  // (b) Published question-set'ler + 7 topic default (tek doğruluk kaynağı seed graph JSON).
+  const supportSets = JSON.parse(
+    readFileSync(new URL("../prisma/support-default-question-sets.json", import.meta.url), "utf8"),
+  ).sets;
+  const supportVersionByTopic = {};
+  for (const set of supportSets) {
+    const qsId = `e2e-qset-${set.key}`;
+    const verId = `e2e-qver-${set.key}-v1`;
+    await prisma.supportQuestionSet.upsert({
+      where: { key: set.key },
+      update: { title: set.title, description: set.description ?? null, isDefault: true, status: "ACTIVE" },
+      create: { id: qsId, key: set.key, title: set.title, description: set.description ?? null, isDefault: true, status: "ACTIVE" },
+    });
+    await prisma.supportQuestionSetVersion.upsert({
+      where: { questionSetId_version: { questionSetId: qsId, version: 1 } },
+      update: { status: "PUBLISHED", publishedAt: new Date("2026-08-10T00:00:00.000Z") },
+      create: { id: verId, questionSetId: qsId, version: 1, status: "PUBLISHED", publishedAt: new Date("2026-08-10T00:00:00.000Z") },
+    });
+    const qIdByKey = {};
+    const optIdByKey = {};
+    for (const q of set.questions) {
+      const qId = `e2e-q-${set.key}-${q.key}`;
+      qIdByKey[q.key] = qId;
+      await prisma.supportQuestion.upsert({
+        where: { questionSetVersionId_key: { questionSetVersionId: verId, key: q.key } },
+        update: { type: q.type, prompt: q.prompt, helpText: q.helpText ?? null, sortOrder: q.sortOrder, required: q.required ?? true, isEntry: q.isEntry ?? false },
+        create: { id: qId, questionSetVersionId: verId, key: q.key, type: q.type, prompt: q.prompt, helpText: q.helpText ?? null, sortOrder: q.sortOrder, required: q.required ?? true, isEntry: q.isEntry ?? false },
+      });
+      for (const opt of q.options ?? []) {
+        const optId = `e2e-opt-${set.key}-${q.key}-${opt.key}`;
+        optIdByKey[`${q.key}:${opt.key}`] = optId;
+        await prisma.supportQuestionOption.upsert({
+          where: { questionId_key: { questionId: qId, key: opt.key } },
+          update: { label: opt.label, sortOrder: opt.sortOrder },
+          create: { id: optId, questionId: qId, key: opt.key, label: opt.label, sortOrder: opt.sortOrder },
+        });
+      }
+    }
+    // Transitionlar id-key taşımaz → deterministik yeniden kur (idempotent).
+    await prisma.supportQuestionTransition.deleteMany({ where: { questionSetVersionId: verId } });
+    for (const tr of set.transitions) {
+      await prisma.supportQuestionTransition.create({
+        data: {
+          questionSetVersionId: verId,
+          fromQuestionId: qIdByKey[tr.fromKey],
+          matchKind: tr.matchKind,
+          matchOptionId: tr.matchOptionKey ? optIdByKey[`${tr.fromKey}:${tr.matchOptionKey}`] : null,
+          action: tr.action,
+          toQuestionId: tr.toKey ? qIdByKey[tr.toKey] : null,
+          sortOrder: tr.sortOrder,
+        },
+      });
+    }
+    await prisma.supportTopicDefault.upsert({
+      where: { topic: set.topic },
+      update: { questionSetId: qsId },
+      create: { topic: set.topic, questionSetId: qsId },
+    });
+    supportVersionByTopic[set.topic] = verId;
+  }
+
+  // (c) RESOLVED ticket — reopen testine hazır (müşteri resolve edemez; taze resolvedAt = pencere içinde).
+  const supportResolvedAt = new Date();
+  const supportVersionId = supportVersionByTopic.WARRANTY_SERVICE ?? Object.values(supportVersionByTopic)[0];
+  await prisma.supportTicket.upsert({
+    where: { storeId_ticketNumber: { storeId: STORE_ID, ticketNumber: "S900001" } },
+    update: { status: "RESOLVED", resolvedAt: supportResolvedAt, lastActivityAt: supportResolvedAt },
+    create: {
+      id: "e2e-support-ticket-1",
+      storeId: STORE_ID,
+      ticketNumber: "S900001",
+      customerId: CUSTOMER_ID,
+      orderId: ORDER_ID,
+      orderLineId: ORDER_LINE_ID,
+      productId: MUG_ID,
+      variantId: null,
+      questionSetVersionId: supportVersionId,
+      topic: "WARRANTY_SERVICE",
+      warrantyEndsAt: new Date("2027-08-01T00:00:00.000Z"),
+      warrantyAnchorSource: "SHIPMENT_DELIVERED",
+      status: "RESOLVED",
+      resolvedAt: supportResolvedAt,
+      lastActivityAt: supportResolvedAt,
+      version: 1,
+    },
+  });
+  const supportTicketRow = await prisma.supportTicket.findUniqueOrThrow({
+    where: { storeId_ticketNumber: { storeId: STORE_ID, ticketNumber: "S900001" } },
+    select: { id: true },
+  });
+  await prisma.supportSlaSnapshot.upsert({
+    where: { storeId_ticketId_cycle: { storeId: STORE_ID, ticketId: supportTicketRow.id, cycle: 1 } },
+    update: { resolvedAt: supportResolvedAt, firstResponseMetAt: supportResolvedAt },
+    create: {
+      storeId: STORE_ID,
+      ticketId: supportTicketRow.id,
+      cycle: 1,
+      topic: "WARRANTY_SERVICE",
+      firstResponseDueAt: new Date("2026-08-11T00:00:00.000Z"),
+      resolutionDueAt: new Date("2026-08-13T00:00:00.000Z"),
+      firstResponseMetAt: supportResolvedAt,
+      resolvedAt: supportResolvedAt,
+    },
+  });
+
   console.log(
     JSON.stringify({
       ok: true,
@@ -598,6 +731,7 @@ async function main() {
       address: ADDRESS_ID,
       goodwillCreditMinor: CREDIT_AMOUNT_MINOR,
       returns: RETURNS.map((r) => r.number),
+      support: { questionSets: supportSets.length, seededTicket: "S900001" },
     }),
   );
 }
