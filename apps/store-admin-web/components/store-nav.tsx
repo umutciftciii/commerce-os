@@ -42,6 +42,7 @@ import {
 const GROUP_LABELS: Record<string, { tr: string; en: string }> = {
   catalog: { tr: "Katalog", en: "Catalogue" },
   sales: { tr: "Satış", en: "Sales" },
+  support: { tr: "Destek", en: "Support" },
   finance: { tr: "Finans", en: "Finance" },
   sponsorship: { tr: "Sponsorluk", en: "Sponsorship" },
   seo: { tr: "SEO", en: "SEO" },
@@ -189,6 +190,18 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
           icon: <CampaignIcon />,
         },
         { href: "/marketplace", label: t.marketplace, icon: <MarketplaceIcon /> },
+      ],
+    },
+    {
+      // TODO-177 (ADR-289) — Destek > Ürün Desteği (PRODUCT_SUPPORT core-always-on; yerel locale
+      // etiket, paylaşılan i18n'e dokunulmaz — İadeler/Sipariş Deneyimi deseni).
+      heading: g("support"),
+      items: [
+        {
+          href: "/support",
+          label: locale === "tr" ? "Ürün Desteği" : "Product Support",
+          icon: <ReviewIcon />,
+        },
       ],
     },
     {
