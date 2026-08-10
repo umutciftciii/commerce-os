@@ -664,3 +664,69 @@ describe.skipIf(!hasDb)("Product Support — TD-177-2 SLA risk (live cycle only)
     expect(list.total).toBe(0);
   });
 });
+
+/**
+ * Faz E — Admin assignment: "kendime ata" (actor) + store üyesine ata; cross-store kullanıcı
+ * ataması REDDEDİLİR (güvenlik: assignee bu store'un StoreUser üyesi olmalı).
+ */
+describe.skipIf(!hasDb)("Product Support — admin assignment (cross-store reject)", () => {
+  async function member(storeId: string) {
+    const sfx = randomUUID().slice(0, 8);
+    const pu = await prisma.platformUser.create({
+      data: { email: `u-${sfx}@ex.test`, name: `U${sfx}`, passwordHash: "x" },
+    });
+    await prisma.storeUser.create({ data: { storeId, userId: pu.id } });
+    return pu.id;
+  }
+  async function seedTicketRow(base: Awaited<ReturnType<typeof seedBase>>, versionId: string) {
+    const tn = await seedTicket(base, versionId);
+    return prisma.supportTicket.findFirstOrThrow({
+      where: { storeId: base.storeId, ticketNumber: tn },
+      select: { id: true, version: true },
+    });
+  }
+
+  it("assigns to a store member", async () => {
+    const base = await seedBase();
+    const { versionId } = await seedPublishedSet(base.sfx);
+    const t = await seedTicketRow(base, versionId);
+    const uid = await member(base.storeId);
+    const res = await applyAdminAction(
+      { kind: "ASSIGN", storeId: base.storeId, ticketId: t.id, actorUserId: "actor", expectedVersion: t.version, assigneePlatformUserId: uid },
+      dispatcher,
+    );
+    expect(res.ok).toBe(true);
+    const after = await prisma.supportTicket.findUniqueOrThrow({ where: { id: t.id }, select: { assigneePlatformUserId: true } });
+    expect(after.assigneePlatformUserId).toBe(uid);
+  });
+
+  it("'me' → actor (üyelik doğrulaması gerektirmez)", async () => {
+    const base = await seedBase();
+    const { versionId } = await seedPublishedSet(base.sfx);
+    const t = await seedTicketRow(base, versionId);
+    const res = await applyAdminAction(
+      { kind: "ASSIGN", storeId: base.storeId, ticketId: t.id, actorUserId: "actor-99", expectedVersion: t.version, assigneePlatformUserId: "me" },
+      dispatcher,
+    );
+    expect(res.ok).toBe(true);
+    const after = await prisma.supportTicket.findUniqueOrThrow({ where: { id: t.id }, select: { assigneePlatformUserId: true } });
+    expect(after.assigneePlatformUserId).toBe("actor-99");
+  });
+
+  it("cross-store kullanıcı ataması reddedilir (ASSIGNEE_NOT_IN_STORE)", async () => {
+    const base = await seedBase();
+    const other = await seedBase();
+    const { versionId } = await seedPublishedSet(base.sfx);
+    const t = await seedTicketRow(base, versionId);
+    const foreignUid = await member(other.storeId); // başka store'un üyesi
+    const res = await applyAdminAction(
+      { kind: "ASSIGN", storeId: base.storeId, ticketId: t.id, actorUserId: "actor", expectedVersion: t.version, assigneePlatformUserId: foreignUid },
+      dispatcher,
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("ASSIGNEE_NOT_IN_STORE");
+    // ticket atanmadan kalmalı
+    const after = await prisma.supportTicket.findUniqueOrThrow({ where: { id: t.id }, select: { assigneePlatformUserId: true } });
+    expect(after.assigneePlatformUserId).toBeNull();
+  });
+});

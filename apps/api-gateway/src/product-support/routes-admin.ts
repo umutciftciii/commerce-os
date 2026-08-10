@@ -11,6 +11,7 @@ import {
   adminSupportTicketDetailResponseSchema,
   adminSupportActionRequestSchema,
   adminSupportMessageCreateRequestSchema,
+  assignableUsersResponseSchema,
 } from "@commerce-os/contracts";
 import type { SupportNotificationDispatcher } from "./notification.js";
 import {
@@ -19,6 +20,9 @@ import {
   addAdminMessage,
   applyAdminAction,
 } from "./service.js";
+// Read-only reuse (TODO-177): "Kullanıcıya ata" dropdown'u store'un StoreUser üyeleridir; aynı
+// storeId-scoped okuma order-experience'ta zaten var — mantık tek yerde tutulur (mutasyon YOK).
+import { listAssignableUsers } from "../order-experience/recovery-read.js";
 
 export interface SupportAdminRoutesDeps {
   requireStoreAdmin: (
@@ -66,6 +70,15 @@ const listQuery = z.object({
 export function registerSupportAdminRoutes(app: FastifyInstance, deps: SupportAdminRoutesDeps): void {
   const attachmentBase = (storeId: string, ticketId: string) =>
     `/stores/${storeId}/support/tickets/${ticketId}`;
+
+  // "Kullanıcıya ata" seçeneği — store'un yetkili kullanıcıları (storeId-scoped; cross-store sızmaz).
+  app.get("/stores/:storeId/support/assignable-users", async (request, reply) => {
+    const params = storeParam.parse(request.params);
+    const access = await deps.requireStoreAdmin(request, reply, params.storeId);
+    if (!access) return;
+    const users = await listAssignableUsers(params.storeId);
+    return reply.send(assignableUsersResponseSchema.parse(users));
+  });
 
   app.get("/stores/:storeId/support/tickets", async (request, reply) => {
     const params = storeParam.parse(request.params);
@@ -179,6 +192,7 @@ async function finishDetail(reply: FastifyReply, deps: SupportAdminRoutesDeps, s
 
 function actionStatus(code: string): number {
   if (code === "TICKET_NOT_FOUND" || code === "ATTACHMENT_NOT_FOUND") return 404;
+  if (code === "ASSIGNEE_NOT_IN_STORE") return 400;
   return 409;
 }
 function adminMessage(code: string): string {
@@ -188,6 +202,7 @@ function adminMessage(code: string): string {
     INVALID_TRANSITION: "Bu durum geçişi yapılamaz.",
     VERSION_CONFLICT: "Talep bu sırada değişti; yenileyin.",
     ATTACHMENT_NOT_FOUND: "Ek bulunamadı.",
+    ASSIGNEE_NOT_IN_STORE: "Bu kullanıcı mağazaya atanamaz.",
   };
   return map[code] ?? "İşlem reddedildi.";
 }

@@ -906,7 +906,7 @@ export async function addAdminMessage(
 
 export type AdminActionResult =
   | { ok: true }
-  | Err<"TICKET_NOT_FOUND" | "INVALID_TRANSITION" | "VERSION_CONFLICT">;
+  | Err<"TICKET_NOT_FOUND" | "INVALID_TRANSITION" | "VERSION_CONFLICT" | "ASSIGNEE_NOT_IN_STORE">;
 
 export async function applyAdminAction(
   input:
@@ -924,6 +924,15 @@ export async function applyAdminAction(
     if (input.kind === "ASSIGN") {
       const assignee =
         input.assigneePlatformUserId === "me" ? input.actorUserId : input.assigneePlatformUserId;
+      // Güvenlik: açıkça belirtilen assignee bu store'un StoreUser üyesi OLMALI (cross-store
+      // atama reddedilir). "me" = actor (guard'dan geçmiş store-admin) → üyelik doğrulaması yok.
+      if (input.assigneePlatformUserId !== "me") {
+        const membership = await tx.storeUser.findUnique({
+          where: { userId_storeId: { userId: assignee, storeId: input.storeId } },
+          select: { userId: true },
+        });
+        if (!membership) return { ok: false, code: "ASSIGNEE_NOT_IN_STORE" } as const;
+      }
       const updated = await tx.supportTicket.updateMany({
         where: { id: ticket.id, storeId: input.storeId, version: input.expectedVersion },
         data: { assigneePlatformUserId: assignee, version: { increment: 1 } },
