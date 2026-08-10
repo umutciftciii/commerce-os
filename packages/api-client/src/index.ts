@@ -396,6 +396,10 @@ import type {
   PlatformSupportQuestionSetListResponse,
   PlatformSupportQuestionSetDetailResponse,
   PlatformSupportGraphValidationResponse,
+  AdminSupportTicketListResponse,
+  AdminSupportTicketDetail,
+  AdminSupportActionRequest,
+  SupportMessageCreateRequest,
 } from "@commerce-os/contracts";
 
 /**
@@ -2486,6 +2490,29 @@ export interface ApiClient {
       // TODO-174B.2 — "Kullanıcıya ata" için store'un yetkili kullanıcıları.
       assignableUsers(storeId: string, token?: string): Promise<AssignableUser[]>;
     };
+    // TODO-177 (ADR-289) — Ürün Desteği store-admin inbox/detail/aksiyon (storeId-scoped).
+    // NOT: `admin.support` platform question-set yönetimidir; ticket inbox ayrı namespace.
+    productSupport: {
+      list(
+        storeId: string,
+        token?: string,
+        query?: Record<string, string | number | undefined>,
+      ): Promise<AdminSupportTicketListResponse>;
+      detail(storeId: string, ticketId: string, token?: string): Promise<{ ticket: AdminSupportTicketDetail }>;
+      reply(
+        storeId: string,
+        ticketId: string,
+        input: SupportMessageCreateRequest,
+        token?: string,
+      ): Promise<{ ticket: AdminSupportTicketDetail }>;
+      action(
+        storeId: string,
+        ticketId: string,
+        input: AdminSupportActionRequest,
+        token?: string,
+      ): Promise<{ ticket: AdminSupportTicketDetail }>;
+      assignableUsers(storeId: string, token?: string): Promise<AssignableUser[]>;
+    };
     // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
     customerCredit: {
       balance(
@@ -4373,6 +4400,29 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
           getJson<OrderExperienceSummaryDto | null>(`/stores/${storeId}/order-experience/orders/${orderId}`, token),
         assignableUsers: (storeId, token) =>
           getJson<AssignableUser[]>(`/stores/${storeId}/order-experience/assignable-users`, token),
+      },
+      // TODO-177 (ADR-289) — Ürün Desteği store-admin inbox/detail/aksiyon (question-set'ten ayrı).
+      productSupport: {
+        list: (storeId, token, query) =>
+          getJson<AdminSupportTicketListResponse>(`/stores/${storeId}/support/tickets${buildQueryString(query)}`, token),
+        detail: (storeId, ticketId, token) =>
+          getJson<{ ticket: AdminSupportTicketDetail }>(`/stores/${storeId}/support/tickets/${ticketId}`, token),
+        reply: (storeId, ticketId, input, token) =>
+          sendJson<{ ticket: AdminSupportTicketDetail }>(
+            `/stores/${storeId}/support/tickets/${ticketId}/messages`,
+            "POST",
+            input,
+            token,
+          ),
+        action: (storeId, ticketId, input, token) =>
+          sendJson<{ ticket: AdminSupportTicketDetail }>(
+            `/stores/${storeId}/support/tickets/${ticketId}/actions`,
+            "POST",
+            input,
+            token,
+          ),
+        assignableUsers: (storeId, token) =>
+          getJson<AssignableUser[]>(`/stores/${storeId}/support/assignable-users`, token),
       },
       // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit.
       customerCredit: {
