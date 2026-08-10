@@ -164,6 +164,10 @@ enum MediaContext {
   // public `/media/*` static handler'ından SUNULMAZ; yalnız auth-gate'li iade attachment
   // route'undan (sahip müşteri veya store admin) stream edilir. Non-enumerable storage key.
   RETURN_ATTACHMENT
+  // TODO-177 (ADR-289) — Ürün Desteği ticket eki (foto/PDF). PRIVATE (RETURN_ATTACHMENT deseni):
+  // public `/media/*`'ten SUNULMAZ; yalnız auth-gate'li support attachment route'undan
+  // (sahip müşteri ya da store admin) stream edilir. PDF: sharp/webp pipeline'ı ATLANIR.
+  SUPPORT_ATTACHMENT
 }
 
 // ADR-065 — Yayin durumu (hero slide gibi vitrin icerikleri icin). DRAFT admin'de
@@ -1081,6 +1085,11 @@ model Store {
   returnItemDispositions           ReturnItemDisposition[]
   // TODO-170 (ADR-272) — Refund Ledger & Payment Reversal (store-scoped; Cascade).
   orderRefunds                     OrderRefund[]
+  // TODO-177 (ADR-289) — Ürün Desteği (store-scoped tenant sütunu; Cascade). Ticket alt-kayıtları
+  // (message/answer/attachment/history/sla) ticket-cascade ile temizlenir → Store'da ayrı dizi gerekmez.
+  supportTickets                   SupportTicket[]
+  supportTicketNumberCounters      SupportTicketNumberCounter[]
+  supportQuestionSetMappings       SupportQuestionSetMapping[]
 }
 
 model StoreUser {
@@ -1273,6 +1282,10 @@ model Product {
   // NOT: iliski alani `governedBrand` adiyla tutulur — mevcut skaler `brand String?` sutunuyla
   // Prisma alan adi cakismasini onlemek icin (ikisi de ayni modelde bulunamaz).
   brandId                  String?
+  // TODO-177 (ADR-289) — Ürün Desteği garanti süresi (ay). Nullable = garanti gating YOK
+  // (warranty/servis topic'i yine escalate edilebilir; dead-end yok). ProductVariant.warrantyMonths
+  // override eder. warrantyEndsAt = teslim-ankoru + ay (ticket açılışında snapshot; ADR-289 §7).
+  warrantyMonths           Int?
   createdAt                DateTime               @default(now())
   updatedAt                DateTime               @updatedAt
 
@@ -1317,6 +1330,9 @@ model Product {
   recentlyViewedBy       RecentlyViewedProduct[]
   // TODO-165 Fashion Vertical (ADR-249) — urun scope'lu size chart atamalari.
   sizeChartAssignments   SizeChartAssignment[]       @relation("SizeChartProduct")
+  // TODO-177 (ADR-289) — bu ürün için açılan destek ticket'ları (onDelete: Restrict → geçmiş
+  // ticket ürünü pinler; ürün fiziksel silinemez).
+  supportTickets         SupportTicket[]
 
   @@unique([storeId, slug])
   @@index([storeId])
@@ -1380,6 +1396,8 @@ model ProductVariant {
   // F3C.2 — Kargo olcumu (desi/agirlik); urun-seviyesi degerleri override eder.
   shippingWeightKg Decimal?                @db.Decimal(10, 3)
   shippingDesi     Decimal?                @db.Decimal(10, 2)
+  // TODO-177 (ADR-289) — Varyant-seviyesi garanti süresi (ay) override'ı. null → Product.warrantyMonths'a düşer.
+  warrantyMonths   Int?
   createdAt        DateTime                @default(now())
   updatedAt        DateTime                @updatedAt
 
@@ -1408,6 +1426,8 @@ model ProductVariant {
   reviews               ProductReview[]
   // TODO-167 (ADR-266) — Persistent cart satirlari (onDelete: Cascade → varyant silinince cart satiri kalkar).
   cartLines             CartLine[]
+  // TODO-177 (ADR-289) — bu varyant bağlamında açılan destek ticket'ları (onDelete: Restrict).
+  supportTickets        SupportTicket[]
 
   @@unique([storeId, sku])
   // Faz 2C-3 (ADR-072) — ayni urunde ayni kombinasyon tek varyant (NULL-distinct: manuel null serbest).
@@ -1682,6 +1702,8 @@ model Customer {
   creditLedgerEntries     CustomerCreditLedgerEntry[]
   // TODO-174B (ADR-283) — müşteriye ait sipariş-deneyimi recovery case'leri.
   recoveryCases           OrderRecoveryCase[]
+  // TODO-177 (ADR-289) — müşterinin açtığı destek ticket'ları (yalnız kendi sipariş/satırları için).
+  supportTickets          SupportTicket[]
 
   @@unique([storeId, email])
   @@unique([storeId, phone])
@@ -1968,6 +1990,8 @@ model Order {
   orderRefunds          OrderRefund[]
   // TODO-174B (ADR-283) — bu siparişe bağlı sipariş-deneyimi recovery case'leri (deneyim başına en fazla bir).
   recoveryCases         OrderRecoveryCase[]
+  // TODO-177 (ADR-289) — bu siparişten açılan destek ticket'ları (onDelete: Restrict → sipariş pinlenir).
+  supportTickets        SupportTicket[]
 
   @@unique([storeId, orderNumber])
   @@index([storeId])
@@ -2046,6 +2070,8 @@ model OrderLine {
   review       ProductReview?
   // TODO-169 (ADR-269) — bu satırdan doğan iade kalemleri (kısmi/tekrarlı iade adet hesabı).
   returnItems  ReturnItem[]
+  // TODO-177 (ADR-289) — bu sipariş satırından açılan destek ticket'ları (onDelete: Restrict).
+  supportTickets SupportTicket[]
 
   @@index([storeId])
   @@index([orderId])
@@ -3532,6 +3558,8 @@ model MediaAsset {
   brandCoverFor          Brand[]                 @relation("BrandCover")
   // TODO-169 (ADR-269) — İade fotoğraf kanıtı bağları (private; MEDIA_IN_USE guard'ına dahil).
   returnAttachments      ReturnAttachment[]
+  // TODO-177 (ADR-289) — Destek ticket eki bağları (private; MEDIA_IN_USE guard'ına dahil; Restrict).
+  supportTicketAttachments SupportTicketAttachment[]
 
   @@index([storeId])
   @@index([storeId, context])
@@ -5903,4 +5931,372 @@ model OrderRefundEvent {
 
   @@index([storeId])
   @@index([orderRefundId])
+}
+
+// =====================================================================================
+// TODO-177 (ADR-289) — Product Support / Ürün Desteği (Faz 1)
+// Order/ürün bağlamlı guided support: context → topic → deterministik soru ağacı →
+// self-service → gerekirse ticket escalation. İzole domain; return/refund/cancel'a DOKUNMAZ.
+// Şablonlar: returns (routes/attachment/status-history/counter) + recovery (lifecycle/SLA/assign).
+// =====================================================================================
+
+enum SupportTicketStatus {
+  OPEN
+  WAITING_STORE
+  WAITING_CUSTOMER
+  RESOLVED
+  CLOSED
+}
+
+// Durum geçişi / mesaj aktörü. ReturnActorType deseni; STORE_ADMIN (returns ADMIN yerine) —
+// ürün kararı. actorId scalar (FK değil; aktör silinse bile tarihsel kayıt korunur).
+enum SupportActorType {
+  CUSTOMER
+  STORE_ADMIN
+  SYSTEM
+}
+
+// Guided flow başlangıç konuları (storefront 7 topic). Resolution + SLA bu eksende çözülür.
+enum SupportTopic {
+  PRODUCT_NOT_WORKING
+  DAMAGED_OR_MISSING
+  SETUP_USAGE
+  WARRANTY_SERVICE
+  PRODUCT_INFO
+  INVOICE_DOCUMENT
+  OTHER
+}
+
+// Kontrollü soru tipi seti (Faz 1). INFO/SELF_SERVICE_RESULT terminal düğümlerdir.
+enum SupportQuestionType {
+  SINGLE_SELECT
+  MULTI_SELECT
+  BOOLEAN
+  SHORT_TEXT
+  LONG_TEXT
+  INFO
+  SELF_SERVICE_RESULT
+}
+
+enum SupportQuestionSetStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Versiyon yaşam döngüsü. Ticket yalnız PUBLISHED version'ı çalıştırır; PUBLISHED version
+// tickets tarafından pinlenir (onDelete: Restrict) → tarihsel anlam sabit.
+enum SupportQuestionSetVersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+// Deterministik dallanma eşleşme türü. select/boolean sorularında bir DEFAULT zorunlu
+// (publish-time validateQuestionGraph). İlk eşleşen (sortOrder) kazanır — expression engine YOK.
+enum SupportTransitionMatchKind {
+  OPTION
+  BOOLEAN_TRUE
+  BOOLEAN_FALSE
+  DEFAULT
+}
+
+enum SupportTransitionAction {
+  GO_TO_QUESTION
+  GO_TO_RESULT
+  ESCALATE
+}
+
+// Resolution mapping kapsamı (redundant iki tabloyu birleştirir; targetId polimorfik scalar:
+// scope=PRODUCT→productId, scope=CATEGORY→categoryId). FK YOK → hedef silinirse satır INERT
+// (resolution yalnız canlı product/category id'lerini eşler). Bkz. ADR-289 model re-eval.
+enum SupportMappingScope {
+  PRODUCT
+  CATEGORY
+}
+
+// --- Question domain (platform-owned; store MUTATE EDEMEZ) ---
+
+// Mantıksal soru seti konteyneri (global; storeId YOK). Mapping tabloları store'a bağlar.
+model SupportQuestionSet {
+  id          String                   @id @default(cuid())
+  key         String                   @unique
+  title       String
+  description String?
+  isDefault   Boolean                  @default(false)
+  status      SupportQuestionSetStatus @default(ACTIVE)
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+
+  versions      SupportQuestionSetVersion[]
+  mappings      SupportQuestionSetMapping[]
+  topicDefaults SupportTopicDefault[]
+
+  @@index([status])
+}
+
+// Versiyonlanmış içerik snapshot'ı. "Aktif" = en son PUBLISHED. Ticket bu satırın id'sini pinler.
+model SupportQuestionSetVersion {
+  id                      String                          @id @default(cuid())
+  questionSetId           String
+  version                 Int
+  status                  SupportQuestionSetVersionStatus @default(DRAFT)
+  publishedAt             DateTime?
+  createdByPlatformUserId String?
+  createdAt               DateTime                        @default(now())
+
+  questionSet SupportQuestionSet          @relation(fields: [questionSetId], references: [id], onDelete: Cascade)
+  questions   SupportQuestion[]
+  transitions SupportQuestionTransition[]
+  tickets     SupportTicket[]
+
+  @@unique([questionSetId, version])
+  @@index([questionSetId, status])
+}
+
+model SupportQuestion {
+  id                  String              @id @default(cuid())
+  questionSetVersionId String
+  key                 String
+  type                SupportQuestionType
+  prompt              String
+  helpText            String?
+  sortOrder           Int                 @default(0)
+  required            Boolean             @default(true)
+  isEntry             Boolean             @default(false)
+  createdAt           DateTime            @default(now())
+
+  version             SupportQuestionSetVersion   @relation(fields: [questionSetVersionId], references: [id], onDelete: Cascade)
+  options             SupportQuestionOption[]
+  outgoingTransitions SupportQuestionTransition[] @relation("SupportTransitionFrom")
+  incomingTransitions SupportQuestionTransition[] @relation("SupportTransitionTo")
+
+  @@unique([questionSetVersionId, key])
+  @@index([questionSetVersionId, sortOrder])
+}
+
+model SupportQuestionOption {
+  id         String   @id @default(cuid())
+  questionId String
+  key        String
+  label      String
+  sortOrder  Int      @default(0)
+
+  question            SupportQuestion            @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  matchedByTransitions SupportQuestionTransition[] @relation("SupportTransitionOption")
+
+  @@unique([questionId, key])
+  @@index([questionId])
+}
+
+// Deterministik dallanma kenarı. sortOrder'da ilk eşleşen kazanır. toQuestion/matchOption
+// nullable (RESULT/ESCALATE veya DEFAULT'ta null); silinirse SetNull (validateQuestionGraph zaten korur).
+model SupportQuestionTransition {
+  id                   String                     @id @default(cuid())
+  questionSetVersionId String
+  fromQuestionId       String
+  matchKind            SupportTransitionMatchKind
+  matchOptionId        String?
+  action               SupportTransitionAction
+  toQuestionId         String?
+  sortOrder            Int                        @default(0)
+
+  version      SupportQuestionSetVersion @relation(fields: [questionSetVersionId], references: [id], onDelete: Cascade)
+  fromQuestion SupportQuestion           @relation("SupportTransitionFrom", fields: [fromQuestionId], references: [id], onDelete: Cascade)
+  toQuestion   SupportQuestion?          @relation("SupportTransitionTo", fields: [toQuestionId], references: [id], onDelete: SetNull)
+  matchOption  SupportQuestionOption?    @relation("SupportTransitionOption", fields: [matchOptionId], references: [id], onDelete: SetNull)
+
+  @@index([questionSetVersionId, fromQuestionId, sortOrder])
+}
+
+// --- Resolution mapping (3 tier de platform-owned) ---
+
+// Tier 1 (PRODUCT) + Tier 2 (CATEGORY) birleşik tablo. Store-scoped; targetId polimorfik scalar.
+model SupportQuestionSetMapping {
+  id            String              @id @default(cuid())
+  storeId       String
+  scope         SupportMappingScope
+  targetId      String
+  topic         SupportTopic
+  questionSetId String
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  store       Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  questionSet SupportQuestionSet @relation(fields: [questionSetId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, scope, targetId, topic])
+  @@index([storeId, scope, topic])
+  @@index([questionSetId])
+}
+
+// Tier 3 — platform DEFAULT (topic başına ZORUNLU tek satır; seed garanti eder). onDelete: Restrict
+// → aktif default olan bir set silinemez (dead-end imkânsız invariant'ı DB-seviyesinde korunur).
+model SupportTopicDefault {
+  id            String       @id @default(cuid())
+  topic         SupportTopic @unique
+  questionSetId String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  questionSet SupportQuestionSet @relation(fields: [questionSetId], references: [id], onDelete: Restrict)
+
+  @@index([questionSetId])
+}
+
+// --- Ticket domain (store-scoped) ---
+
+// Ticket aggregate kökü. Immutable snapshot alanları (context) + mutable lifecycle. version =
+// optimistic concurrency (eşzamanlı store-admin aksiyonu koruması). questionSetVersionId pinlenir.
+model SupportTicket {
+  id                     String              @id @default(cuid())
+  storeId                String
+  ticketNumber           String
+  customerId             String
+  orderId                String
+  orderLineId            String
+  productId              String
+  variantId              String?
+  questionSetVersionId   String
+  topic                  SupportTopic
+  // Warranty snapshot (ticket açılışında; ADR-289 §7). anchorSource: SHIPMENT_DELIVERED|ORDER_CREATED|NONE.
+  warrantyEndsAt         DateTime?
+  warrantyAnchorSource   String?
+  // Ulaşılan self-service çözüm (varsa) — escalation'da "attempted resolution" olarak taşınır.
+  suggestedResolutionKey  String?
+  suggestedResolutionText String?
+  status                 SupportTicketStatus @default(OPEN)
+  // Manuel assignment (round-robin YOK). scalar platformUserId (FK değil; recovery deseni).
+  assigneePlatformUserId String?
+  reopenCount            Int                 @default(0)
+  firstResponseAt        DateTime?
+  resolvedAt             DateTime?
+  closedAt               DateTime?
+  lastActivityAt         DateTime            @default(now())
+  version                Int                 @default(0)
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+
+  store              Store                     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer           Customer                  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order              Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderLine          OrderLine                 @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  product            Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variant            ProductVariant?           @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  questionSetVersion SupportQuestionSetVersion @relation(fields: [questionSetVersionId], references: [id], onDelete: Restrict)
+  messages           SupportTicketMessage[]
+  answers            SupportTicketAnswerSnapshot[]
+  attachments        SupportTicketAttachment[]
+  statusHistory      SupportTicketStatusHistory[]
+  slaSnapshots       SupportSlaSnapshot[]
+
+  @@unique([storeId, ticketNumber])
+  @@index([storeId, status, lastActivityAt])
+  @@index([storeId, assigneePlatformUserId])
+  @@index([storeId, customerId])
+  @@index([orderId])
+  @@index([productId])
+}
+
+// Append-only konuşma. actor CUSTOMER|STORE_ADMIN|SYSTEM. storeId scalar (cascade ticket'tan).
+model SupportTicketMessage {
+  id        String           @id @default(cuid())
+  storeId   String
+  ticketId  String
+  actorType SupportActorType
+  actorId   String?
+  body      String
+  createdAt DateTime         @default(now())
+
+  ticket      SupportTicket             @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  attachments SupportTicketAttachment[]
+
+  @@index([storeId, ticketId, createdAt])
+}
+
+// Guided cevapların IMMUTABLE snapshot'ı — soru METNİ + tipi ile birlikte. Soru seti sonradan
+// değişse bile eski ticket'ın anlamı SABİT (version + metin snapshot; ADR-289 §3).
+model SupportTicketAnswerSnapshot {
+  id             String              @id @default(cuid())
+  storeId        String
+  ticketId       String
+  questionKey    String
+  questionPrompt String
+  questionType   SupportQuestionType
+  answerValue    Json
+  sortOrder      Int                 @default(0)
+  createdAt      DateTime            @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, ticketId, sortOrder])
+}
+
+// Ticket eki (ReturnAttachment birebir). media PRIVATE; mediaAsset Restrict (MEDIA_IN_USE guard).
+// ticketMessageId null → escalation anında eklenen ek; dolu → belirli mesaja iliştirilmiş ek.
+model SupportTicketAttachment {
+  id              String   @id @default(cuid())
+  storeId         String
+  ticketId        String
+  ticketMessageId String?
+  mediaAssetId    String
+  type            String   @default("PHOTO")
+  createdAt       DateTime @default(now())
+
+  ticket     SupportTicket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  message    SupportTicketMessage? @relation(fields: [ticketMessageId], references: [id], onDelete: SetNull)
+  mediaAsset MediaAsset            @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  @@index([storeId])
+  @@index([ticketId])
+  @@index([mediaAssetId])
+}
+
+// Append-only durum geçmişi (ReturnStatusHistory deseni). eventType exact-queryable discriminator.
+model SupportTicketStatusHistory {
+  id         String               @id @default(cuid())
+  storeId    String
+  ticketId   String
+  fromStatus SupportTicketStatus?
+  toStatus   SupportTicketStatus
+  actorType  SupportActorType
+  actorId    String?
+  eventType  String?
+  note       String?
+  metadata   Json?
+  createdAt  DateTime             @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, ticketId, createdAt])
+  @@index([storeId, eventType, createdAt])
+}
+
+// SLA döngü snapshot'ı. cycle=1 (açılış); reopen → cycle+1 (taze first-response + resolution).
+// CANLI SLA = ticket için en yüksek cycle'lı satır. topic + policyLabel snapshot (audit).
+model SupportSlaSnapshot {
+  id                 String       @id @default(cuid())
+  storeId            String
+  ticketId           String
+  cycle              Int
+  topic              SupportTopic
+  firstResponseDueAt DateTime
+  resolutionDueAt    DateTime
+  firstResponseMetAt DateTime?
+  resolvedAt         DateTime?
+  policyLabel        String?
+  createdAt          DateTime     @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, ticketId, cycle])
+  @@index([storeId, ticketId, cycle])
+}
+
+// Store-scoped ticket numarası sayacı (ReturnNumberCounter deseni; advisory-lock'lı increment).
+model SupportTicketNumberCounter {
+  storeId   String   @id
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 }
