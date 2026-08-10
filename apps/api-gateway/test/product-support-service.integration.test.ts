@@ -356,7 +356,7 @@ describe.skipIf(!hasDb)("Product Support — service (live DB)", () => {
     const base = await seedBase();
     const { versionId } = await seedPublishedSet(base.sfx);
     const tn = await seedTicket(base, versionId);
-    let t = await prisma.supportTicket.findFirst({ where: { storeId: base.storeId, ticketNumber: tn }, select: { id: true, version: true } });
+    const t = await prisma.supportTicket.findFirst({ where: { storeId: base.storeId, ticketNumber: tn }, select: { id: true, version: true } });
     await applyAdminAction(
       { kind: "SET_STATUS", storeId: base.storeId, ticketId: t!.id, actorUserId: "a", expectedVersion: t!.version, toStatus: "CLOSED", now: new Date() },
       dispatcher,
