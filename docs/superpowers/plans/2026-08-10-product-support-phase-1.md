@@ -4,6 +4,11 @@
 > superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 > Design authority: [spec](../specs/2026-08-10-product-support-phase-1-design.md) + [ADR-289](../../adr/ADR-289-product-support-foundation.md).
 
+> **FINAL STATUS (2026-08-10):** Faz A–G DONE. Runtime Playwright (storefront @regression 4 + admin
+> @admin-regression 1 + smoke regresyonsuz) gerçek stack'te GREEN; full gate (unit/integration/component +
+> typecheck/lint/build + additive migration) GREEN. E-posta = honest UNCONFIGURED stub. Debt: TD-177-2 RESOLVED,
+> TD-177-1/3/4 FUTURE. Docs: ADR-289 / TECHNICAL_DEBT / TESTING / ROADMAP / TODO. Ship için hazır (G5).
+
 **Goal:** Add an isolated, order/product-contextual guided **product-support** domain — deterministic question
 engine → self-service → ticket escalation — with a store-admin support inbox and platform-admin question-set
 management, reusing existing returns/recovery/media/i18n infrastructure and touching no return/refund/cancel logic.

@@ -1,9 +1,13 @@
 # ADR-289 — Product Support Foundation & Guided Question Engine (Ürün Desteği Faz 1)
 
-- **Status:** ACCEPTED (design; 2026-08-10) — implementation not started (TODO-177). Additive schema +
-  new isolated `apps/api-gateway/src/product-support/` module + storefront guided flow + store-admin
-  support inbox + platform-admin question-set management. Return/refund/cancellation domains are **not**
-  touched (read-pattern reuse only).
+- **Status:** IMPLEMENTED & GATE GREEN (Faz A–G; 2026-08-10). Additive schema + new isolated
+  `apps/api-gateway/src/product-support/` module + storefront guided flow + store-admin support inbox +
+  platform-admin question-set management. Return/refund/cancellation domains are **not** touched (read-pattern
+  reuse only). Runtime Playwright (storefront @regression 4 + admin @admin-regression 1 + smoke regresyonsuz)
+  gerçek stack'te GREEN; full gate (unit/integration/component + typecheck/lint/build + additive migration) GREEN.
+  **Bildirim:** in-app event + **honest e-posta stub** (`isConfigured=false ⇒ UNCONFIGURED`, sahte "SENT" YOK;
+  gerçek provider FUTURE). Debt: TD-177-1 FUTURE, TD-177-2 RESOLVED, TD-177-3 FUTURE, TD-177-4 FUTURE (bkz.
+  `docs/TECHNICAL_DEBT.md`).
 - **Date:** 2026-08-10
 - **Builds on:** ADR-269 (Returns Authority — `Shipment.deliveredAt` stable delivery anchor, private
   `RETURN_ATTACHMENT` media, `ReturnStatusHistory`/`ReturnActorType`, `ReturnNumberCounter`), ADR-283/

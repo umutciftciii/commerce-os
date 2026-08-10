@@ -244,6 +244,22 @@ ADR-287 kararının operasyonel karşılığı:
 yeni veya karmaşık UX'in ilk-elden keşfi, ya da Playwright'in henüz kapsamadığı bir alanda exploratory
 doğrulama. Kalıcı, tekrarlanabilir regresyon garantisi Playwright suite'inden gelir (bkz. ADR-287).
 
+## 9b. Product Support (ADR-289 / TODO-177) test kapsamı
+
+- **Unit (api-gateway):** `product-support-{warranty,question-engine,resolution,sla,status-map,notification,seed-graphs}.test.ts`
+  (saf modüller; `sla` içinde TD-177-2 `liveSlaSnapshot`/`isLiveCycleAtSlaRisk`).
+- **Integration (api-gateway, `commerce_os_test`):** `product-support-service.integration.test.ts` — ownership/snapshot/
+  concurrency/resolver/lifecycle/reopen/isolation/attachment/notification/domain-unaffected + **TD-177-2 live-cycle SLA
+  risk (4)** + admin assignment cross-store reject (3).
+- **Component/BFF:** storefront `test/support-*.test.ts(x)` (flow/wizard reducer/labels/actions/attachment-proxy/detail
+  render/line-cta) + store-admin `test/ticket-labels.test.ts` + admin-web question-set testleri.
+- **Contracts:** `customer-account.test.ts` (orderLineId), support Zod şemaları.
+- **E2E (Playwright):** storefront `regression/03-product-support.spec.ts` (`@regression` ×4: order-line CTA→guided
+  self-service→ticket YOK / escalate→ticket / RESOLVED reopen / list raw-enum-leak yok); store-admin
+  `admin-regression/02-product-support.spec.ts` (`@admin-regression` ×1: inbox→detail→context/SLA→assign me→reply).
+  Mutation-heavy testler `@regression`/`@admin-regression` (smoke'a değil). Seed: `e2e-seed.mjs` support bloğu
+  (7 published DEFAULT question-set + topic defaults + warranty + DELIVERED shipment + RESOLVED ticket S900001; idempotent).
+
 ## 10. İlgili dokümanlar
 
 - [ADR-287](adr/ADR-287-playwright-e2e-release-gate.md) — karar ve gerekçe.

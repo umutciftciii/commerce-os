@@ -2909,3 +2909,11 @@ Detay: `docs/analysis/PERF-001-navigation-latency.md`.
 median 1.35 s / PDP 1.54 s (gerçek tarayıcı PLP→PDP tıklama ~957 ms). İlgisiz pre-existing SLA flake
 (recovery-labels) deterministik yapıldı. Kalan = Docker RAM (TD-200). Detay:
 `docs/analysis/PERF-001-navigation-latency.md`.
+
+## TODO-177 — Product Support / Ürün Desteği Faz 1 (ADR-289)
+
+Guided support + ticket (context→topic→soru ağacı→self-service→escalation) + store-admin inbox +
+platform-admin question-set yönetimi; return/refund/cancel'a dokunulmadı. **GATE GREEN & SHIP HAZIR
+(Faz A–G):** runtime Playwright (storefront 4 + admin 1 + smoke regresyonsuz) gerçek stack'te GREEN;
+full gate GREEN; additive migration `20260810120000_todo177_product_support_foundation`. E-posta = honest
+stub (UNCONFIGURED). Debt: TD-177-2 RESOLVED; TD-177-1/3/4 FUTURE. Docs: ADR-289 / TECHNICAL_DEBT / TESTING.
