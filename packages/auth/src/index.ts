@@ -7,6 +7,9 @@ export type StoreRole = "OWNER" | "ADMIN" | "MANAGER" | "STAFF" | "VIEWER";
 export type { StorePermission } from "./permissions.js";
 export { ROLE_PERMISSIONS, hasStorePermission } from "./permissions.js";
 
+export type { StoreAdminTenantContext, TenantResolverSource } from "./tenant-resolver.js";
+export { resolveStoreAdminTenantContext } from "./tenant-resolver.js";
+
 const scrypt = promisify(scryptCallback);
 const passwordPrefix = "scrypt";
 const passwordKeyLength = 64;
