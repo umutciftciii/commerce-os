@@ -1,13 +1,16 @@
 # ADR-290 — Store → Platform Request & Task Management (Faz 1)
 
-- **Status:** IMPLEMENTED & GATE GREEN (local); CI + runtime deploy PENDING (Faz G ship). Additive
-  schema (7 model + `PlatformRequestAttachment` + 8 enum + `MediaContext.PLATFORM_REQUEST_ATTACHMENT`) +
-  2 additive migration + new isolated `apps/api-gateway/src/platform-requests/` module + store-admin
-  request surface + admin-web operational inbox + cross-app Playwright regression. **Product Support
-  (TODO-177/ADR-289) is NOT touched** — pattern reuse only; no `Support*` table/enum/route is shared.
-  Full local gate (unit/integration Run1+Run2 + component + typecheck/lint/build + additive migration
-  parity) GREEN; Playwright cross-app `@platform-smoke`/`@platform-regression` (repeat-each=3 → 17/17)
-  GREEN. Debt: TD-178-1/2/3/7 FUTURE, TD-178-4/5/6 RESOLVED (bkz. `docs/TECHNICAL_DEBT.md`).
+- **Status:** IMPLEMENTED & GATE GREEN (Faz A–G; 2026-08-12). PR #214 merged `cea3c53`; CI required
+  checks (`lint · test · build` + `smoke`) GREEN; docker enterprise stack rebuilt (api-gateway +
+  store-admin-web + admin-web) + `migrate deploy` idempotent; post-deploy runtime smoke GREEN (schema
+  7 tables + 5 active categories, gateway routes auth-gated 401, UI routes 307). Additive schema (7 model +
+  `PlatformRequestAttachment` + 8 enum + `MediaContext.PLATFORM_REQUEST_ATTACHMENT`) + 2 additive migration +
+  new isolated `apps/api-gateway/src/platform-requests/` module + store-admin request surface + admin-web
+  operational inbox + cross-app Playwright regression. **Product Support (TODO-177/ADR-289) is NOT touched**
+  — pattern reuse only; no `Support*` table/enum/route is shared. Full local gate (unit/integration
+  Run1+Run2 + component + typecheck/lint/build + additive migration parity) GREEN; Playwright cross-app
+  `@platform-smoke`/`@platform-regression` (repeat-each=3 → 17/17) GREEN. Debt: TD-178-1/2/3/7 FUTURE,
+  TD-178-4/5/6 RESOLVED (bkz. `docs/TECHNICAL_DEBT.md`).
 - **Date:** 2026-08-11
 - **Builds on:** ADR-289 (Product Support — isolated `apps/api-gateway/src/<domain>/` module shape,
   honest `UNCONFIGURED` notification stub, private auth-gated attachments, version-guarded transitions,
