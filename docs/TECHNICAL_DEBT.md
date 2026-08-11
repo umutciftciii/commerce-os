@@ -2005,6 +2005,37 @@ TODO-177 Faz 1 (Ürün Desteği: guided support + ticket) tamamlandı (Faz A–G
 + `SupportTicketMessage`) yazar; e-posta dispatcher **UNCONFIGURED/honest stub**'tır — `isConfigured=false ⇒ delivery
 "UNCONFIGURED"`, ASLA sahte "SENT" üretmez. Gerçek e-posta provider entegrasyonu scope DIŞI / FUTURE.
 
+## Store → Platform Request (ADR-290 / TODO-178) — debt kalemleri
+
+TODO-178 Faz 1 (Store → Platform talep/görev yönetimi) tamamlandı (Faz A–G; cross-app runtime Playwright +
+full gate GREEN). **Product Support (TODO-177) ile hiçbir `Support*` tablo/enum/route paylaşılmadı** — yalnız
+desen reuse. İlgili debt kalemleri:
+
+- **TD-178-1 (FUTURE, orta) — Tenant identity bridge:** Store Admin bugün `PlatformUser` olarak kimlik
+  doğrular (TD-019 kabulü); gerçek tenant-user ayrımı + per-tenant RBAC yok. Creator kimliği
+  forward-compatible saklanır (`createdByActorKind` PLATFORM_USER → STORE_USER + actor id + name/email
+  snapshot); store-side assignment yok. Faz 2 çok-kiracılı store-user ayrımı için ön koşul.
+- **TD-178-2 (FUTURE, düşük) — SLA helper consolidation:** `apps/api-gateway/src/platform-requests/sla.ts`
+  live-cycle state helper'ı product-support'tan kopyalandı; ileride `packages/config`'e ortak promote
+  edilmeli (iki domain aynı SLA state mantığını tekrarlıyor).
+- **TD-178-3 (FUTURE, düşük) — Category seed dual-source:** taksonomi seed'i migration SQL ile
+  `packages/config/src/platform-request-taxonomy.ts` arasında duplike (test + comment ile pinlendi). Tek
+  kaynağa indirgeme future.
+- **TD-178-4 (RESOLVED, Faz C):** operasyonel kategori CURRENT `category` relation'ından türetilir
+  (recategorize inbox/filter/detail/SLA'ya yansır); orijinal snapshot yalnız audit (`filedCategory`).
+- **TD-178-5 (RESOLVED, Faz C):** bilingual taksonomi snapshot (`categoryLabel` TR + `categoryLabelEn`;
+  category ref `{key,labelTr,labelEn}`); ham enum/key/UUID hiçbir UI'da gösterilmez.
+- **TD-178-6 (RESOLVED, Faz C):** read-only assignable `PlatformUser` directory (`GET /platform/users`;
+  select yalnız id/name/email/role — `passwordHash` asla) + inbox assignee filtresi (Tümü/Atanmamış/Belirli
+  kullanıcı searchable); silinmiş assignee → güvenli null fallback (ham id gösterilmez).
+- **TD-178-7 (FUTURE, düşük) — Message-linked attachments:** ekler şu an request-level (`messageId=null`,
+  single-step upload). Belirli bir mesaja bağlama (`messageId`) ileride.
+
+**Bildirim (honest stub — TD-110 sınıfı):** `PlatformRequest` dispatcher in-app event yazar; e-posta
+dispatcher **UNCONFIGURED/honest stub**'tır (`isConfigured=false ⇒ "UNCONFIGURED"`, ASLA sahte "SENT"). Assign
+→ store notify; INTERNAL not store notify ÜRETMEZ. Gerçek e-posta provider platform-geneli production-readiness
+backlog'una bağlı (TD-177 / TD-RET-3 ile paylaşılan FUTURE iş).
+
 ## Returns Management Foundation — açık future kalemler (ADR-269 / TODO-169)
 
 - **Gerçek provider refund + OrderRefund ledger (TD-RET-1 → TODO-170):** bu faz yalnız `RefundIntent` (PENDING)

@@ -88,6 +88,16 @@ export function QuestionSetIcon() {
   );
 }
 
+export function StoreRequestIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M4 4h16v12H5.2L4 17.5V4z" />
+      <path d="M8 8h8" />
+      <path d="M8 11h5" />
+    </svg>
+  );
+}
+
 export function SettingsIcon() {
   return (
     <svg {...base} aria-hidden>

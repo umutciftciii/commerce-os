@@ -35,6 +35,13 @@ describe("registry", () => {
     expect(getStoreModuleDefinition("REVIEWS").core).toBe(false);
   });
 
+  it("TODO-178 — PLATFORM_REQUESTS kayıtlı, gate'lenebilir (core değil) ve baseline açık (geriye uyumlu)", () => {
+    expect(isStoreModuleKey("PLATFORM_REQUESTS")).toBe(true);
+    const def = getStoreModuleDefinition("PLATFORM_REQUESTS");
+    expect(def.core).toBe(false);
+    expect(def.baselineEnabled).toBe(true);
+  });
+
   it("dependency zincirleri (prompt §8) doğru", () => {
     expect(getStoreModuleDefinition("RECOMMENDATIONS").requires).toContain("RECENTLY_VIEWED");
     expect(getStoreModuleDefinition("RECOMMENDATION_ANALYTICS").requires).toContain("RECOMMENDATIONS");

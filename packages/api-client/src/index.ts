@@ -1431,6 +1431,60 @@ export type {
   SupportQuestionDto,
   SupportTransitionDto,
 } from "@commerce-os/contracts";
+// TODO-178 — Store→Platform Request tipleri (yerel bağ: import type; re-export DEĞİL).
+import type {
+  CreateStorePlatformRequestRequest,
+  StorePlatformRequestMessageCreateRequest,
+  StorePlatformRequestVersionedActionRequest,
+  StorePlatformRequestListResponse,
+  StorePlatformRequestDetailResponse,
+  StorePlatformRequestCategoryListResponse,
+  StorePlatformRequestAttachmentResponse,
+  PlatformRequestAttachmentResponse,
+  PlatformRequestListResponse,
+  PlatformRequestDetailResponse,
+  PlatformRequestAssignRequest,
+  PlatformRequestPriorityRequest,
+  PlatformRequestStatusRequest,
+  PlatformRequestRecategorizeRequest,
+  PlatformRequestMessageCreateRequest,
+  PlatformRequestCategoryListResponse,
+  PlatformRequestCategoryCreateRequest,
+  PlatformRequestCategoryUpdateRequest,
+  PlatformUserDirectoryResponse,
+} from "@commerce-os/contracts";
+// TODO-178 — admin-web/store-admin-web BFF'lerinin tükettiği DTO/request tiplerini re-export et.
+export type {
+  StorePlatformRequestListResponse,
+  StorePlatformRequestDetailResponse,
+  StorePlatformRequestCategoryListResponse,
+  StorePlatformRequestAttachmentResponse,
+  StorePlatformRequestAttachment,
+  PlatformRequestAttachmentResponse,
+  PlatformRequestAttachment,
+  StorePlatformRequestDetail,
+  StorePlatformRequestMessage,
+  CreateStorePlatformRequestRequest,
+  StorePlatformRequestMessageCreateRequest,
+  StorePlatformRequestVersionedActionRequest,
+  PlatformRequestListResponse,
+  PlatformRequestDetailResponse,
+  PlatformRequestDetail,
+  PlatformRequestCategory,
+  PlatformRequestCategoryRef,
+  PlatformRequestAssignRequest,
+  PlatformRequestPriorityRequest,
+  PlatformRequestStatusRequest,
+  PlatformRequestRecategorizeRequest,
+  PlatformRequestMessageCreateRequest,
+  PlatformRequestCategoryListResponse,
+  PlatformRequestCategoryCreateRequest,
+  PlatformRequestCategoryUpdateRequest,
+  PlatformUserDirectoryItem,
+  PlatformUserDirectoryResponse,
+} from "@commerce-os/contracts";
+// TODO-178 (TD-178-6) — inbox "atanmamış" filtre sentinel'i (DEĞER re-export; UI magic string kullanmasın).
+export { PLATFORM_REQUEST_UNASSIGNED_FILTER } from "@commerce-os/contracts";
 export {
   supportResolveRequestSchema,
   supportTicketCreateRequestSchema,
@@ -3138,6 +3192,131 @@ export interface ApiClient {
       ): Promise<CustomerCouponAssignment>;
     };
   };
+  // TODO-178 — Store→Platform Request & Task Management typed methods (BFF Faz C/D'de tüketir).
+  platformRequests: {
+    store: {
+      create(
+        storeId: string,
+        input: CreateStorePlatformRequestRequest,
+        token?: string,
+      ): Promise<StorePlatformRequestDetailResponse>;
+      list(
+        storeId: string,
+        query?: StorePlatformRequestListQuery,
+        token?: string,
+      ): Promise<StorePlatformRequestListResponse>;
+      get(storeId: string, id: string, token?: string): Promise<StorePlatformRequestDetailResponse>;
+      reply(
+        storeId: string,
+        id: string,
+        input: StorePlatformRequestMessageCreateRequest,
+        token?: string,
+      ): Promise<StorePlatformRequestDetailResponse>;
+      withdraw(
+        storeId: string,
+        id: string,
+        input: StorePlatformRequestVersionedActionRequest,
+        token?: string,
+      ): Promise<StorePlatformRequestDetailResponse>;
+      confirmClose(
+        storeId: string,
+        id: string,
+        input: StorePlatformRequestVersionedActionRequest,
+        token?: string,
+      ): Promise<StorePlatformRequestDetailResponse>;
+      reopen(
+        storeId: string,
+        id: string,
+        input: StorePlatformRequestVersionedActionRequest,
+        token?: string,
+      ): Promise<StorePlatformRequestDetailResponse>;
+      // TODO-178 (Faz D) — store create/filtre için AKTİF taksonomi.
+      categories(
+        storeId: string,
+        token?: string,
+      ): Promise<StorePlatformRequestCategoryListResponse>;
+      // TODO-178 (Faz E) — attachment upload (multipart; visibility DAİMA STORE_VISIBLE server-side).
+      uploadAttachment(
+        storeId: string,
+        requestId: string,
+        form: FormData,
+        token?: string,
+      ): Promise<StorePlatformRequestAttachmentResponse>;
+    };
+    platform: {
+      list(query?: PlatformRequestInboxQuery, token?: string): Promise<PlatformRequestListResponse>;
+      get(id: string, token?: string): Promise<PlatformRequestDetailResponse>;
+      users(query?: PlatformUserDirectoryQuery, token?: string): Promise<PlatformUserDirectoryResponse>;
+      assign(
+        id: string,
+        input: PlatformRequestAssignRequest,
+        token?: string,
+      ): Promise<PlatformRequestDetailResponse>;
+      priority(
+        id: string,
+        input: PlatformRequestPriorityRequest,
+        token?: string,
+      ): Promise<PlatformRequestDetailResponse>;
+      status(
+        id: string,
+        input: PlatformRequestStatusRequest,
+        token?: string,
+      ): Promise<PlatformRequestDetailResponse>;
+      recategorize(
+        id: string,
+        input: PlatformRequestRecategorizeRequest,
+        token?: string,
+      ): Promise<PlatformRequestDetailResponse>;
+      message(
+        id: string,
+        input: PlatformRequestMessageCreateRequest,
+        token?: string,
+      ): Promise<PlatformRequestDetailResponse>;
+      // TODO-178 (Faz E) — platform attachment upload (multipart; visibility STORE_VISIBLE|INTERNAL).
+      uploadAttachment(
+        id: string,
+        visibility: "STORE_VISIBLE" | "INTERNAL",
+        form: FormData,
+        token?: string,
+      ): Promise<PlatformRequestAttachmentResponse>;
+    };
+    categories: {
+      list(token?: string): Promise<PlatformRequestCategoryListResponse>;
+      create(
+        input: PlatformRequestCategoryCreateRequest,
+        token?: string,
+      ): Promise<PlatformRequestCategoryListResponse>;
+      update(
+        id: string,
+        input: PlatformRequestCategoryUpdateRequest,
+        token?: string,
+      ): Promise<PlatformRequestCategoryListResponse>;
+    };
+  };
+}
+
+export interface StorePlatformRequestListQuery {
+  status?: string;
+  categoryKey?: string;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+export interface PlatformRequestInboxQuery {
+  status?: string;
+  priority?: string;
+  categoryKey?: string;
+  assignee?: string;
+  storeId?: string;
+  slaRisk?: "true" | "false";
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}
+export interface PlatformUserDirectoryQuery {
+  search?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 /**
@@ -5206,6 +5385,139 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
             `/stores/${storeId}/customers/${customerId}/coupons`,
             "POST",
             { couponId },
+            token,
+          ),
+      },
+    },
+    platformRequests: {
+      store: {
+        create: (storeId, input, token) =>
+          sendJson<StorePlatformRequestDetailResponse>(
+            `/stores/${storeId}/platform-requests`,
+            "POST",
+            input,
+            token,
+          ),
+        list: (storeId, query, token) =>
+          getJson<StorePlatformRequestListResponse>(
+            `/stores/${storeId}/platform-requests${buildQueryString(query as Record<string, string | number | undefined> | undefined)}`,
+            token,
+          ),
+        get: (storeId, id, token) =>
+          getJson<StorePlatformRequestDetailResponse>(
+            `/stores/${storeId}/platform-requests/${id}`,
+            token,
+          ),
+        reply: (storeId, id, input, token) =>
+          sendJson<StorePlatformRequestDetailResponse>(
+            `/stores/${storeId}/platform-requests/${id}/messages`,
+            "POST",
+            input,
+            token,
+          ),
+        withdraw: (storeId, id, input, token) =>
+          sendJson<StorePlatformRequestDetailResponse>(
+            `/stores/${storeId}/platform-requests/${id}/withdraw`,
+            "POST",
+            input,
+            token,
+          ),
+        confirmClose: (storeId, id, input, token) =>
+          sendJson<StorePlatformRequestDetailResponse>(
+            `/stores/${storeId}/platform-requests/${id}/confirm-close`,
+            "POST",
+            input,
+            token,
+          ),
+        reopen: (storeId, id, input, token) =>
+          sendJson<StorePlatformRequestDetailResponse>(
+            `/stores/${storeId}/platform-requests/${id}/reopen`,
+            "POST",
+            input,
+            token,
+          ),
+        categories: (storeId, token) =>
+          getJson<StorePlatformRequestCategoryListResponse>(
+            `/stores/${storeId}/platform-request-categories`,
+            token,
+          ),
+        uploadAttachment: (storeId, requestId, form, token) =>
+          sendForm<StorePlatformRequestAttachmentResponse>(
+            `/stores/${storeId}/platform-requests/${requestId}/attachments`,
+            form,
+            token,
+          ),
+      },
+      platform: {
+        list: (query, token) =>
+          getJson<PlatformRequestListResponse>(
+            `/platform/requests${buildQueryString(query as Record<string, string | number | undefined> | undefined)}`,
+            token,
+          ),
+        get: (id, token) =>
+          getJson<PlatformRequestDetailResponse>(`/platform/requests/${id}`, token),
+        users: (query, token) =>
+          getJson<PlatformUserDirectoryResponse>(
+            `/platform/users${buildQueryString(query as Record<string, string | number | undefined> | undefined)}`,
+            token,
+          ),
+        assign: (id, input, token) =>
+          sendJson<PlatformRequestDetailResponse>(
+            `/platform/requests/${id}/assign`,
+            "POST",
+            input,
+            token,
+          ),
+        priority: (id, input, token) =>
+          sendJson<PlatformRequestDetailResponse>(
+            `/platform/requests/${id}/priority`,
+            "POST",
+            input,
+            token,
+          ),
+        status: (id, input, token) =>
+          sendJson<PlatformRequestDetailResponse>(
+            `/platform/requests/${id}/status`,
+            "POST",
+            input,
+            token,
+          ),
+        recategorize: (id, input, token) =>
+          sendJson<PlatformRequestDetailResponse>(
+            `/platform/requests/${id}/category`,
+            "POST",
+            input,
+            token,
+          ),
+        message: (id, input, token) =>
+          sendJson<PlatformRequestDetailResponse>(
+            `/platform/requests/${id}/messages`,
+            "POST",
+            input,
+            token,
+          ),
+        uploadAttachment: (id, visibility, form, token) =>
+          sendForm<PlatformRequestAttachmentResponse>(
+            `/platform/requests/${id}/attachments?visibility=${visibility}`,
+            form,
+            token,
+          ),
+      },
+      categories: {
+        list: (token) =>
+          getJson<PlatformRequestCategoryListResponse>("/platform/request-categories", token),
+        create: (input, token) =>
+          sendJson<PlatformRequestCategoryListResponse>(
+            "/platform/request-categories",
+            "POST",
+            input,
+            token,
+          ),
+        update: (id, input, token) =>
+          sendJson<PlatformRequestCategoryListResponse>(
+            `/platform/request-categories/${id}`,
+            "PATCH",
+            input,
             token,
           ),
       },

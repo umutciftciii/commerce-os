@@ -312,6 +312,13 @@ import type {
   AdminSupportTicketDetail,
   AdminSupportActionRequest,
   SupportMessageCreateRequest,
+  // TODO-178 (Faz D) — Store→Platform talep tipleri.
+  StorePlatformRequestListResponse,
+  StorePlatformRequestDetailResponse,
+  StorePlatformRequestCategoryListResponse,
+  StorePlatformRequestAttachmentResponse,
+  CreateStorePlatformRequestRequest,
+  StorePlatformRequestMessageCreateRequest,
   RecoveryCaseDetailDto,
   RecoveryActionRequest,
   ManualOpenCaseRequest,
@@ -1866,6 +1873,42 @@ export const storeApi = {
       body: JSON.stringify(input),
     }),
   listSupportAssignableUsers: () => call<AssignableUser[]>("/api/support/assignable-users"),
+
+  // TODO-178 (Faz D) — Platform Talepleri (mağaza → platform); server-authoritative + expectedVersion.
+  // storeId gönderilmez (server-context otoritesi); reply visibility seçilemez (daima STORE_VISIBLE).
+  listPlatformRequests: (query?: AdminListRequestQuery) =>
+    call<StorePlatformRequestListResponse>(`/api/platform-requests${listQueryString(query)}`),
+  getPlatformRequest: (id: string) =>
+    call<StorePlatformRequestDetailResponse>(`/api/platform-requests/${encodeURIComponent(id)}`),
+  listPlatformRequestCategories: () =>
+    call<StorePlatformRequestCategoryListResponse>("/api/platform-request-categories"),
+  createPlatformRequest: (input: CreateStorePlatformRequestRequest) =>
+    mutatingCall<StorePlatformRequestDetailResponse>("/api/platform-requests", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  replyPlatformRequest: (id: string, input: StorePlatformRequestMessageCreateRequest) =>
+    mutatingCall<StorePlatformRequestDetailResponse>(
+      `/api/platform-requests/${encodeURIComponent(id)}/messages`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  platformRequestAction: (
+    id: string,
+    action: "withdraw" | "confirmClose" | "reopen",
+    expectedVersion: number,
+  ) =>
+    mutatingCall<StorePlatformRequestDetailResponse>(
+      `/api/platform-requests/${encodeURIComponent(id)}/actions`,
+      { method: "POST", body: JSON.stringify({ action, expectedVersion }) },
+    ),
+  uploadPlatformRequestAttachment: (id: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return mutatingCall<StorePlatformRequestAttachmentResponse>(
+      `/api/platform-requests/${encodeURIComponent(id)}/attachments`,
+      { method: "POST", body: form },
+    );
+  },
   // TD-174B-2 — Recovery raporu (trend + zamanlama + outcome + goodwill).
   getRecoveryReport: (query?: FinanceReportParams) =>
     call<RecoveryReportDto>(`/api/order-experience/report${financeQueryString(query)}`),

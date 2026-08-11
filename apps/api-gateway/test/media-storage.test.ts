@@ -20,6 +20,13 @@ describe("buildStorageKey", () => {
     expect(buildStorageKey("s1", "CATEGORY", "u")).toBe("stores/s1/categories/u.webp");
     expect(buildStorageKey("s1", "HERO", "u")).toBe("stores/s1/hero/u.webp");
     expect(buildStorageKey("s1", "BRANDING", "u")).toBe("stores/s1/branding/u.webp");
+    // TODO-178 — platform-request ekleri (PRIVATE segment; webp foto + pdf).
+    expect(buildStorageKey("s1", "PLATFORM_REQUEST_ATTACHMENT", "u")).toBe(
+      "stores/s1/platform-requests/u.webp",
+    );
+    expect(buildStorageKey("s1", "PLATFORM_REQUEST_ATTACHMENT", "u", "pdf")).toBe(
+      "stores/s1/platform-requests/u.pdf",
+    );
   });
 
   it("uretilen key her zaman LocalDiskDriver regex'inden gecer (tur icin)", () => {

@@ -16,6 +16,8 @@ const { prismaMock } = vi.hoisted(() => {
       homeFeaturedCategory: { count: vi.fn() },
       // TODO-177 (ADR-289) — Ürün Desteği eki (private) media in-use guard'ina eklendi.
       supportTicketAttachment: { count: vi.fn() },
+      // TODO-178 (ADR-290) — Platform talebi eki (private) media in-use guard'ina eklendi.
+      platformRequestAttachment: { count: vi.fn() },
     },
   };
 });
@@ -74,6 +76,7 @@ function resetCountsToZero() {
   prismaMock.homeHeroSlide.count.mockResolvedValue(0);
   prismaMock.homeFeaturedCategory.count.mockResolvedValue(0);
   prismaMock.supportTicketAttachment.count.mockResolvedValue(0);
+  prismaMock.platformRequestAttachment.count.mockResolvedValue(0);
 }
 
 beforeEach(() => {

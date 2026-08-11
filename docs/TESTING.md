@@ -260,6 +260,31 @@ doğrulama. Kalıcı, tekrarlanabilir regresyon garantisi Playwright suite'inden
   Mutation-heavy testler `@regression`/`@admin-regression` (smoke'a değil). Seed: `e2e-seed.mjs` support bloğu
   (7 published DEFAULT question-set + topic defaults + warranty + DELIVERED shipment + RESOLVED ticket S900001; idempotent).
 
+## 9c. Store → Platform Request (ADR-290 / TODO-178) test kapsamı
+
+- **Config (saf):** `packages/config/test/platform-request-{sla-policy,taxonomy}.test.ts` (SLA policy + category
+  seed TEK KAYNAK).
+- **Unit (api-gateway):** `platform-request-{sla,status-map,serialize,notification}.test.ts` — `status-map`
+  (evaluateTransition/Close/Reopen), `serialize` (AYRI store/platform projeksiyon; INTERNAL store'a sızmaz;
+  attachment + timeline allowlist), `notification` (honest UNCONFIGURED + assign→notify).
+- **Integration (api-gateway, `commerce_os_test`):** `platform-request-service.integration.test.ts` (38) —
+  create/list/detail/reply/withdraw/confirmClose/reopen + assign/priority/status/recategorize +
+  store-visible timeline (INTERNAL sızmaz) + slaRisk live-cycle (historical false-positive yok) + assignee
+  directory + cross-store scope + attachment (STORE_VISIBLE serve 200 / INTERNAL store 404) + MEDIA_IN_USE.
+- **Component/BFF:** store-admin `test/platform-requests-{create,detail,list,bff}.test.tsx` (+ module-guard
+  PLATFORM_REQUESTS nav) + admin-web `test/platform-requests-{ui,bff-security}.test.tsx`.
+- **Contracts:** `platform-request-contracts.test.ts` (store/platform DTO + action + category Zod).
+- **E2E (Playwright, cross-app store-admin ↔ admin-web):** `platform-requests/01-canonical-lifecycle.spec.ts`
+  (`@platform-smoke`: store create→PR-######→platform inbox/assign/priority/status/visible+internal→store
+  visibility+INTERNAL non-leak→reply→resolve→store confirm-close→CLOSED); `02-visibility-attachments.spec.ts`
+  (`@platform-regression`: foto upload+serve 200 / INTERNAL store non-leak + serve 404 / capability nav);
+  `03-assignment-sla-reopen.spec.ts` (`@platform-regression`: searchable assign + inbox filter + no raw id +
+  SLA labels + RESOLVED→reopen fresh cycle). **admin-web İLK KEZ E2E'ye girdi** (`admin-web-e2e` :3120 servisi
+  + `platform-admin-auth.setup.ts`). Cross-context ilk-okuma `reloadUntil` helper ile deterministik
+  (client-mount tek-atış fetch + ms-yarışı; flake gizleme değil). `@platform-smoke` CI required; regression
+  nightly/manuel `pnpm e2e:platform-regression`. Seed: `e2e-seed.mjs` `e2e-agent@example.test` (SUPPORT_ADMIN,
+  login yok — AssigneeSelector hedefi; kategoriler migration'dan). **repeat-each=3 → 17/17.**
+
 ## 10. İlgili dokümanlar
 
 - [ADR-287](adr/ADR-287-playwright-e2e-release-gate.md) — karar ve gerekçe.

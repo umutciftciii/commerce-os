@@ -30,4 +30,7 @@ export const HREF_MODULE: Record<string, string> = {
   "/hero": "HOME_EXPERIENCE",
   "/theme": "THEME_STUDIO",
   "/operations": "OPERATIONS_ADVANCED",
+  // TODO-178 (Faz D) — Platform Talepleri (mağaza → platform operasyonel talep/görev sistemi).
+  // Product Support (müşteri → mağaza) ile karışmaz; ayrı domain, ayrı capability.
+  "/platform-requests": "PLATFORM_REQUESTS",
 };

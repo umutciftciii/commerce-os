@@ -48,7 +48,10 @@ export type StoreModuleKey =
   | "MULTI_WAREHOUSE"
   | "CUSTOMER_DATA_ERASURE"
   | "OPERATIONS_ADVANCED"
-  | "FASHION_VERTICAL";
+  | "FASHION_VERTICAL"
+  // TODO-178 — Store→Platform talep sistemi (mağaza → platform operasyon inbox'ı). Gate'lenebilir
+  // (core değil) ama baseline AÇIK (her mağaza platforma ulaşabilsin; geriye uyum).
+  | "PLATFORM_REQUESTS";
 
 export interface StoreModuleDefinition {
   key: StoreModuleKey;
@@ -100,6 +103,9 @@ export const STORE_MODULE_REGISTRY: readonly StoreModuleDefinition[] = [
   { key: "MULTI_WAREHOUSE", group: "catalog", labelTr: "Çoklu Depo", labelEn: "Multi-Warehouse", descriptionTr: "Depo-farkındalıklı stok.", core: false, baselineEnabled: true, requires: ["BASIC_INVENTORY"] },
   { key: "CUSTOMER_DATA_ERASURE", group: "system", labelTr: "Müşteri Verisi Silme", labelEn: "Customer Data Erasure", descriptionTr: "KVKK/GDPR silme/anonimleştirme.", core: false, baselineEnabled: true, requires: ["CUSTOMERS"] },
   { key: "OPERATIONS_ADVANCED", group: "system", labelTr: "Gelişmiş Operasyon", labelEn: "Advanced Operations", descriptionTr: "Zamanlayıcı/retention operasyon ekranı.", core: false, baselineEnabled: true },
+  // TODO-178 — Store→Platform Request. Mağaza, platform müdahalesi gereken konularda talep açar;
+  // gate'lenebilir (plan ile kapatılabilir) ama baseline AÇIK (geriye uyum; platforma erişim hakkı).
+  { key: "PLATFORM_REQUESTS", group: "system", labelTr: "Platform Talepleri", labelEn: "Platform Requests", descriptionTr: "Mağaza → platform operasyonel talep/görev sistemi.", core: false, baselineEnabled: true },
   // ── OPT-IN (baseline KAPALI; TODO-165 Fashion Vertical) ──────────────────────
   // Moda/tekstil dikeyi: beden/renk/koleksiyon/sezon + adımlı ürün formu + fashion
   // PDP/PLP davranışları. Yeni capability, geriye-uyum kaygısı YOK → baselineEnabled=false

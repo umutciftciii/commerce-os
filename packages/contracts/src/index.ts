@@ -13753,3 +13753,477 @@ export type PlatformSupportGraphValidationResponse = z.infer<
 >;
 export type SupportQuestionDto = z.infer<typeof supportQuestionDtoSchema>;
 export type SupportTransitionDto = z.infer<typeof supportTransitionDtoSchema>;
+
+// ============================================================================
+// TODO-178 — Store → Platform Request & Task Management contracts
+//
+// Prisma import YOK (z.enum konvansiyonu). AYRI store/platform DTO şemaları: store-facing DTO
+// INTERNAL içeriği YAPISAL olarak taşımaz (visibility alanı bile yoktur). Ham enum'lar contract'ta
+// döner; UI humanize Faz C/D'dedir.
+// ============================================================================
+
+export const platformRequestStatusSchema = z.enum([
+  "OPEN",
+  "TRIAGED",
+  "IN_PROGRESS",
+  "WAITING_STORE",
+  "RESOLVED",
+  "CLOSED",
+]);
+export type PlatformRequestStatusDto = z.infer<typeof platformRequestStatusSchema>;
+
+export const platformRequestPrioritySchema = z.enum(["LOW", "NORMAL", "HIGH", "URGENT"]);
+export type PlatformRequestPriorityDto = z.infer<typeof platformRequestPrioritySchema>;
+
+export const platformRequestStoreImpactSchema = z.enum(["LOW", "MEDIUM", "HIGH"]);
+export type PlatformRequestStoreImpactDto = z.infer<typeof platformRequestStoreImpactSchema>;
+
+export const platformRequestCloseReasonSchema = z.enum([
+  "COMPLETED",
+  "WITHDRAWN_BY_STORE",
+  "NOT_ACTIONABLE",
+  "DUPLICATE",
+  "REJECTED",
+]);
+export type PlatformRequestCloseReasonDto = z.infer<typeof platformRequestCloseReasonSchema>;
+
+// Domain-side aktör (STORE=talep eden mağaza). Product Support'un SupportActorType'ından ayrıdır.
+export const platformRequestActorTypeSchema = z.enum(["STORE", "PLATFORM", "SYSTEM"]);
+export type PlatformRequestActorTypeDto = z.infer<typeof platformRequestActorTypeSchema>;
+
+export const platformRequestMessageVisibilitySchema = z.enum(["STORE_VISIBLE", "INTERNAL"]);
+export type PlatformRequestMessageVisibilityDto = z.infer<
+  typeof platformRequestMessageVisibilitySchema
+>;
+
+export const platformRequestContextKindSchema = z.enum([
+  "NONE",
+  "PLATFORM_TAXONOMY",
+  "PLATFORM_CONTENT",
+  "PLATFORM_POLICY",
+  "STORE_DATA",
+  "OTHER",
+]);
+export type PlatformRequestContextKindDto = z.infer<typeof platformRequestContextKindSchema>;
+
+export const platformRequestSlaStateSchema = z.enum(["INSIDE", "DUE_TODAY", "OVERDUE", "DONE"]);
+
+// Bilingual kategori referansı (TD-178-5). Operasyonel yüzeyde CURRENT (relation); audit'te FILED (snapshot).
+export const platformRequestCategoryRefSchema = z.object({
+  key: z.string(),
+  labelTr: z.string(),
+  labelEn: z.string(),
+});
+export type PlatformRequestCategoryRef = z.infer<typeof platformRequestCategoryRefSchema>;
+
+export const PLATFORM_REQUEST_SUBJECT_MAX = 160;
+export const PLATFORM_REQUEST_BODY_MAX = 8000;
+export const PLATFORM_REQUEST_MESSAGE_MAX = 8000;
+
+// Yapısal bağlam snapshot'ı — SERBEST form/JSON engine DEĞİL; sınırlı okunur alanlar (strict).
+export const platformRequestContextSnapshotSchema = z
+  .object({
+    label: z.string().max(200).optional(),
+    reference: z.string().max(200).optional(),
+    detail: z.string().max(2000).optional(),
+  })
+  .strict();
+export type PlatformRequestContextSnapshot = z.infer<typeof platformRequestContextSnapshotSchema>;
+
+// ---- Store-facing DTOs (INTERNAL asla dönmez; SLA sadeleştirilmiş; visibility alanı YOK) ----
+
+export const storePlatformRequestMessageSchema = z.object({
+  id: z.string(),
+  authorType: platformRequestActorTypeSchema,
+  body: z.string(),
+  createdAt: z.string(),
+});
+export type StorePlatformRequestMessage = z.infer<typeof storePlatformRequestMessageSchema>;
+
+// TODO-178 (Faz E) — Attachment tipi (Faz 1: foto/PDF; video YOK). Ham storageKey/mediaAssetId ASLA
+// dönmez — yalnız güvenli download referansı `id` (UI auth-gate'li BFF serve path'ini id'den kurar).
+export const platformRequestAttachmentTypeSchema = z.enum(["PHOTO", "PDF"]);
+export type PlatformRequestAttachmentType = z.infer<typeof platformRequestAttachmentTypeSchema>;
+// Store yüzeyi: yalnız STORE_VISIBLE ekler döner; visibility alanı yoktur (INTERNAL yapısal olarak dışarıda).
+export const storePlatformRequestAttachmentSchema = z.object({
+  id: z.string(),
+  type: platformRequestAttachmentTypeSchema,
+  createdAt: z.string(),
+});
+export type StorePlatformRequestAttachment = z.infer<typeof storePlatformRequestAttachmentSchema>;
+export const storePlatformRequestAttachmentResponseSchema = z.object({
+  attachment: storePlatformRequestAttachmentSchema,
+});
+export type StorePlatformRequestAttachmentResponse = z.infer<
+  typeof storePlatformRequestAttachmentResponseSchema
+>;
+
+export const storePlatformRequestSlaSchema = z.object({
+  firstResponseState: platformRequestSlaStateSchema,
+  firstResponseDueAt: z.string(),
+  resolutionState: platformRequestSlaStateSchema,
+  resolutionDueAt: z.string(),
+});
+
+// Liste satırında SLA'nın sadeleştirilmiş görünümü (dueAt/policy YOK — yalnız operasyonel durum).
+export const storePlatformRequestListSlaSchema = z.object({
+  firstResponseState: platformRequestSlaStateSchema,
+  resolutionState: platformRequestSlaStateSchema,
+});
+export const storePlatformRequestListItemSchema = z.object({
+  id: z.string(),
+  requestNumber: z.string(),
+  subject: z.string(),
+  category: platformRequestCategoryRefSchema, // CURRENT (TD-178-4)
+  status: platformRequestStatusSchema,
+  priority: platformRequestPrioritySchema,
+  storeImpact: platformRequestStoreImpactSchema.nullable(),
+  // TODO-178 (Faz D) — assignee yalnız INSAN-OKUNUR ad (raw PlatformUser id ASLA store'a dönmez).
+  assigneeName: z.string().nullable(),
+  sla: storePlatformRequestListSlaSchema.nullable(), // live cycle; snapshot yoksa null
+  createdAt: z.string(),
+  lastActivityAt: z.string(),
+});
+export const storePlatformRequestListResponseSchema = z.object({
+  items: z.array(storePlatformRequestListItemSchema),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+});
+export type StorePlatformRequestListResponse = z.infer<
+  typeof storePlatformRequestListResponseSchema
+>;
+
+// TODO-178 (Faz D follow-up) — Store'a görünür AUDIT timeline. AYRI allowlist projeksiyonu (platform
+// history DTO reuse EDİLMEZ). HARD: INTERNAL mesaj/not/attachment, note metni, ham metadata JSON, actor/
+// platform ham UUID, storageKey ASLA çıkmaz. Yalnız güvenli lifecycle event'leri + insan-okunur türetimler.
+export const storePlatformRequestTimelineEventTypeSchema = z.enum([
+  "CREATED",
+  "STATUS_CHANGED",
+  "ASSIGNED",
+  "UNASSIGNED",
+  "PRIORITY_CHANGED",
+  "CATEGORY_CHANGED",
+  "WITHDRAWN",
+  "RESOLVED",
+  "CLOSED",
+  "REOPENED",
+]);
+export type StorePlatformRequestTimelineEventType = z.infer<
+  typeof storePlatformRequestTimelineEventTypeSchema
+>;
+export const storePlatformRequestTimelineEventSchema = z.object({
+  id: z.string(),
+  event: storePlatformRequestTimelineEventTypeSchema,
+  actorType: platformRequestActorTypeSchema, // STORE/PLATFORM/SYSTEM — kaba rol (raw UUID DEĞİL)
+  fromStatus: platformRequestStatusSchema.nullable(),
+  toStatus: platformRequestStatusSchema.nullable(),
+  fromPriority: platformRequestPrioritySchema.nullable(),
+  toPriority: platformRequestPrioritySchema.nullable(),
+  category: platformRequestCategoryRefSchema.nullable(), // CATEGORY_CHANGED → yeni kategori (bilingual)
+  assigneeName: z.string().nullable(), // ASSIGNED → insan-okunur ad (raw id ASLA)
+  closeReason: platformRequestCloseReasonSchema.nullable(),
+  createdAt: z.string(),
+});
+export type StorePlatformRequestTimelineEvent = z.infer<
+  typeof storePlatformRequestTimelineEventSchema
+>;
+
+export const storePlatformRequestDetailSchema = z.object({
+  id: z.string(),
+  requestNumber: z.string(),
+  subject: z.string(),
+  description: z.string(),
+  category: platformRequestCategoryRefSchema, // CURRENT (TD-178-4)
+  status: platformRequestStatusSchema,
+  priority: platformRequestPrioritySchema,
+  storeImpact: platformRequestStoreImpactSchema.nullable(),
+  // TODO-178 (Faz D) — atanan platform temsilcisinin İNSAN-OKUNUR adı (raw id ASLA); atanmamış/silinmiş → null.
+  assigneeName: z.string().nullable(),
+  contextKind: platformRequestContextKindSchema,
+  contextSnapshot: platformRequestContextSnapshotSchema.nullable(),
+  createdAt: z.string(),
+  lastActivityAt: z.string(),
+  resolvedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+  closeReason: platformRequestCloseReasonSchema.nullable(),
+  reopenCount: z.number().int(),
+  version: z.number().int(),
+  canReopen: z.boolean(),
+  canWithdraw: z.boolean(),
+  canConfirmClose: z.boolean(),
+  messages: z.array(storePlatformRequestMessageSchema),
+  // TODO-178 (Faz E) — YALNIZ STORE_VISIBLE ekler (INTERNAL yapısal olarak dışarıda; count/preview bile yok).
+  attachments: z.array(storePlatformRequestAttachmentSchema),
+  // TODO-178 (Faz D follow-up) — konuşmadan AYRI güvenli audit timeline (kronolojik).
+  timeline: z.array(storePlatformRequestTimelineEventSchema),
+  sla: storePlatformRequestSlaSchema.nullable(),
+});
+export type StorePlatformRequestDetail = z.infer<typeof storePlatformRequestDetailSchema>;
+export const storePlatformRequestDetailResponseSchema = z.object({
+  request: storePlatformRequestDetailSchema,
+});
+export type StorePlatformRequestDetailResponse = z.infer<
+  typeof storePlatformRequestDetailResponseSchema
+>;
+
+// ---- Store request/action schemas ----
+
+export const createStorePlatformRequestRequestSchema = z.object({
+  categoryKey: z.string().min(1),
+  subject: z.string().min(1).max(PLATFORM_REQUEST_SUBJECT_MAX),
+  description: z.string().min(1).max(PLATFORM_REQUEST_BODY_MAX),
+  storeImpact: platformRequestStoreImpactSchema.optional(),
+  contextKind: platformRequestContextKindSchema.optional(),
+  contextSnapshot: platformRequestContextSnapshotSchema.optional(),
+});
+export type CreateStorePlatformRequestRequest = z.infer<
+  typeof createStorePlatformRequestRequestSchema
+>;
+
+// Store reply — visibility client'tan ALINMAZ (server daima STORE_VISIBLE). body-only.
+export const storePlatformRequestMessageCreateRequestSchema = z.object({
+  body: z.string().min(1).max(PLATFORM_REQUEST_MESSAGE_MAX),
+});
+export type StorePlatformRequestMessageCreateRequest = z.infer<
+  typeof storePlatformRequestMessageCreateRequestSchema
+>;
+
+export const platformRequestExpectedVersionSchema = z.number().int().nonnegative();
+// withdraw / confirm-close / reopen — yalnız optimistic version taşır.
+export const storePlatformRequestVersionedActionRequestSchema = z.object({
+  expectedVersion: platformRequestExpectedVersionSchema,
+});
+export type StorePlatformRequestVersionedActionRequest = z.infer<
+  typeof storePlatformRequestVersionedActionRequestSchema
+>;
+
+// TODO-178 (Faz D) — Store'a açık AKTİF taksonomi (create/filtre); yalnız {key,labelTr,labelEn}.
+export const storePlatformRequestCategoryListResponseSchema = z.object({
+  items: z.array(platformRequestCategoryRefSchema),
+});
+export type StorePlatformRequestCategoryListResponse = z.infer<
+  typeof storePlatformRequestCategoryListResponseSchema
+>;
+
+// ---- Platform-facing DTOs (full operational surface; INTERNAL dahil) ----
+
+export const platformRequestMessageSchema = z.object({
+  id: z.string(),
+  authorType: platformRequestActorTypeSchema,
+  visibility: platformRequestMessageVisibilitySchema,
+  body: z.string(),
+  createdAt: z.string(),
+});
+
+// TODO-178 (Faz E) — Platform yüzeyi: STORE_VISIBLE + INTERNAL ekler (visibility ile). Ham storageKey/
+// mediaAssetId ASLA dönmez; download referansı yalnız `id`.
+export const platformRequestAttachmentSchema = z.object({
+  id: z.string(),
+  type: platformRequestAttachmentTypeSchema,
+  visibility: platformRequestMessageVisibilitySchema,
+  createdAt: z.string(),
+});
+export type PlatformRequestAttachment = z.infer<typeof platformRequestAttachmentSchema>;
+export const platformRequestAttachmentResponseSchema = z.object({
+  attachment: platformRequestAttachmentSchema,
+});
+export type PlatformRequestAttachmentResponse = z.infer<
+  typeof platformRequestAttachmentResponseSchema
+>;
+// Platform upload isteği gövdesi (multipart file + visibility alanı; server validate).
+export const platformRequestAttachmentUploadFieldsSchema = z.object({
+  visibility: platformRequestMessageVisibilitySchema,
+});
+
+export const platformRequestSlaSchema = z.object({
+  cycle: z.number().int(),
+  firstResponseDueAt: z.string(),
+  firstResponseState: platformRequestSlaStateSchema,
+  resolutionDueAt: z.string(),
+  resolutionState: platformRequestSlaStateSchema,
+});
+
+export const platformRequestTimelineEntrySchema = z.object({
+  id: z.string(),
+  fromStatus: platformRequestStatusSchema.nullable(),
+  toStatus: platformRequestStatusSchema.nullable(),
+  actorType: platformRequestActorTypeSchema,
+  eventType: z.string(),
+  note: z.string().nullable(),
+  createdAt: z.string(),
+});
+
+export const platformRequestListItemSchema = z.object({
+  requestId: z.string(),
+  requestNumber: z.string(),
+  storeId: z.string(),
+  storeName: z.string(),
+  category: platformRequestCategoryRefSchema, // CURRENT (TD-178-4)
+  subject: z.string(),
+  priority: platformRequestPrioritySchema,
+  status: platformRequestStatusSchema,
+  assigneePlatformUserId: z.string().nullable(),
+  assigneeName: z.string().nullable(),
+  firstResponseState: platformRequestSlaStateSchema,
+  resolutionState: platformRequestSlaStateSchema,
+  lastActivityAt: z.string(),
+});
+export const platformRequestListResponseSchema = z.object({
+  items: z.array(platformRequestListItemSchema),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+});
+export type PlatformRequestListResponse = z.infer<typeof platformRequestListResponseSchema>;
+
+export const platformRequestDetailSchema = z.object({
+  requestId: z.string(),
+  requestNumber: z.string(),
+  storeId: z.string(),
+  storeName: z.string(),
+  categoryId: z.string(),
+  category: platformRequestCategoryRefSchema, // CURRENT operasyonel kategori (TD-178-4)
+  filedCategory: platformRequestCategoryRefSchema, // FILED snapshot (audit; "ilk açıldığı kategori")
+  subject: z.string(),
+  description: z.string(),
+  status: platformRequestStatusSchema,
+  priority: platformRequestPrioritySchema,
+  storeImpact: platformRequestStoreImpactSchema.nullable(),
+  contextKind: platformRequestContextKindSchema,
+  contextSnapshot: platformRequestContextSnapshotSchema.nullable(),
+  version: z.number().int(),
+  createdByName: z.string(),
+  createdByEmail: z.string(),
+  assigneePlatformUserId: z.string().nullable(),
+  assigneeName: z.string().nullable(),
+  firstResponseAt: z.string().nullable(),
+  resolvedAt: z.string().nullable(),
+  closedAt: z.string().nullable(),
+  closeReason: platformRequestCloseReasonSchema.nullable(),
+  reopenCount: z.number().int(),
+  createdAt: z.string(),
+  lastActivityAt: z.string(),
+  messages: z.array(platformRequestMessageSchema),
+  // TODO-178 (Faz E) — STORE_VISIBLE + INTERNAL ekler (platform tam yüzey).
+  attachments: z.array(platformRequestAttachmentSchema),
+  timeline: z.array(platformRequestTimelineEntrySchema),
+  sla: platformRequestSlaSchema.nullable(),
+});
+export type PlatformRequestDetail = z.infer<typeof platformRequestDetailSchema>;
+export const platformRequestDetailResponseSchema = z.object({
+  request: platformRequestDetailSchema,
+});
+export type PlatformRequestDetailResponse = z.infer<typeof platformRequestDetailResponseSchema>;
+
+// ---- Platform action schemas ----
+
+export const platformRequestAssignRequestSchema = z.object({
+  expectedVersion: platformRequestExpectedVersionSchema,
+  assigneePlatformUserId: z.string().min(1), // "me" sentinel resolves to actor server-side
+});
+export type PlatformRequestAssignRequest = z.infer<typeof platformRequestAssignRequestSchema>;
+
+export const platformRequestPriorityRequestSchema = z.object({
+  expectedVersion: platformRequestExpectedVersionSchema,
+  priority: platformRequestPrioritySchema,
+});
+export type PlatformRequestPriorityRequest = z.infer<typeof platformRequestPriorityRequestSchema>;
+
+// CLOSED, generic status endpoint'inden GEÇER ama server tarafı evaluateClose'a yönlendirir ve
+// closeReason ZORUNLU olur (aksi hâlde 400). Diğer geçişler closeReason taşımaz.
+export const platformRequestStatusRequestSchema = z.object({
+  expectedVersion: platformRequestExpectedVersionSchema,
+  toStatus: platformRequestStatusSchema,
+  closeReason: platformRequestCloseReasonSchema.optional(),
+  note: z.string().max(PLATFORM_REQUEST_MESSAGE_MAX).optional(),
+});
+export type PlatformRequestStatusRequest = z.infer<typeof platformRequestStatusRequestSchema>;
+
+export const platformRequestRecategorizeRequestSchema = z.object({
+  expectedVersion: platformRequestExpectedVersionSchema,
+  categoryKey: z.string().min(1),
+});
+export type PlatformRequestRecategorizeRequest = z.infer<
+  typeof platformRequestRecategorizeRequestSchema
+>;
+
+// Platform reply — visibility server-side validate (STORE_VISIBLE | INTERNAL).
+export const platformRequestMessageCreateRequestSchema = z.object({
+  body: z.string().min(1).max(PLATFORM_REQUEST_MESSAGE_MAX),
+  visibility: platformRequestMessageVisibilitySchema,
+});
+export type PlatformRequestMessageCreateRequest = z.infer<
+  typeof platformRequestMessageCreateRequestSchema
+>;
+
+// ---- Taxonomy (platform-managed category) schemas ----
+
+export const platformRequestCategorySchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  labelTr: z.string(),
+  labelEn: z.string(),
+  defaultPriority: platformRequestPrioritySchema,
+  slaPolicyKey: z.string(),
+  active: z.boolean(),
+  sortOrder: z.number().int(),
+});
+export type PlatformRequestCategory = z.infer<typeof platformRequestCategorySchema>;
+export const platformRequestCategoryListResponseSchema = z.object({
+  items: z.array(platformRequestCategorySchema),
+});
+export type PlatformRequestCategoryListResponse = z.infer<
+  typeof platformRequestCategoryListResponseSchema
+>;
+
+export const platformRequestCategoryCreateRequestSchema = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(80)
+    .regex(/^[A-Z][A-Z0-9_]*$/, "UPPER_SNAKE_CASE bekleniyor"),
+  labelTr: z.string().min(1).max(120),
+  labelEn: z.string().min(1).max(120),
+  defaultPriority: platformRequestPrioritySchema.optional(),
+  slaPolicyKey: z.string().min(1).max(80).optional(),
+  sortOrder: z.number().int().optional(),
+  active: z.boolean().optional(),
+});
+export type PlatformRequestCategoryCreateRequest = z.infer<
+  typeof platformRequestCategoryCreateRequestSchema
+>;
+
+// key IMMUTABLE — update'te yer almaz.
+export const platformRequestCategoryUpdateRequestSchema = z.object({
+  labelTr: z.string().min(1).max(120).optional(),
+  labelEn: z.string().min(1).max(120).optional(),
+  defaultPriority: platformRequestPrioritySchema.optional(),
+  slaPolicyKey: z.string().min(1).max(80).optional(),
+  sortOrder: z.number().int().optional(),
+  active: z.boolean().optional(),
+});
+export type PlatformRequestCategoryUpdateRequest = z.infer<
+  typeof platformRequestCategoryUpdateRequestSchema
+>;
+
+// ---- TD-178-6: read-only PlatformUser directory (assignment selector) ----
+// Yalnız assignment için gerekli alanlar; passwordHash/session gibi hassas alan ASLA yer almaz.
+export const platformUserDirectoryItemSchema = z.object({
+  id: z.string(),
+  name: z.string().nullable(),
+  email: z.string(),
+  role: z.enum(["SUPER_ADMIN", "SUPPORT_ADMIN"]),
+});
+export type PlatformUserDirectoryItem = z.infer<typeof platformUserDirectoryItemSchema>;
+
+export const platformUserDirectoryResponseSchema = z.object({
+  items: z.array(platformUserDirectoryItemSchema),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
+});
+export type PlatformUserDirectoryResponse = z.infer<typeof platformUserDirectoryResponseSchema>;
+
+// Inbox assignee filtresinde "atanmamış" için rezerve sentinel (assignee query değeri).
+export const PLATFORM_REQUEST_UNASSIGNED_FILTER = "__unassigned__";

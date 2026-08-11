@@ -49,7 +49,31 @@ import type {
   PlatformSupportTopicDefaultUpsertRequest,
   AdminProductSelectorResponse,
   AdminCategorySelectorResponse,
+  // TODO-178 — Mağaza Talepleri (Store→Platform request inbox).
+  PlatformRequestInboxQuery,
+  PlatformRequestListResponse,
+  PlatformRequestDetailResponse,
+  PlatformRequestAssignRequest,
+  PlatformRequestPriorityRequest,
+  PlatformRequestStatusRequest,
+  PlatformRequestRecategorizeRequest,
+  PlatformRequestMessageCreateRequest,
+  PlatformRequestAttachmentResponse,
+  PlatformRequestCategoryListResponse,
+  PlatformUserDirectoryQuery,
+  PlatformUserDirectoryResponse,
 } from "@commerce-os/api-client";
+
+// TODO-178 — query → same-origin BFF query string (yalnız tanımlı alanlar).
+function toQueryString(query: Record<string, string | number | undefined> = {}): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === "") continue;
+    params.set(key, String(value));
+  }
+  const s = params.toString();
+  return s ? `?${s}` : "";
+}
 
 /**
  * Tarayici -> ayni-origin BFF (/api/*) istemcisi. Gateway'e dogrudan gitmez
@@ -93,10 +117,13 @@ async function csrfHeaders(): Promise<Record<string, string>> {
 
 async function call<T>(path: string, init?: RequestInit): Promise<T> {
   let response: Response;
+  // FormData gövdesinde content-type SET EDİLMEZ — tarayıcı multipart boundary'yi kendisi koyar
+  // (TODO-178 Faz E attachment upload). JSON gövdelerde eskisi gibi application/json.
+  const isForm = init?.body instanceof FormData;
   try {
     response = await fetch(path, {
       ...init,
-      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
+      headers: { ...(isForm ? {} : { "content-type": "application/json" }), ...(init?.headers ?? {}) },
     });
   } catch {
     throw new UiError("NETWORK");
@@ -314,6 +341,53 @@ export const adminApi = {
     call<AdminCategorySelectorResponse>(
       `/api/admin/support/stores/${storeId}/categories?search=${encodeURIComponent(search)}`,
     ),
+
+  // TODO-178 — Mağaza Talepleri (Store→Platform request inbox). Server-side query/pagination.
+  listPlatformRequests: (query?: PlatformRequestInboxQuery) =>
+    call<PlatformRequestListResponse>(`/api/admin/platform-requests${toQueryString(query as Record<string, string | number | undefined> | undefined)}`),
+  listAssignablePlatformUsers: (query?: PlatformUserDirectoryQuery) =>
+    call<PlatformUserDirectoryResponse>(`/api/admin/platform-users${toQueryString(query as Record<string, string | number | undefined> | undefined)}`),
+  getPlatformRequest: (id: string) =>
+    call<PlatformRequestDetailResponse>(`/api/admin/platform-requests/${id}`),
+  assignPlatformRequest: (id: string, input: PlatformRequestAssignRequest) =>
+    mutatingCall<PlatformRequestDetailResponse>(`/api/admin/platform-requests/${id}/assign`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  setPlatformRequestPriority: (id: string, input: PlatformRequestPriorityRequest) =>
+    mutatingCall<PlatformRequestDetailResponse>(`/api/admin/platform-requests/${id}/priority`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  setPlatformRequestStatus: (id: string, input: PlatformRequestStatusRequest) =>
+    mutatingCall<PlatformRequestDetailResponse>(`/api/admin/platform-requests/${id}/status`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  recategorizePlatformRequest: (id: string, input: PlatformRequestRecategorizeRequest) =>
+    mutatingCall<PlatformRequestDetailResponse>(`/api/admin/platform-requests/${id}/category`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  addPlatformRequestMessage: (id: string, input: PlatformRequestMessageCreateRequest) =>
+    mutatingCall<PlatformRequestDetailResponse>(`/api/admin/platform-requests/${id}/messages`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  uploadPlatformRequestAttachment: (
+    id: string,
+    visibility: "STORE_VISIBLE" | "INTERNAL",
+    file: File,
+  ) => {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    return mutatingCall<PlatformRequestAttachmentResponse>(
+      `/api/admin/platform-requests/${id}/attachments?visibility=${visibility}`,
+      { method: "POST", body: form },
+    );
+  },
+  listPlatformRequestCategories: () =>
+    call<PlatformRequestCategoryListResponse>("/api/admin/platform-request-categories"),
 
   // System health
   systemHealth: () => call<SystemHealth>("/api/system/health"),

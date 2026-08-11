@@ -1,5 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
-import { STOREFRONT_URL, STORE_ADMIN_URL } from "./tests/e2e/fixtures/env";
+import { STOREFRONT_URL, STORE_ADMIN_URL, PLATFORM_ADMIN_URL } from "./tests/e2e/fixtures/env";
 
 const CI = !!process.env.CI;
 export default defineConfig({
@@ -92,6 +92,28 @@ export default defineConfig({
       testDir: "tests/e2e/prod-smoke",
       grep: /@prod-smoke/,
       use: { ...devices["Desktop Chrome"] },
+    },
+    // TODO-178 Faz F — Platform Admin (admin-web) GERÇEK UI login setup'ı (ayrı storageState).
+    { name: "platform-admin-setup", testMatch: /setup\/platform-admin-auth\.setup\.ts/ },
+    {
+      // TODO-178 Faz F — Store→Platform talep canonical lifecycle (PR smoke gate'ine uygun).
+      // Cross-app (store-admin :3110 ↔ platform-admin :3120) → testler İKİ context açar; proje
+      // seviyesinde storageState/baseURL YOK (spec içinde browser.newContext + full URL). İki
+      // login setup'ına bağımlı.
+      name: "platform-requests-smoke",
+      testDir: "tests/e2e/platform-requests",
+      grep: /@platform-smoke/,
+      use: { ...devices["Desktop Chrome"] },
+      dependencies: ["store-admin-setup", "platform-admin-setup"],
+    },
+    {
+      // TODO-178 Faz F — Daha ağır visibility/attachment/assignment/SLA/reopen regresyonu.
+      // PR smoke süresini büyütmez; nightly/manuel `pnpm e2e:platform-regression`.
+      name: "platform-requests-regression",
+      testDir: "tests/e2e/platform-requests",
+      grep: /@platform-regression/,
+      use: { ...devices["Desktop Chrome"] },
+      dependencies: ["store-admin-setup", "platform-admin-setup"],
     },
   ],
 });

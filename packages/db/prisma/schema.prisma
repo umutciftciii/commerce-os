@@ -168,6 +168,10 @@ enum MediaContext {
   // public `/media/*`'ten SUNULMAZ; yalnız auth-gate'li support attachment route'undan
   // (sahip müşteri ya da store admin) stream edilir. PDF: sharp/webp pipeline'ı ATLANIR.
   SUPPORT_ATTACHMENT
+  // TODO-178 — Store→Platform request eki (foto/PDF). PRIVATE (SUPPORT_ATTACHMENT deseni):
+  // public `/media/*`'ten SUNULMAZ; yalnız auth-gate'li platform-request attachment route'undan
+  // stream edilir. STORE_VISIBLE / INTERNAL görünürlük mesaj/ek düzeyinde uygulanır.
+  PLATFORM_REQUEST_ATTACHMENT
 }
 
 // ADR-065 — Yayin durumu (hero slide gibi vitrin icerikleri icin). DRAFT admin'de
@@ -1090,6 +1094,10 @@ model Store {
   supportTickets                   SupportTicket[]
   supportTicketNumberCounters      SupportTicketNumberCounter[]
   supportQuestionSetMappings       SupportQuestionSetMapping[]
+
+  // TODO-178 — Store→Platform talepleri (mağaza sahipliği). Numara sayacı GLOBAL olduğundan
+  // (PlatformRequestNumberCounter) burada yer almaz; kategori taksonomisi platform-owned'dır.
+  platformRequests PlatformRequest[]
 }
 
 model StoreUser {
@@ -2061,15 +2069,15 @@ model OrderLine {
   mediaStorageKey        String?
   createdAt              DateTime @default(now())
 
-  store        Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  order        Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  product      Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
-  variant      ProductVariant         @relation(fields: [variantId], references: [id], onDelete: Restrict)
-  reservations InventoryReservation[]
+  store          Store                  @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  order          Order                  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product        Product                @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variant        ProductVariant         @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  reservations   InventoryReservation[]
   // TODO-159E (ADR-094) — bir sipariş kalemi en fazla bir yoruma kaynak (orderLineId UNIQUE).
-  review       ProductReview?
+  review         ProductReview?
   // TODO-169 (ADR-269) — bu satırdan doğan iade kalemleri (kısmi/tekrarlı iade adet hesabı).
-  returnItems  ReturnItem[]
+  returnItems    ReturnItem[]
   // TODO-177 (ADR-289) — bu sipariş satırından açılan destek ticket'ları (onDelete: Restrict).
   supportTickets SupportTicket[]
 
@@ -3538,28 +3546,30 @@ model MediaAsset {
   createdAt  DateTime     @default(now())
   updatedAt  DateTime     @updatedAt
 
-  store                  Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  productImages          ProductImage[]
-  categoryLinks          ProductCategory[]       @relation("CategoryImage")
-  heroSlides             HeroSlide[]
-  logoSettings           StoreSettings[]         @relation("StoreLogo")
-  faviconSettings        StoreSettings[]         @relation("StoreFavicon")
+  store                      Store                       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  productImages              ProductImage[]
+  categoryLinks              ProductCategory[]           @relation("CategoryImage")
+  heroSlides                 HeroSlide[]
+  logoSettings               StoreSettings[]             @relation("StoreLogo")
+  faviconSettings            StoreSettings[]             @relation("StoreFavicon")
   // TODO-158A (ADR-086) — Home Experience: hero slide masaüstü/mobil görseli + featured
   // kategori kapak override'ı. onDelete: Restrict/SetNull → kullanımdaki media MEDIA_IN_USE ile korunur.
-  homeHeroMedia          HomeHeroSlide[]         @relation("HomeHeroMedia")
-  homeHeroMobileMedia    HomeHeroSlide[]         @relation("HomeHeroMobileMedia")
-  homeFeaturedImages     HomeFeaturedCategory[]  @relation("HomeFeaturedCategoryImage")
+  homeHeroMedia              HomeHeroSlide[]             @relation("HomeHeroMedia")
+  homeHeroMobileMedia        HomeHeroSlide[]             @relation("HomeHeroMobileMedia")
+  homeFeaturedImages         HomeFeaturedCategory[]      @relation("HomeFeaturedCategoryImage")
   // Faz 2A (ADR-068) — IMAGE/FILE attribute degeri olarak kullanan urun satirlari
   // (onDelete: Restrict; media silme ucu MEDIA_IN_USE guard'i ile korunur).
-  productAttributeValues ProductAttributeValue[]
+  productAttributeValues     ProductAttributeValue[]
   // TODO-165A (ADR-253) — Brand logo/kapak gorseli (onDelete: SetNull; media silinince marka
   // gorselsiz kalir, marka SILINMEZ).
-  brandLogoFor           Brand[]                 @relation("BrandLogo")
-  brandCoverFor          Brand[]                 @relation("BrandCover")
+  brandLogoFor               Brand[]                     @relation("BrandLogo")
+  brandCoverFor              Brand[]                     @relation("BrandCover")
   // TODO-169 (ADR-269) — İade fotoğraf kanıtı bağları (private; MEDIA_IN_USE guard'ına dahil).
-  returnAttachments      ReturnAttachment[]
+  returnAttachments          ReturnAttachment[]
   // TODO-177 (ADR-289) — Destek ticket eki bağları (private; MEDIA_IN_USE guard'ına dahil; Restrict).
-  supportTicketAttachments SupportTicketAttachment[]
+  supportTicketAttachments   SupportTicketAttachment[]
+  // TODO-178 — Store→Platform request eki bağları (private; MEDIA_IN_USE guard'ına dahil; Restrict).
+  platformRequestAttachments PlatformRequestAttachment[]
 
   @@index([storeId])
   @@index([storeId, context])
@@ -5596,42 +5606,42 @@ model ReturnNumberCounter {
 
 // İade talebi aggregate kökü. version = optimistic concurrency (eşzamanlı admin aksiyonu koruması).
 model ReturnRequest {
-  id                   String               @id @default(cuid())
-  storeId              String
-  orderId              String
-  customerId           String
-  returnNumber         String
-  status               ReturnStatus         @default(REQUESTED)
-  resolutionType       ReturnResolutionType
+  id                          String               @id @default(cuid())
+  storeId                     String
+  orderId                     String
+  customerId                  String
+  returnNumber                String
+  status                      ReturnStatus         @default(REQUESTED)
+  resolutionType              ReturnResolutionType
   // Talep anında snapshot'lanan iade penceresi bitişi (teslim tarihi + returnWindowDays).
-  returnWindowEndsAt   DateTime
-  customerNote         String?
+  returnWindowEndsAt          DateTime
+  customerNote                String?
   // Müşteriye ASLA gösterilmez (serileştirmede allowlist dışı).
-  adminNote            String?
+  adminNote                   String?
   // Reddetme zorunlu neden (status=REJECTED iken service tarafından zorunlu kılınır).
-  rejectionReason      String?
+  rejectionReason             String?
   // İlk faz manuel iade kargosu: müşteri taşıyıcı + takip no girer; admin teslim alındı işaretler.
-  returnCarrier        String?
-  returnTrackingNumber String?
+  returnCarrier               String?
+  returnTrackingNumber        String?
   // Admin kararı: kargo ücreti iade edilsin mi (refund-calc shippingRefundMinor bunu esas alır).
-  refundShipping       Boolean              @default(false)
+  refundShipping              Boolean              @default(false)
   // TODO-175 (ADR-285) — müşterinin submit anında seçtiği IMMUTABLE refund hedefi. REFUND çözümünde
   // set edilir; REPLACEMENT'ta null. Admin değiştiremez; execution UI'ya değil bu snapshot'a güvenir.
-  refundDestination            RefundDestination?
-  refundDestinationSelectedBy  ReturnActorType?
-  refundDestinationSelectedAt  DateTime?
-  requestedAt          DateTime             @default(now())
-  reviewedAt           DateTime?
-  approvedAt           DateTime?
-  rejectedAt           DateTime?
-  shippedAt            DateTime?
-  receivedAt           DateTime?
-  inspectedAt          DateTime?
-  completedAt          DateTime?
-  cancelledAt          DateTime?
-  version              Int                  @default(0)
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  refundDestination           RefundDestination?
+  refundDestinationSelectedBy ReturnActorType?
+  refundDestinationSelectedAt DateTime?
+  requestedAt                 DateTime             @default(now())
+  reviewedAt                  DateTime?
+  approvedAt                  DateTime?
+  rejectedAt                  DateTime?
+  shippedAt                   DateTime?
+  receivedAt                  DateTime?
+  inspectedAt                 DateTime?
+  completedAt                 DateTime?
+  cancelledAt                 DateTime?
+  version                     Int                  @default(0)
+  createdAt                   DateTime             @default(now())
+  updatedAt                   DateTime             @updatedAt
 
   store        Store                   @relation(fields: [storeId], references: [id], onDelete: Cascade)
   order        Order                   @relation(fields: [orderId], references: [id], onDelete: Cascade)
@@ -6054,16 +6064,16 @@ model SupportQuestionSetVersion {
 }
 
 model SupportQuestion {
-  id                  String              @id @default(cuid())
+  id                   String              @id @default(cuid())
   questionSetVersionId String
-  key                 String
-  type                SupportQuestionType
-  prompt              String
-  helpText            String?
-  sortOrder           Int                 @default(0)
-  required            Boolean             @default(true)
-  isEntry             Boolean             @default(false)
-  createdAt           DateTime            @default(now())
+  key                  String
+  type                 SupportQuestionType
+  prompt               String
+  helpText             String?
+  sortOrder            Int                 @default(0)
+  required             Boolean             @default(true)
+  isEntry              Boolean             @default(false)
+  createdAt            DateTime            @default(now())
 
   version             SupportQuestionSetVersion   @relation(fields: [questionSetVersionId], references: [id], onDelete: Cascade)
   options             SupportQuestionOption[]
@@ -6075,13 +6085,13 @@ model SupportQuestion {
 }
 
 model SupportQuestionOption {
-  id         String   @id @default(cuid())
+  id         String @id @default(cuid())
   questionId String
   key        String
   label      String
-  sortOrder  Int      @default(0)
+  sortOrder  Int    @default(0)
 
-  question            SupportQuestion            @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  question             SupportQuestion             @relation(fields: [questionId], references: [id], onDelete: Cascade)
   matchedByTransitions SupportQuestionTransition[] @relation("SupportTransitionOption")
 
   @@unique([questionId, key])
@@ -6148,41 +6158,41 @@ model SupportTopicDefault {
 // Ticket aggregate kökü. Immutable snapshot alanları (context) + mutable lifecycle. version =
 // optimistic concurrency (eşzamanlı store-admin aksiyonu koruması). questionSetVersionId pinlenir.
 model SupportTicket {
-  id                     String              @id @default(cuid())
-  storeId                String
-  ticketNumber           String
-  customerId             String
-  orderId                String
-  orderLineId            String
-  productId              String
-  variantId              String?
-  questionSetVersionId   String
-  topic                  SupportTopic
+  id                      String              @id @default(cuid())
+  storeId                 String
+  ticketNumber            String
+  customerId              String
+  orderId                 String
+  orderLineId             String
+  productId               String
+  variantId               String?
+  questionSetVersionId    String
+  topic                   SupportTopic
   // Warranty snapshot (ticket açılışında; ADR-289 §7). anchorSource: SHIPMENT_DELIVERED|ORDER_CREATED|NONE.
-  warrantyEndsAt         DateTime?
-  warrantyAnchorSource   String?
+  warrantyEndsAt          DateTime?
+  warrantyAnchorSource    String?
   // Ulaşılan self-service çözüm (varsa) — escalation'da "attempted resolution" olarak taşınır.
   suggestedResolutionKey  String?
   suggestedResolutionText String?
-  status                 SupportTicketStatus @default(OPEN)
+  status                  SupportTicketStatus @default(OPEN)
   // Manuel assignment (round-robin YOK). scalar platformUserId (FK değil; recovery deseni).
-  assigneePlatformUserId String?
-  reopenCount            Int                 @default(0)
-  firstResponseAt        DateTime?
-  resolvedAt             DateTime?
-  closedAt               DateTime?
-  lastActivityAt         DateTime            @default(now())
-  version                Int                 @default(0)
-  createdAt              DateTime            @default(now())
-  updatedAt              DateTime            @updatedAt
+  assigneePlatformUserId  String?
+  reopenCount             Int                 @default(0)
+  firstResponseAt         DateTime?
+  resolvedAt              DateTime?
+  closedAt                DateTime?
+  lastActivityAt          DateTime            @default(now())
+  version                 Int                 @default(0)
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
 
-  store              Store                     @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  customer           Customer                  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  order              Order                     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  orderLine          OrderLine                 @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
-  product            Product                   @relation(fields: [productId], references: [id], onDelete: Restrict)
-  variant            ProductVariant?           @relation(fields: [variantId], references: [id], onDelete: Restrict)
-  questionSetVersion SupportQuestionSetVersion @relation(fields: [questionSetVersionId], references: [id], onDelete: Restrict)
+  store              Store                         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customer           Customer                      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order              Order                         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderLine          OrderLine                     @relation(fields: [orderLineId], references: [id], onDelete: Cascade)
+  product            Product                       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  variant            ProductVariant?               @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  questionSetVersion SupportQuestionSetVersion     @relation(fields: [questionSetVersionId], references: [id], onDelete: Restrict)
   messages           SupportTicketMessage[]
   answers            SupportTicketAnswerSnapshot[]
   attachments        SupportTicketAttachment[]
@@ -6299,4 +6309,246 @@ model SupportTicketNumberCounter {
   updatedAt DateTime @updatedAt
 
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+}
+
+// ============================================================================
+// TODO-178 — Store → Platform Request & Task Management
+//
+// Mağaza (Store Admin), platform tarafından yönetilen/müdahale gerektiren konular için talep açar;
+// Platform Admin bunları operasyonel inbox olarak yönetir. Product Support (müşteri→mağaza) DEĞİLDİR:
+// yalnız DESEN reuse edilir, hiçbir Support* tablosu/enum'ı paylaşılmaz. Request MAĞAZAYA aittir;
+// assignee yalnız Platform user olabilir (scalar, FK değil); store user assignment YOKTUR.
+// ============================================================================
+
+// OPEN → TRIAGED → IN_PROGRESS ↔ WAITING_STORE → RESOLVED → CLOSED. CANCELLED YOK — kapanış nedeni
+// PlatformRequestCloseReason ile taşınır (COMPLETED/WITHDRAWN_BY_STORE/NOT_ACTIONABLE/DUPLICATE/REJECTED).
+enum PlatformRequestStatus {
+  OPEN
+  TRIAGED
+  IN_PROGRESS
+  WAITING_STORE
+  RESOLVED
+  CLOSED
+}
+
+// Platform-owned öncelik. Store DOĞRUDAN set edemez; storeImpact yalnız advisory'dir.
+enum PlatformRequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// Store'un opsiyonel/advisory etki bildirimi (platform priority OTORİTESİ DEĞİL).
+enum PlatformRequestStoreImpact {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+// CLOSED geçişinde zorunlu kapanış nedeni (ayrı CANCELLED status yerine).
+enum PlatformRequestCloseReason {
+  COMPLETED
+  WITHDRAWN_BY_STORE
+  NOT_ACTIONABLE
+  DUPLICATE
+  REJECTED
+}
+
+// Creator kimlik BACKING'i (auth gerçekliği). Bugün store admin = PlatformUser → PLATFORM_USER.
+// Faz 2 tenant-auth gelince yeni satırlar STORE_USER olur (forward-compatible; TD-019).
+enum PlatformRequestActorKind {
+  PLATFORM_USER
+  STORE_USER
+}
+
+// Domain-side aktör (mesaj yazarı / history aktörü). Product Support'un SupportActorType'ından
+// AYRI enum (farklı domain, farklı değerler): STORE (talep eden mağaza) / PLATFORM / SYSTEM.
+enum PlatformRequestActorType {
+  STORE
+  PLATFORM
+  SYSTEM
+}
+
+// Mesaj/ek görünürlüğü — KESİN ayrım. INTERNAL asla store serializer/API yüzeyinden sızmaz.
+enum PlatformRequestMessageVisibility {
+  STORE_VISIBLE
+  INTERNAL
+}
+
+// Polimorfik contextType/contextId YERİNE typed kind + immutable contextSnapshot (orphan/FK-integrity
+// riski yok). İlk senaryolar platform-seviye config'e referans verir; gerçek store-satır referansı
+// gerekirse ileride typed nullable FK eklenir.
+enum PlatformRequestContextKind {
+  NONE
+  PLATFORM_TAXONOMY
+  PLATFORM_CONTENT
+  PLATFORM_POLICY
+  STORE_DATA
+  OTHER
+}
+
+// Platform-managed taxonomy (hardcoded enum DEĞİL, dynamic form engine DEĞİL). Deterministik seed
+// (packages/config PLATFORM_REQUEST_CATEGORY_SEED tek kaynak). slaPolicyKey → platform-request SLA
+// policy byKey; defaultPriority → yeni request'in başlangıç priority'si (store etkilemez).
+model PlatformRequestCategory {
+  id              String                  @id
+  key             String                  @unique
+  labelTr         String
+  labelEn         String
+  defaultPriority PlatformRequestPriority @default(NORMAL)
+  slaPolicyKey    String                  @default("DEFAULT")
+  active          Boolean                 @default(true)
+  sortOrder       Int                     @default(0)
+  createdAt       DateTime                @default(now())
+  updatedAt       DateTime                @updatedAt
+
+  requests PlatformRequest[]
+
+  @@index([active, sortOrder])
+}
+
+// GLOBAL (store-scoped DEĞİL) sıralı numara sayacı — singleton satır (id="global"). Numara tek başına
+// global referanstır (PR-000001). Atomik increment advisory-lock ile Faz B servis katmanında.
+model PlatformRequestNumberCounter {
+  id        String   @id
+  lastValue Int      @default(0)
+  updatedAt DateTime @updatedAt
+}
+
+// Aggregate kök. storeId = sahiplik. requestNumber GLOBAL unique. Immutable creator snapshot +
+// immutable context snapshot; mutable lifecycle (status/priority/assignee). version = optimistic lock.
+model PlatformRequest {
+  id                     String                      @id @default(cuid())
+  storeId                String
+  requestNumber          String                      @unique
+  categoryId             String
+  // Kategori snapshot (immutable AUDIT; recategorize edilse bile "ilk açıldığı kategori" SABİT).
+  // OPERASYONEL/current kategori `category` relation'ından okunur (TD-178-4). Snapshot bilingual
+  // (TD-178-5): categoryLabel = TR, categoryLabelEn = EN.
+  categoryKey            String
+  categoryLabel          String
+  categoryLabelEn        String                      @default("")
+  subject                String
+  description            String
+  status                 PlatformRequestStatus       @default(OPEN)
+  priority               PlatformRequestPriority     @default(NORMAL)
+  // Store advisory (opsiyonel); platform priority otoritesini ETKİLEMEZ.
+  storeImpact            PlatformRequestStoreImpact?
+  // Yapısal bağlam (polimorfik FK yok): kind + immutable denormalize snapshot.
+  contextKind            PlatformRequestContextKind  @default(NONE)
+  contextSnapshot        Json?
+  // Creator kimlik snapshot (forward-compatible; bugün PLATFORM_USER). actorId scalar (FK DEĞİL).
+  createdByActorKind     PlatformRequestActorKind    @default(PLATFORM_USER)
+  createdByActorId       String
+  createdByName          String
+  createdByEmail         String
+  // Platform assignee (scalar platformUserId; FK DEĞİL; recovery/support deseni). Store asla atanmaz.
+  assigneePlatformUserId String?
+  reopenCount            Int                         @default(0)
+  firstResponseAt        DateTime?
+  resolvedAt             DateTime?
+  closedAt               DateTime?
+  closeReason            PlatformRequestCloseReason?
+  lastActivityAt         DateTime                    @default(now())
+  version                Int                         @default(0)
+  createdAt              DateTime                    @default(now())
+  updatedAt              DateTime                    @updatedAt
+
+  store        Store                        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  category     PlatformRequestCategory      @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  messages     PlatformRequestMessage[]
+  attachments  PlatformRequestAttachment[]
+  history      PlatformRequestHistory[]
+  slaSnapshots PlatformRequestSlaSnapshot[]
+
+  // Store listesi (own-store) erişim yolu.
+  @@index([storeId, status, lastActivityAt])
+  @@index([storeId, assigneePlatformUserId, status])
+  // Platform cross-store inbox erişim yolu (storeId-prefix'siz; tüm mağazalar).
+  @@index([status, priority, lastActivityAt])
+  @@index([assigneePlatformUserId, status])
+  @@index([categoryId])
+}
+
+// Append-only konuşma. STORE yazarları DAİMA STORE_VISIBLE (servis zorlar). INTERNAL yalnız PLATFORM.
+model PlatformRequestMessage {
+  id         String                           @id @default(cuid())
+  storeId    String
+  requestId  String
+  authorType PlatformRequestActorType
+  actorId    String?
+  visibility PlatformRequestMessageVisibility @default(STORE_VISIBLE)
+  body       String
+  createdAt  DateTime                         @default(now())
+
+  request     PlatformRequest             @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  attachments PlatformRequestAttachment[]
+
+  @@index([storeId, requestId, createdAt])
+  @@index([requestId, visibility, createdAt])
+}
+
+// Ek (SupportTicketAttachment deseni). media PRIVATE; mediaAsset Restrict (MEDIA_IN_USE guard).
+// Görünürlük mesajınkiyle tutarlı olmalıdır (INTERNAL ek store'a asla servis edilmez).
+model PlatformRequestAttachment {
+  id           String                           @id @default(cuid())
+  storeId      String
+  requestId    String
+  messageId    String?
+  mediaAssetId String
+  visibility   PlatformRequestMessageVisibility @default(STORE_VISIBLE)
+  type         String                           @default("PHOTO")
+  createdAt    DateTime                         @default(now())
+
+  request    PlatformRequest         @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  message    PlatformRequestMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  mediaAsset MediaAsset              @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+
+  @@index([storeId])
+  @@index([requestId, visibility])
+  @@index([mediaAssetId])
+}
+
+// Append-only history/audit (ReturnStatusHistory deseni). eventType exact-queryable discriminator;
+// actorId scalar (FK yok; aktör silinse bile korunur). status/assignment/priority/category/reply olayları.
+model PlatformRequestHistory {
+  id         String                   @id @default(cuid())
+  storeId    String
+  requestId  String
+  eventType  String
+  fromStatus PlatformRequestStatus?
+  toStatus   PlatformRequestStatus?
+  actorType  PlatformRequestActorType
+  actorId    String?
+  note       String?
+  metadata   Json?
+  createdAt  DateTime                 @default(now())
+
+  request PlatformRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, requestId, createdAt])
+  @@index([eventType, createdAt])
+}
+
+// SLA döngü snapshot'ı. cycle=1 (açılış); reopen → cycle+1. CANLI SLA = en yüksek cycle. categoryKey +
+// priority + policyLabel snapshot (audit). Breach persist EDİLMEZ — read-time türetilir (sla helpers).
+model PlatformRequestSlaSnapshot {
+  id                 String                  @id @default(cuid())
+  storeId            String
+  requestId          String
+  cycle              Int
+  categoryKey        String
+  priority           PlatformRequestPriority
+  firstResponseDueAt DateTime
+  resolutionDueAt    DateTime
+  firstResponseMetAt DateTime?
+  resolvedAt         DateTime?
+  policyLabel        String?
+  createdAt          DateTime                @default(now())
+
+  request PlatformRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, cycle])
+  @@index([storeId, requestId, cycle])
 }
