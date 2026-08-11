@@ -2926,8 +2926,10 @@ visible reply + internal note / attachment). **Product Support (TODO-177) DEĞİ
 `Support*` paylaşılmadı. Global `PR-######`; platform-managed bilingual taxonomy; lifecycle
 OPEN→TRIAGED→IN_PROGRESS↔WAITING_STORE→RESOLVED→CLOSED (CANCELLED yok; 7-gün reopen); storeImpact advisory /
 priority platform-owned; **STORE_VISIBLE vs INTERNAL hard boundary** (store'a hiç sızmaz; internal ek id
-store serve → 404); private attachments; honest UNCONFIGURED notification. **GATE GREEN & SHIP HAZIR
-(Faz A–G):** cross-app Playwright `@platform-smoke`/`@platform-regression` (repeat-each=3 → 17/17) gerçek
-stack'te GREEN; full gate GREEN; 2 additive migration (`20260811120000_todo178_platform_request_foundation`,
-`20260811130000_todo178c_platform_request_category_bilingual`). admin-web İLK KEZ E2E'ye girdi. Debt:
-TD-178-4/5/6 RESOLVED; TD-178-1/2/3/7 FUTURE. Docs: ADR-290 / TECHNICAL_DEBT / TESTING.
+store serve → 404); private attachments; honest UNCONFIGURED notification. **CLOSED & DEPLOYED
+(Faz A–G; PR #214, merge `cea3c53`):** cross-app Playwright `@platform-smoke`/`@platform-regression`
+(repeat-each=3 → 17/17) gerçek stack'te GREEN; full gate GREEN; CI required GREEN; docker enterprise
+rebuild + `migrate deploy` idempotent + post-deploy runtime smoke GREEN; 2 additive migration
+(`20260811120000_todo178_platform_request_foundation`, `20260811130000_todo178c_platform_request_category_bilingual`).
+admin-web İLK KEZ E2E'ye girdi. Debt: TD-178-4/5/6 RESOLVED; TD-178-1/2/3/7 FUTURE. Docs: ADR-290 /
+TECHNICAL_DEBT / TESTING.

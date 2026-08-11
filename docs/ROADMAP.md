@@ -1691,8 +1691,10 @@ DEĞİL** — yalnız desen reuse; hiçbir `Support*` tablo/enum/route paylaşı
 WAITING_STORE→RESOLVED→CLOSED (**CANCELLED yok**; closeReason; 7-gün reopen); storeImpact advisory /
 **priority platform-owned**; **STORE_VISIBLE vs INTERNAL hard boundary** (internal not/ek/metadata store
 yüzeyine ASLA sızmaz, id bilinse bile store serve 404); private attachments (single-step, sharp/webp+PDF);
-honest **UNCONFIGURED** notification. **GATE GREEN & SHIP HAZIR (Faz A–G):** cross-app Playwright
-`@platform-smoke`/`@platform-regression` (repeat-each=3 → 17/17) gerçek stack'te GREEN; full gate
-(unit/integration Run1+Run2 + component + typecheck/lint/build + additive migration parity) GREEN; 2
-additive migration. **admin-web İLK KEZ E2E'ye girdi** (dedicated `admin-web-e2e` servisi + platform-admin
-login setup). TD-178-4/5/6 RESOLVED; TD-178-1/2/3/7 FUTURE. Docs: ADR-290 / TECHNICAL_DEBT / TESTING.
+honest **UNCONFIGURED** notification. **CLOSED & DEPLOYED (Faz A–G; PR #214, merge `cea3c53`):** cross-app
+Playwright `@platform-smoke`/`@platform-regression` (repeat-each=3 → 17/17) gerçek stack'te GREEN; full gate
+(unit/integration Run1+Run2 + component + typecheck/lint/build + additive migration parity) GREEN; CI
+required (`lint · test · build` + `smoke`) GREEN; docker enterprise rebuild + `migrate deploy` idempotent +
+post-deploy runtime smoke GREEN. 2 additive migration. **admin-web İLK KEZ E2E'ye girdi** (dedicated
+`admin-web-e2e` servisi + platform-admin login setup). TD-178-4/5/6 RESOLVED; TD-178-1/2/3/7 FUTURE.
+Docs: ADR-290 / TECHNICAL_DEBT / TESTING.
