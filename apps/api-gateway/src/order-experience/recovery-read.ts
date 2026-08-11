@@ -86,13 +86,13 @@ export interface AssignableUser {
 export async function listAssignableUsers(storeId: string): Promise<AssignableUser[]> {
   const rows = await prisma.storeUser.findMany({
     where: { storeId },
-    select: { userId: true, role: true, user: { select: { name: true, email: true } } },
+    select: { linkedPlatformUserId: true, role: true, linkedPlatform: { select: { name: true, email: true } } },
     orderBy: { createdAt: "asc" },
   });
   return rows.map((r) => ({
-    id: r.userId,
-    name: r.user.name ?? r.user.email,
-    email: r.user.email,
+    id: r.linkedPlatformUserId ?? "",
+    name: r.linkedPlatform?.name ?? r.linkedPlatform?.email ?? "",
+    email: r.linkedPlatform?.email ?? "",
     role: r.role,
   }));
 }

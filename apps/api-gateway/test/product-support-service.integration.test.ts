@@ -675,7 +675,7 @@ describe.skipIf(!hasDb)("Product Support — admin assignment (cross-store rejec
     const pu = await prisma.platformUser.create({
       data: { email: `u-${sfx}@ex.test`, name: `U${sfx}`, passwordHash: "x" },
     });
-    await prisma.storeUser.create({ data: { storeId, userId: pu.id } });
+    await prisma.storeUser.create({ data: { storeId, linkedPlatformUserId: pu.id } });
     return pu.id;
   }
   async function seedTicketRow(base: Awaited<ReturnType<typeof seedBase>>, versionId: string) {

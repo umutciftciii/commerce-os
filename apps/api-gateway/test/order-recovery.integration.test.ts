@@ -196,9 +196,9 @@ describe.skipIf(!hasTestDb)("Order Experience Recovery (integration)", () => {
     const f = await seedOrder();
     const u1 = await seedPlatformUser("Cem Yetkili");
     const u2 = await seedPlatformUser("Deniz Diğer");
-    await prisma.storeUser.create({ data: { storeId: f.storeId, userId: u1.id, role: "MANAGER" } });
+    await prisma.storeUser.create({ data: { storeId: f.storeId, linkedPlatformUserId: u1.id, role: "MANAGER" } });
     const f2 = await seedOrder();
-    await prisma.storeUser.create({ data: { storeId: f2.storeId, userId: u2.id, role: "STAFF" } });
+    await prisma.storeUser.create({ data: { storeId: f2.storeId, linkedPlatformUserId: u2.id, role: "STAFF" } });
 
     const users = await listAssignableUsers(f.storeId);
     expect(users.length).toBe(1);

@@ -928,8 +928,8 @@ export async function applyAdminAction(
       // atama reddedilir). "me" = actor (guard'dan geçmiş store-admin) → üyelik doğrulaması yok.
       if (input.assigneePlatformUserId !== "me") {
         const membership = await tx.storeUser.findUnique({
-          where: { userId_storeId: { userId: assignee, storeId: input.storeId } },
-          select: { userId: true },
+          where: { linkedPlatformUserId_storeId: { linkedPlatformUserId: assignee, storeId: input.storeId } },
+          select: { linkedPlatformUserId: true },
         });
         if (!membership) return { ok: false, code: "ASSIGNEE_NOT_IN_STORE" } as const;
       }
