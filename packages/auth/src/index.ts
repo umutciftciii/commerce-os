@@ -4,6 +4,9 @@ import { promisify } from "node:util";
 export type PlatformRole = "SUPER_ADMIN" | "SUPPORT_ADMIN";
 export type StoreRole = "OWNER" | "ADMIN" | "MANAGER" | "STAFF" | "VIEWER";
 
+export type { StorePermission } from "./permissions.js";
+export { ROLE_PERMISSIONS, hasStorePermission } from "./permissions.js";
+
 const scrypt = promisify(scryptCallback);
 const passwordPrefix = "scrypt";
 const passwordKeyLength = 64;
