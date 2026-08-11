@@ -21,8 +21,9 @@ import type { StorageDriver } from "./storage.js";
 // statik servis bu path'i onRequest guard'ıyla 404'ler, erişim yalnız auth-gate'li route'tan.
 // TODO-177 (ADR-289) — `support` segmenti destek ticket ekleri (PRIVATE) içindir. PDF ekleri
 // için uzanti `.pdf` de kabul edilir (webp|pdf); diger uzantilar (or. .exe) reddedilir.
+// TODO-178 — `platform-requests` segmenti Store→Platform request ekleri (PRIVATE; webp|pdf).
 const STORAGE_KEY_PATTERN =
-  /^stores\/[a-z0-9-]+\/(products|categories|hero|branding|returns|support)\/[^/]+\.(webp|pdf)$/;
+  /^stores\/[a-z0-9-]+\/(products|categories|hero|branding|returns|support|platform-requests)\/[^/]+\.(webp|pdf)$/;
 
 export type StorageKeyErrorCode = "INVALID_STORAGE_KEY" | "PATH_TRAVERSAL_BLOCKED";
 

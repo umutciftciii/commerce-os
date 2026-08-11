@@ -25,6 +25,8 @@ jobs:
       E2E_GATEWAY_URL: http://localhost:4000
       # Shopping Balance Admin — branch-built store-admin app (:3110).
       E2E_STORE_ADMIN_URL: http://localhost:3110
+      # TODO-178 — branch-built Platform Admin (admin-web) app (:3120).
+      E2E_PLATFORM_ADMIN_URL: http://localhost:3120
     steps:
       - uses: actions/checkout@v4
 
@@ -47,17 +49,18 @@ jobs:
       # (storefront-web-e2e, :3100). Base `storefront-web` KASITLI olarak
       # baslatilmaz — CI'da branch checkout'undan build eden e2e-store servisi
       # kullanilir (bkz. infra/docker/docker-compose.e2e.yml).
-      - name: Start stack (gateway + e2e storefront + e2e store-admin + deps)
+      - name: Start stack (gateway + e2e storefront + e2e store-admin + e2e platform-admin + deps)
         run: |
           docker compose -f infra/docker/docker-compose.yml -f infra/docker/docker-compose.e2e.yml up -d \
-            postgres redis api-gateway worker storefront-web-e2e store-admin-web-e2e
+            postgres redis api-gateway worker storefront-web-e2e store-admin-web-e2e admin-web-e2e
 
       - name: Wait for health
         run: |
           for i in $(seq 1 72); do
             if curl -sf http://localhost:4000/health >/dev/null 2>&1 \
               && curl -sf http://localhost:3100/api/health >/dev/null 2>&1 \
-              && curl -sf http://localhost:3110/api/health >/dev/null 2>&1; then
+              && curl -sf http://localhost:3110/api/health >/dev/null 2>&1 \
+              && curl -sf http://localhost:3120/api/health >/dev/null 2>&1; then
               break
             fi
             sleep 5
@@ -65,6 +68,7 @@ jobs:
           curl -sf http://localhost:4000/health
           curl -sf http://localhost:3100/api/health
           curl -sf http://localhost:3110/api/health
+          curl -sf http://localhost:3120/api/health
 
       # Fresh CI postgres'te sema yok — seed'den ONCE migrate zorunlu.
       - name: Migrate database
@@ -86,6 +90,12 @@ jobs:
       # Required gate'in parçası; mutation regresyonu (admin-regression) nightly/manuel kalır.
       - name: Run admin smoke
         run: pnpm e2e:admin-smoke
+
+      # TODO-178 — Store→Platform talep canonical lifecycle (cross-app store-admin ↔ admin-web).
+      # Required gate'in parçası; visibility/attachment/assignment/SLA/reopen regresyonu
+      # (platform-requests-regression) nightly/manuel `pnpm e2e:platform-regression` kalır.
+      - name: Run platform request smoke
+        run: pnpm e2e:platform-smoke
 
       # Yalnizca basarisizlikta yukle. tests/e2e/.auth/ (gercek oturum cookie'si
       # — secret) ve env DAHIL EDILMEZ.

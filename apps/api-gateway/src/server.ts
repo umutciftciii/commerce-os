@@ -227,6 +227,9 @@ import { registerSupportPlatformRoutes } from "./product-support/routes-platform
 import { registerSupportCustomerRoutes } from "./product-support/routes-customer.js";
 import { registerSupportAttachmentServeRoutes } from "./product-support/routes-attachment.js";
 import { createLogSupportNotificationDispatcher } from "./product-support/notification.js";
+import { registerPlatformRequestStoreRoutes } from "./platform-requests/routes-store.js";
+import { registerPlatformRequestPlatformRoutes } from "./platform-requests/routes-platform.js";
+import { createLogPlatformRequestNotificationDispatcher } from "./platform-requests/notification.js";
 import { registerOrderExperienceRoutes } from "./order-experience/routes.js";
 import {
   createPrismaShippingWebhookPersistence,
@@ -7881,6 +7884,12 @@ export function createServer(
     },
   });
 
+  // TODO-178 — Store→Platform Request & Task Management. Store Admin talep açar (capability
+  // PLATFORM_REQUESTS, storeId-scoped); Platform Admin operasyonel inbox yönetir; taxonomy yazma
+  // SUPER_ADMIN. In-app primary + honest UNCONFIGURED e-posta dispatcher.
+  // TODO-178 — Platform-request route kaydı `mediaStorage` tanımından SONRA yapılır (attachment
+  // upload/serve StorageDriver'a bağımlı). Bkz. aşağıda mediaStorage kurulumundan hemen sonrası.
+
   // TODO-170 (ADR-272) — Refund Ledger & Payment Reversal: store-admin refund başlat/yenile/tekrar/iptal +
   // manuel tamamlama (AYRI güçlü yetki: SUPER_ADMIN). Store-scoped; cross-store 404.
   registerRefundAdminRoutes(app, {
@@ -8150,6 +8159,29 @@ export function createServer(
     });
   }
   const mediaStorage = new LocalDiskDriver(mediaDir);
+
+  // TODO-178 (Faz B/E) — Store→Platform request rotaları (attachment upload/serve StorageDriver'a bağımlı).
+  const platformRequestNotifications = createLogPlatformRequestNotificationDispatcher(logger);
+  registerPlatformRequestStoreRoutes(app, {
+    requireStoreAdmin: requireStoreAdminForModule("PLATFORM_REQUESTS"),
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    notifications: platformRequestNotifications,
+    storage: mediaStorage,
+  });
+  registerPlatformRequestPlatformRoutes(app, {
+    requirePlatform: async (request, reply) => {
+      const session = await requirePlatformAdmin(request, reply);
+      return session ? { actorUserId: session.platformUser.id } : null;
+    },
+    requireSuperAdmin: async (request, reply) => {
+      const session = await requireSuperAdmin(request, reply);
+      return session ? { actorUserId: session.platformUser.id } : null;
+    },
+    recordAudit: (input) => dataAccess.createAuditLog(input),
+    notifications: platformRequestNotifications,
+    storage: mediaStorage,
+  });
+
   if (mediaStaticEnabled) {
     // TODO-169 (ADR-269 §8) + C1 (post-audit hardening) — İade attachment'ları PRIVATE. Public
     // statik servis, `returns` SEGMENTİNE ulaşan HER /media isteğini reddeder; bu dosyalar yalnız

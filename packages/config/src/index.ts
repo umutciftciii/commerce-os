@@ -22,6 +22,10 @@ export * from "./session-policy.js";
 // ADR-289 (TODO-177) — Ürün Desteği topic-bazlı platform SLA politikası (saf modul).
 export * from "./ticket-sla-policy.js";
 
+// TODO-178 — Store→Platform Request domain policy (saf modul; platform-owned).
+export * from "./platform-request-sla-policy.js";
+export * from "./platform-request-taxonomy.js";
+
 export const envSchema = z.object({
   // --- Opsiyonel (varsayilanli) temel ayarlar -------------------------------
   // TD-036: bunlarin hepsi opsiyoneldir (default var). env_file'da `KEY=` bos

@@ -212,3 +212,14 @@ export function SettingsIcon() {
     </svg>
   );
 }
+
+// TODO-178 (Faz D) — Platform Talepleri: mağaza → platform talep belgesi (kenar menü).
+export function PlatformRequestIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M6 3.5h8l4 4V20a.5.5 0 0 1-.5.5h-11A.5.5 0 0 1 6 20z" />
+      <path d="M14 3.5V8h4" />
+      <path d="M9 12.5h6M9 16h4" />
+    </svg>
+  );
+}

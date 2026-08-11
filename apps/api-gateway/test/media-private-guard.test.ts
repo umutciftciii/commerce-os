@@ -28,6 +28,12 @@ describe("classifyMediaRequestPath (C1 private media guard)", () => {
     expect(classifyMediaRequestPath("/media/ReTurNs/abc.webp")).toBe("private");
   });
 
+  it("TODO-178 — platform-requests segmenti private (raw + encoded + mixed-case)", () => {
+    expect(classifyMediaRequestPath("/media/platform-requests/abc123.pdf")).toBe("private");
+    expect(classifyMediaRequestPath("/media/platform-requests%2Fabc123.webp")).toBe("private");
+    expect(classifyMediaRequestPath("/media/Platform-Requests/abc.webp")).toBe("private");
+  });
+
   it("query string guard'ı atlatmaz", () => {
     expect(classifyMediaRequestPath("/media/returns%2Fabc.webp?w=100")).toBe("private");
   });

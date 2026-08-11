@@ -85,6 +85,9 @@ export const SPONSORED_ANALYTICS_KEYS = ["dateFrom", "dateTo", "campaignId", "pl
 export const SPONSOR_LIST_KEYS = [...COMMON_KEYS, "status"];
 export const SPONSORSHIP_AGREEMENT_LIST_KEYS = [...COMMON_KEYS, "status", "sponsorAccountId", "pricingModel"];
 export const SPONSORSHIP_SETTLEMENT_LIST_KEYS = [...COMMON_KEYS, "status", "agreementId"];
+// TODO-178 (Faz D) — Platform Talepleri liste filtreleri (status/kategori/SLA riski). storeId asla
+// query'den GELMEZ — server-side store-context otoritesi (gateway cross-store 404).
+export const PLATFORM_REQUEST_LIST_KEYS = [...COMMON_KEYS, "status", "categoryKey", "slaRisk"];
 export const SPONSORSHIP_CHARGE_LIST_KEYS = [
   ...COMMON_KEYS,
   "status",

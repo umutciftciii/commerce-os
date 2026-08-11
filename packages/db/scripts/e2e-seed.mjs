@@ -46,6 +46,12 @@ const CUSTOMER_ID = "e2e-customer-1";
 // mağazayı STORE_ADMIN_DEMO_STORE_SLUG=e2e-store ile seçer (bkz. store-context.ts).
 const ADMIN_EMAIL = "e2e-admin@example.test";
 const ADMIN_PASSWORD = "E2eAdmin!pass1";
+// TODO-178 Faz F — ikinci platform kullanıcısı (assignable directory). AssigneeSelector
+// "başka kullanıcıya ata" + inbox assignee filter regression'ı bu kullanıcıyı arar. Login
+// GEREKMEZ (parola yok); yalnız listAssignablePlatformUsers sonucunda görünür. Arama "agent"
+// terimiyle E2E Admin'den ayrışır (E2E Admin "agent" içermez).
+const AGENT_EMAIL = "e2e-agent@example.test";
+const AGENT_NAME = "E2E Agent";
 // Cross-store izolasyon: ikinci mağaza + kendi bakiyeli müşterisi. Bu müşteri e2e-store'un
 // alışveriş bakiyesi listesinde ASLA görünmemeli (storeId-first scope).
 const STORE2_SLUG = "e2e-store-2";
@@ -177,6 +183,15 @@ async function main() {
     where: { email: ADMIN_EMAIL },
     update: { name: "E2E Admin", passwordHash: adminPasswordHash, role: "SUPER_ADMIN" },
     create: { email: ADMIN_EMAIL, name: "E2E Admin", passwordHash: adminPasswordHash, role: "SUPER_ADMIN" },
+  });
+
+  // 3c) TODO-178 Faz F — ikinci platform kullanıcısı (assignable directory; login yok).
+  //     AssigneeSelector "başka kullanıcıya ata" + inbox assignee filter için deterministik hedef.
+  await prisma.platformUser.upsert({
+    where: { email: AGENT_EMAIL },
+    update: { name: AGENT_NAME, role: "SUPPORT_ADMIN" },
+    // passwordHash zorunlu (schema String); agent login etmez → admin hash'i reuse edilir.
+    create: { email: AGENT_EMAIL, name: AGENT_NAME, passwordHash: adminPasswordHash, role: "SUPPORT_ADMIN" },
   });
 
   // 4) Cok-varyantli urun e2e-tshirt (priceMinor 20000) + 3 varyant + stok.

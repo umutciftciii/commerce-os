@@ -62,3 +62,32 @@ services:
       timeout: 5s
       retries: 30
       start_period: 40s
+
+  # TODO-178 Faz F — Platform Admin (admin-web) GLOBAL konsolu; Store→Platform talep sisteminin
+  # platform yüzeyi. store-admin-web-e2e ile SİMETRİK (branch checkout'undan build, next dev, cookie
+  # Secure=false → Playwright oturumu saklayabilir). :3120 (base admin-web :3001 ile çakışmaz).
+  # NOT: admin-web mağaza-scope DEĞİL (STORE_ADMIN_DEMO_STORE_SLUG yok); global platform login.
+  admin-web-e2e:
+    restart: unless-stopped
+    build:
+      context: ../..
+      dockerfile: infra/docker/node.Dockerfile
+    command: pnpm --filter @commerce-os/admin-web exec next dev --port 3120
+    environment:
+      SERVICE_NAME: admin-web-e2e
+      NODE_ENV: development
+      API_GATEWAY_URL: http://api-gateway:4000
+      ADMIN_COOKIE_SECURE: "false"
+      ADMIN_COOKIE_SAME_SITE: lax
+      PORT: 3120
+    depends_on:
+      api-gateway:
+        condition: service_healthy
+    ports:
+      - "3120:3120"
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:3120/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s

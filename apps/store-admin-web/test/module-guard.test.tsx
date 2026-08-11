@@ -34,6 +34,7 @@ vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
 
 import { ModuleGuard } from "../components/module-guard";
 import { StoreNav } from "../components/store-nav";
+import PlatformRequestsLayout from "../app/(app)/platform-requests/layout";
 
 afterEach(() => {
   cleanup();
@@ -71,6 +72,8 @@ function matrix(overrides: Record<string, boolean> = {}) {
     THEME_STUDIO: true,
     MULTI_WAREHOUSE: true,
     OPERATIONS_ADVANCED: true,
+    // TODO-178 (Faz D) — Platform Talepleri modülü (system grubu).
+    PLATFORM_REQUESTS: true,
   };
   const merged = { ...base, ...overrides };
   return {
@@ -102,12 +105,45 @@ describe("StoreNav (menü gizleme + boş grup)", () => {
     expect(screen.getByText("Kampanyalar")).toBeTruthy();
   });
 
-  it("tümüyle boşalan grup gizlenir (OPERATIONS_ADVANCED kapalı → Sistem grubu yok)", async () => {
-    storeApiMock.listModules.mockResolvedValue(matrix({ OPERATIONS_ADVANCED: false }));
+  it("tümüyle boşalan grup gizlenir (OPERATIONS_ADVANCED + PLATFORM_REQUESTS kapalı → Sistem grubu yok)", async () => {
+    // TODO-178 (Faz D) — Sistem grubu artık iki item taşır (Operasyon + Platform Talepleri);
+    // grubun tümüyle boşalması için İKİSİ de kapalı olmalı.
+    storeApiMock.listModules.mockResolvedValue(
+      matrix({ OPERATIONS_ADVANCED: false, PLATFORM_REQUESTS: false }),
+    );
     render(<StoreNav />);
     await waitFor(() => expect(storeApiMock.listModules).toHaveBeenCalled());
     await waitFor(() => expect(screen.queryByText("Operasyon")).toBeNull());
-    // "Sistem" grup başlığı da kalmamalı (tek item'ı kapandı).
+    expect(screen.queryByText("Platform Talepleri")).toBeNull();
+    // "Sistem" grup başlığı da kalmamalı (her iki item de kapandı).
     expect(screen.queryByText("Sistem")).toBeNull();
+  });
+
+  // TODO-178 (Faz D) — Platform Talepleri capability-gated nav.
+  it("PLATFORM_REQUESTS kapalı → Platform Talepleri gizli; Operasyon (Sistem grubu) görünür kalır", async () => {
+    storeApiMock.listModules.mockResolvedValue(matrix({ PLATFORM_REQUESTS: false }));
+    render(<StoreNav />);
+    await waitFor(() => expect(storeApiMock.listModules).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByText("Platform Talepleri")).toBeNull());
+    // Grup, açık kalan diğer item (Operasyon) sayesinde görünür.
+    expect(screen.getByText("Operasyon")).toBeTruthy();
+    expect(screen.getByText("Sistem")).toBeTruthy();
+  });
+
+  it("PLATFORM_REQUESTS açık → Platform Talepleri nav item görünür", async () => {
+    storeApiMock.listModules.mockResolvedValue(matrix());
+    render(<StoreNav />);
+    await waitFor(() => expect(storeApiMock.listModules).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText("Platform Talepleri")).toBeTruthy());
+  });
+});
+
+// TODO-178 (Faz D) — Route layout guard doğru capability anahtarını ModuleGuard'a bağlar
+// (direct-URL savunması). ModuleGuard davranışı yukarıda ayrıca kanıtlı.
+describe("Platform Talepleri route guard (layout)", () => {
+  it("layout PLATFORM_REQUESTS modülünü ModuleGuard ile sarar", () => {
+    const el = PlatformRequestsLayout({ children: <div>GIZLI_ICERIK</div> });
+    expect(el.type).toBe(ModuleGuard);
+    expect(el.props.moduleKey).toBe("PLATFORM_REQUESTS");
   });
 });

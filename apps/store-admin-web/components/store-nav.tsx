@@ -24,6 +24,7 @@ import {
   OrderIcon,
   ReturnIcon,
   PaymentIcon,
+  PlatformRequestIcon,
   ProductIcon,
   SettingsIcon,
   SeoIcon,
@@ -259,6 +260,13 @@ export function StoreNav({ onNavigate }: { onNavigate?: () => void } = {}) {
       heading: g("system"),
       items: [
         { href: "/operations", label: sys("operations"), icon: <DashboardIcon /> },
+        {
+          // TODO-178 (Faz D) — Platform Talepleri (mağaza → platform). Ürün Desteği'nden AYRI
+          // domain; yerel locale etiket (paylaşılan i18n'e dokunulmaz — İadeler deseni).
+          href: "/platform-requests",
+          label: locale === "tr" ? "Platform Talepleri" : "Platform Requests",
+          icon: <PlatformRequestIcon />,
+        },
       ],
     },
   ];

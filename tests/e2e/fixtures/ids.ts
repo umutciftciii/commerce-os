@@ -77,4 +77,26 @@ export const ids = {
     seededTicketNumber: "S900001",
     seededTicketStatusText: "Çözüldü",
   },
+  // TODO-178 Faz F — Store→Platform talep sistemi. Store Admin (e2e-admin, SUPER_ADMIN) mağaza
+  // talebi açar; Platform Admin (aynı SUPER_ADMIN kullanıcı, admin-web global) inbox'ta yönetir.
+  // e2e-agent (SUPPORT_ADMIN, login yok) yalnız AssigneeSelector "başka kullanıcı" hedefi.
+  // NOT: PR-###### numarası GLOBAL sayaçtan gelir → deterministik değil; testler create'ten
+  // dönen numarayı runtime'da yakalar (sabit numara YOK).
+  platformRequest: {
+    // Login kullanıcıları store-admin ile paylaşılır (storeAdmin.email/password = e2e-admin).
+    agentName: "E2E Agent",
+    agentSearchTerm: "agent",
+    // Create formu — deterministik seçim değerleri (görünen TR metinler).
+    categoryLabel: "Platform Politikası", // PLATFORM_POLICY (migration seed, aktif)
+    categoryOtherLabel: "Katalog/Kategori Taksonomisi", // recategorize hedefi (CATALOG_TAXONOMY)
+    storeImpactLabel: "Yüksek etki", // HIGH
+    // Store yüzeyi status metinleri (store-admin lib/client/platform-request-labels.ts).
+    storeStatusResolved: "Çözüldü",
+    storeStatusWaiting: "Yanıtınız bekleniyor",
+    // Platform yüzeyi (admin-web components/platform-requests/labels.ts).
+    platformStatusInProgress: "İşlemde",
+    platformPriorityHigh: "Yüksek",
+    // INTERNAL sızıntı negatif-assert metinleri (store yüzeyinde ASLA görünmemeli).
+    internalLeakStrings: ["Dahili not", "Dahili ek", "mağaza görmez", "INTERNAL"],
+  },
 } as const;

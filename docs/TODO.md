@@ -2917,3 +2917,17 @@ platform-admin question-set yönetimi; return/refund/cancel'a dokunulmadı. **GA
 (Faz A–G):** runtime Playwright (storefront 4 + admin 1 + smoke regresyonsuz) gerçek stack'te GREEN;
 full gate GREEN; additive migration `20260810120000_todo177_product_support_foundation`. E-posta = honest
 stub (UNCONFIGURED). Debt: TD-177-2 RESOLVED; TD-177-1/3/4 FUTURE. Docs: ADR-289 / TECHNICAL_DEBT / TESTING.
+
+## TODO-178 — Store → Platform Request & Task Management Faz 1 (ADR-290)
+
+Store Admin → platform talep kanalı: store-admin talep açar (kategori + konu + açıklama + storeImpact),
+admin-web (global platform konsolu) inbox olarak yönetir (assign / priority / status / recategorize /
+visible reply + internal note / attachment). **Product Support (TODO-177) DEĞİL** — desen reuse; hiçbir
+`Support*` paylaşılmadı. Global `PR-######`; platform-managed bilingual taxonomy; lifecycle
+OPEN→TRIAGED→IN_PROGRESS↔WAITING_STORE→RESOLVED→CLOSED (CANCELLED yok; 7-gün reopen); storeImpact advisory /
+priority platform-owned; **STORE_VISIBLE vs INTERNAL hard boundary** (store'a hiç sızmaz; internal ek id
+store serve → 404); private attachments; honest UNCONFIGURED notification. **GATE GREEN & SHIP HAZIR
+(Faz A–G):** cross-app Playwright `@platform-smoke`/`@platform-regression` (repeat-each=3 → 17/17) gerçek
+stack'te GREEN; full gate GREEN; 2 additive migration (`20260811120000_todo178_platform_request_foundation`,
+`20260811130000_todo178c_platform_request_category_bilingual`). admin-web İLK KEZ E2E'ye girdi. Debt:
+TD-178-4/5/6 RESOLVED; TD-178-1/2/3/7 FUTURE. Docs: ADR-290 / TECHNICAL_DEBT / TESTING.

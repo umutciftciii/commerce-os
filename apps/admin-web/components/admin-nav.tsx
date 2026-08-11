@@ -9,6 +9,7 @@ import {
   PlanIcon,
   QuestionSetIcon,
   StoreIcon,
+  StoreRequestIcon,
   ThemeIcon,
   ThemeLibraryIcon,
 } from "./icons";
@@ -24,6 +25,8 @@ export function AdminNav() {
     { href: "/themes", label: t.themeManagement, icon: <ThemeIcon /> },
     { href: "/plans", label: t.plans, icon: <PlanIcon /> },
     { href: "/question-sets", label: t.questionSets, icon: <QuestionSetIcon /> },
+    // TODO-178 — Operasyon: Mağaza → Platform talepleri inbox'ı.
+    { href: "/platform-requests", label: t.storeRequests, icon: <StoreRequestIcon /> },
     { href: "/system-health", label: t.systemHealth, icon: <HealthIcon /> },
     // §8 — İnert "Ayarlar" placeholder'ı (tüm alanlar disabled, gerçek işlev yok) nav'dan
     // KALDIRILDI; /settings route'u dashboard'a yönlenir (aktif feature gibi gösterilmez).

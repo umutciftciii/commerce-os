@@ -19,6 +19,9 @@ const CONTEXT_SEGMENT: Record<MediaContext, string> = {
   // TODO-177 (ADR-289) — Destek ticket ekleri (PRIVATE). PDF için değişken uzantı + regex
   // güncellemesi Faz B'de (routes-attachment); segment burada tanımlı olmalı (Record tamlığı).
   SUPPORT_ATTACHMENT: "support",
+  // TODO-178 — Store→Platform request ekleri (PRIVATE; webp foto + pdf). Segment private-guard +
+  // LocalDiskDriver regex ile birebir ("platform-requests").
+  PLATFORM_REQUEST_ATTACHMENT: "platform-requests",
 };
 
 /**

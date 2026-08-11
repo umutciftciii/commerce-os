@@ -344,6 +344,9 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
       // TODO-177 (ADR-289) — Destek ticket ekleri (SupportTicketAttachment.mediaAssetId onDelete:
       // Restrict). Kullanimdaki medya 409 ile acik reddedilir (P2003/500 yerine).
       supportAttachmentCount,
+      // TODO-178 (Faz E) — Platform-request ekleri (PlatformRequestAttachment.mediaAssetId onDelete:
+      // Restrict). Ayni MEDIA_IN_USE semantigi; guard olmadan silme P2003/500 verirdi.
+      platformRequestAttachmentCount,
     ] = await Promise.all([
         prisma.productImage.count({
           where: { mediaId: params.mediaId, storeId: params.storeId },
@@ -375,6 +378,9 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
         prisma.supportTicketAttachment.count({
           where: { mediaAssetId: params.mediaId, storeId: params.storeId },
         }),
+        prisma.platformRequestAttachment.count({
+          where: { mediaAssetId: params.mediaId, storeId: params.storeId },
+        }),
       ]);
 
     const usedIn: string[] = [];
@@ -386,6 +392,7 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
     if (homeHeroCount > 0) usedIn.push("HomeHeroSlide");
     if (homeFeaturedCount > 0) usedIn.push("HomeFeaturedCategory");
     if (supportAttachmentCount > 0) usedIn.push("SupportTicketAttachment");
+    if (platformRequestAttachmentCount > 0) usedIn.push("PlatformRequestAttachment");
 
     if (usedIn.length > 0) {
       // `usedIn` structured `details` altina konur: api-client hata zarfinda yalniz
