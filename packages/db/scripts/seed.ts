@@ -69,8 +69,8 @@ async function main() {
 
   await prisma.storeUser.upsert({
     where: {
-      userId_storeId: {
-        userId: platformAdmin.id,
+      linkedPlatformUserId_storeId: {
+        linkedPlatformUserId: platformAdmin.id,
         storeId: store.id,
       },
     },
@@ -79,7 +79,7 @@ async function main() {
       acceptedAt: new Date(),
     },
     create: {
-      userId: platformAdmin.id,
+      linkedPlatformUserId: platformAdmin.id,
       storeId: store.id,
       role: "OWNER",
       acceptedAt: new Date(),

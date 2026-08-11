@@ -62,9 +62,9 @@ async function upsertInfra(prisma) {
     create: { storeId: STORE_ID, domain: STORE_DOMAIN, type: "SYSTEM_SUBDOMAIN", status: "ACTIVE" },
   });
   await prisma.storeUser.upsert({
-    where: { userId_storeId: { userId: admin.id, storeId: STORE_ID } },
+    where: { linkedPlatformUserId_storeId: { linkedPlatformUserId: admin.id, storeId: STORE_ID } },
     update: { role: "OWNER", acceptedAt: new Date("2026-01-01T00:00:00.000Z") },
-    create: { userId: admin.id, storeId: STORE_ID, role: "OWNER", acceptedAt: new Date("2026-01-01T00:00:00.000Z") },
+    create: { linkedPlatformUserId: admin.id, storeId: STORE_ID, role: "OWNER", acceptedAt: new Date("2026-01-01T00:00:00.000Z") },
   });
   await prisma.subscription.upsert({
     where: { id: `${STORE_ID}-${plan.id}` },

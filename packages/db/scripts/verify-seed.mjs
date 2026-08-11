@@ -10,7 +10,7 @@ async function main() {
     prisma.storeDomain.findUnique({ where: { domain: "demo.localhost" } }),
     prisma.storeUser.findFirst({
       where: {
-        user: { email: "platform-admin@example.local" },
+        linkedPlatform: { email: "platform-admin@example.local" },
         store: { slug: "demo-store" },
       },
     }),
@@ -39,7 +39,7 @@ async function main() {
     domains: await prisma.storeDomain.count({ where: { domain: "demo.localhost" } }),
     storeUsers: await prisma.storeUser.count({
       where: {
-        userId: platformAdmin?.id,
+        linkedPlatformUserId: platformAdmin?.id,
         storeId: store?.id,
       },
     }),
