@@ -321,6 +321,42 @@ export const platformSessionExtendResponseSchema = z.object({
   timing: sessionTimingSchema,
 });
 
+// Task B1 — store-admin auth contracts. Safe DTO for the authenticated store-admin
+// principal. NEVER contains passwordHash, tokenHash, linkedPlatformUserId, or
+// internal session id.
+export const storeAdminCurrentUserSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  email: z.string().email(),
+  name: z.string().nullable(),
+  role: z.enum(["OWNER", "ADMIN", "MANAGER", "STAFF", "VIEWER"]),
+});
+
+export const storeAdminLoginRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+  // ADR-271 "Beni hatirla" — server-otoriter pencere. Varsayilan KAPALI.
+  rememberMe: z.boolean().optional().default(false),
+  // NOT: storeSlug/storeId burada YOK — tenant sunucu tarafinda cozulur (istemci govdesinden asla).
+});
+
+export const storeAdminLoginResponseSchema = z.object({
+  token: z.string().min(1),
+  expiresAt: z.string().datetime(),
+  user: storeAdminCurrentUserSchema,
+});
+
+export const storeAdminSessionResponseSchema = z.object({
+  user: storeAdminCurrentUserSchema,
+  session: z.object({
+    timing: sessionTimingSchema,
+  }),
+});
+
+export const storeAdminLogoutResponseSchema = z.object({
+  revoked: z.boolean(),
+});
+
 export const storeStatusSchema = z.enum(["DRAFT", "ACTIVE", "SUSPENDED", "CLOSED"]);
 
 export const adminStoreSchema = z.object({
@@ -6218,6 +6254,11 @@ export type PlatformMeResponse = z.infer<typeof platformMeResponseSchema>;
 export type PlatformLogoutResponse = z.infer<typeof platformLogoutResponseSchema>;
 export type PlatformSessionExtendResponse = z.infer<typeof platformSessionExtendResponseSchema>;
 export type SessionTiming = z.infer<typeof sessionTimingSchema>;
+export type StoreAdminCurrentUser = z.infer<typeof storeAdminCurrentUserSchema>;
+export type StoreAdminLoginRequest = z.infer<typeof storeAdminLoginRequestSchema>;
+export type StoreAdminLoginResponse = z.infer<typeof storeAdminLoginResponseSchema>;
+export type StoreAdminSessionResponse = z.infer<typeof storeAdminSessionResponseSchema>;
+export type StoreAdminLogoutResponse = z.infer<typeof storeAdminLogoutResponseSchema>;
 export type AdminStore = z.infer<typeof adminStoreSchema>;
 export type AdminStoreListResponse = z.infer<typeof adminStoreListResponseSchema>;
 export type AdminStoreCreateRequest = z.infer<typeof adminStoreCreateRequestSchema>;
