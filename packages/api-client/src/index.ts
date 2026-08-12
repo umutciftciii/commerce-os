@@ -88,6 +88,12 @@ import type {
   PlatformLogoutResponse,
   PlatformMeResponse,
   PlatformSessionExtendResponse,
+  // Store Admin Auth & RBAC (B1) — tenant-scoped store-admin login/session/logout.
+  // Ayrı bir `storeAuth` namespace'i besler; `auth.platform*` ile KARIŞTIRILMAZ.
+  StoreAdminLoginRequest,
+  StoreAdminLoginResponse,
+  StoreAdminSessionResponse,
+  StoreAdminLogoutResponse,
   HeroSlide,
   HeroSlideCreateRequest,
   HeroSlideListResponse,
@@ -1582,6 +1588,16 @@ export interface ApiClient {
     platformMe(token?: string): Promise<PlatformMeResponse>;
     // ADR-271 — oturum uzatma (token rotate; absolute degismez). Aktif token gerekir.
     platformExtend(token?: string): Promise<PlatformSessionExtendResponse>;
+  };
+  /**
+   * Store Admin Auth & RBAC — tenant-scoped store-admin oturumu. `auth.platform*`ten
+   * AYRI namespace: tenantSlug asla govdeye degil `x-store-admin-tenant` header'ina
+   * girer (BFF tarafindan, tarayicidan degil, sunulur).
+   */
+  storeAuth: {
+    login(input: StoreAdminLoginRequest, tenantSlug: string): Promise<StoreAdminLoginResponse>;
+    logout(token?: string): Promise<StoreAdminLogoutResponse>;
+    session(token?: string): Promise<StoreAdminSessionResponse>;
   };
   admin: {
     stores: {
@@ -3521,6 +3537,17 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       platformMe: (token) => getJson<PlatformMeResponse>("/auth/platform/me", token),
       platformExtend: (token) =>
         sendJson<PlatformSessionExtendResponse>("/auth/platform/extend", "POST", undefined, token),
+    },
+    storeAuth: {
+      login: (input, tenantSlug) =>
+        requestJson<StoreAdminLoginResponse>("/auth/store/login", {
+          method: "POST",
+          body: JSON.stringify(input),
+          headers: { "x-store-admin-tenant": tenantSlug },
+        }),
+      logout: (token) =>
+        sendJson<StoreAdminLogoutResponse>("/auth/store/logout", "POST", undefined, token),
+      session: (token) => getJson<StoreAdminSessionResponse>("/auth/store/session", token),
     },
     admin: {
       stores: {
