@@ -231,6 +231,9 @@ import { registerPlatformRequestStoreRoutes } from "./platform-requests/routes-s
 import { registerPlatformRequestPlatformRoutes } from "./platform-requests/routes-platform.js";
 import { createLogPlatformRequestNotificationDispatcher } from "./platform-requests/notification.js";
 import { registerOrderExperienceRoutes } from "./order-experience/routes.js";
+// TODO-B3 (Faz B, ADR-271) — store-admin auth: login/logout/session route'ları + B2 veri katmanı.
+import { registerStoreAuthRoutes } from "./store-auth/routes.js";
+import { createStoreAuthData } from "./store-auth/data.js";
 import {
   createPrismaShippingWebhookPersistence,
   registerShippingWebhookRoutes,
@@ -1671,6 +1674,11 @@ export interface AppDataAccess extends CampaignDataAccess {
     entityType: string;
     entityId?: string;
     metadata?: Record<string, unknown>;
+    // TODO-B3 (Faz B) — store-admin auth: STORE_USER actor alanları (Phase A migration'da eklendi).
+    actorKind?: "PLATFORM_USER" | "STORE_USER";
+    actorStoreUserId?: string;
+    actorName?: string | null;
+    actorEmail?: string | null;
   }): Promise<void>;
 }
 
@@ -7559,6 +7567,19 @@ export function createServer(
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
     },
+  });
+
+  // TODO-B3 (Faz B, ADR-271) — Store-admin auth: login/logout/session (STORE_USER ilk-sınıf
+  // vatandaş kimlik doğrulaması). Tenant SUNUCU tarafında `x-store-admin-tenant` header'ından
+  // çözülür (asla body'den). NO store-route guard değişikliği (Faz E); NO /auth/store/extend (Faz F).
+  registerStoreAuthRoutes(app, {
+    data: createStoreAuthData(prisma),
+    policy: sessionPolicy,
+    hashToken: (t) => hashSessionToken(t, config.SESSION_SECRET),
+    verifyPassword: (pw, hash) => verifyPassword(pw, hash, config.PASSWORD_HASH_PEPPER),
+    createAuditLog: dataAccess.createAuditLog,
+    loginRateLimiter,
+    onError: (e) => logger.warn("store session activity touch failed", { message: e instanceof Error ? e.message : "unknown" }),
   });
 
   // ADR-268 — Financial Reporting Foundation (Finans > Raporlar). Sipariş snapshot'larından
