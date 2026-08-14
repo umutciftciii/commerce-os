@@ -17,7 +17,12 @@ const hasTestDb = Boolean(process.env.DATABASE_URL);
 const createdStores: string[] = [];
 const createdPlatformUsers: string[] = [];
 
-type StoreRow = { id: string; slug: string; status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "CLOSED" };
+type StoreRow = {
+  id: string;
+  slug: string;
+  status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "CLOSED";
+  systemPurpose: string | null;
+};
 
 async function makeStore(status: StoreRow["status"] = "ACTIVE"): Promise<StoreRow> {
   const sfx = randomUUID().slice(0, 12);
@@ -25,7 +30,7 @@ async function makeStore(status: StoreRow["status"] = "ACTIVE"): Promise<StoreRo
   const slug = `sop-${sfx}`;
   await prisma.store.create({ data: { id, name: `SOP ${sfx}`, slug, status } });
   createdStores.push(id);
-  return { id, slug, status };
+  return { id, slug, status, systemPurpose: null };
 }
 
 async function makePlatformUser(email: string) {
@@ -42,10 +47,10 @@ async function makePlatformUser(email: string) {
 // unmapped-ACTIVE gürültüsü olur. Planlayıcının mağaza kümesini yalnız bu testin mağazalarıyla
 // sınırlarız (existingStoreUsers/platformUsers zaten manifest'e scope'ludur → gürültüsüz).
 async function run(manifestJson: unknown, scopeStores: StoreRow[]) {
-  const manifest = parseOwnerManifest(manifestJson);
-  const input = await collectProvisioningInput(prisma, manifest);
+  const parsed = parseOwnerManifest(manifestJson);
+  const input = await collectProvisioningInput(prisma, parsed.entries, parsed.systemStores);
   const report = planStoreOwnerProvisioning({ ...input, stores: scopeStores });
-  return { manifest, report };
+  return { manifest: parsed.entries, report };
 }
 
 describe.skipIf(!hasTestDb)("OWNER provisioning executor (integration)", () => {

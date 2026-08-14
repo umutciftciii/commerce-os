@@ -30,12 +30,14 @@ export interface ProvisioningStore {
   id: string;
   slug: string;
   status: StoreStatusValue;
+  /** Sistem/fixture mağaza işareti (ör. THEME_LIBRARY). null = kiracı mağaza. */
+  systemPurpose: string | null;
 }
 
 export interface ProvisioningStoreUser {
   id: string;
   storeId: string;
-  email: string; // normalize (lowercase) — null-email kullanıcılar buraya alınmaz
+  email: string | null; // normalize (lowercase); null = native/unlinked veya seed null-email owner
   role: StoreUserRoleValue;
   status: StoreUserStatusValue;
   hasPasswordHash: boolean;
@@ -57,6 +59,13 @@ export interface ProvisioningInput {
   existingStoreUsers: ProvisioningStoreUser[];
   /** Manifest owner email'leriyle eşleşen PlatformUser'lar (normalize email ile). */
   platformUsers: ProvisioningPlatformUser[];
+  /**
+   * EXPLICIT sistem/fixture mağaza allowlist'i (manifest.systemStores slug'ları). Yalnız bu
+   * slug'lar unmapped-ACTIVE kapsamından çıkarılır. GÜVENLİK: bir slug ancak GERÇEKTEN system
+   * (systemPurpose != null) ise hariç tutulabilir; değilse conflict (gerçek kiracı gizlenemez).
+   * BOŞ/verilmemiş → davranış aynen mevcut (production fail-closed semantiği DEĞİŞMEZ).
+   */
+  excludeStoreSlugs?: string[];
 }
 
 export type ProvisioningOutcome =
@@ -99,7 +108,10 @@ export interface ProvisioningConflict {
     | "MISSING_STORE_KEY"
     | "INVALID_EMAIL"
     | "EXISTING_DISABLED"
-    | "ACTIVE_WITHOUT_CREDENTIAL";
+    | "ACTIVE_WITHOUT_CREDENTIAL"
+    | "SYSTEM_EXCLUDE_NOT_SYSTEM"
+    | "SYSTEM_EXCLUDE_ALSO_MAPPED"
+    | "LINK_EMAIL_SPLIT";
   detail: string;
 }
 
@@ -128,20 +140,28 @@ function looksLikeEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+export interface ParsedOwnerManifest {
+  entries: OwnerManifestEntry[];
+  /** EXPLICIT sistem/fixture mağaza slug allowlist'i (opsiyonel). Yalnız gerçek system mağazalar. */
+  systemStores: string[];
+}
+
 /**
  * Manifest ayrıştırma + doğrulama. SECRET İÇEREMEZ: `password`/`passwordHash`/`token` gibi
- * alanlar bulunursa reddedilir. Her giriş: storeSlug XOR storeId + ownerEmail.
+ * alanlar bulunursa reddedilir. Her giriş: storeSlug XOR storeId + ownerEmail. Opsiyonel
+ * `systemStores`: EXPLICIT allowlist (slug dizisi) — kapsam dışı bırakılacak system/fixture mağazalar.
  */
-export function parseOwnerManifest(raw: unknown): OwnerManifestEntry[] {
+export function parseOwnerManifest(raw: unknown): ParsedOwnerManifest {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     throw new Error("Manifest bir nesne olmalı: { stores: [...] }");
   }
-  const storesRaw = (raw as Record<string, unknown>).stores;
+  const root = raw as Record<string, unknown>;
+  const storesRaw = root.stores;
   if (!Array.isArray(storesRaw)) {
     throw new Error("Manifest.stores bir dizi olmalı.");
   }
   const forbidden = ["password", "passwordhash", "token", "secret"];
-  return storesRaw.map((entry, i) => {
+  const entries = storesRaw.map((entry, i) => {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
       throw new Error(`stores[${i}] bir nesne olmalı.`);
     }
@@ -160,6 +180,21 @@ export function parseOwnerManifest(raw: unknown): OwnerManifestEntry[] {
     }
     return { storeSlug: storeSlug || undefined, storeId: storeId || undefined, ownerEmail };
   });
+
+  let systemStores: string[] = [];
+  if (root.systemStores !== undefined) {
+    if (!Array.isArray(root.systemStores)) {
+      throw new Error("Manifest.systemStores bir dizi olmalı (slug listesi).");
+    }
+    systemStores = root.systemStores.map((v, i) => {
+      if (typeof v !== "string" || !v.trim()) {
+        throw new Error(`systemStores[${i}] boş olmayan bir slug (string) olmalı.`);
+      }
+      return v.trim();
+    });
+  }
+
+  return { entries, systemStores };
 }
 
 function entryRef(e: OwnerManifestEntry): string {
@@ -176,15 +211,51 @@ export function planStoreOwnerProvisioning(input: ProvisioningInput): Provisioni
   const storeBySlug = new Map(input.stores.map((s) => [s.slug, s]));
   const activeStores = input.stores.filter((s) => s.status === "ACTIVE");
 
-  const existingByKey = new Map(
-    input.existingStoreUsers.map((u) => [`${u.storeId}::${u.email}`, u]),
-  );
+  // İki anahtar: (storeId,email) VE (storeId,linkedPlatformUserId). Seed'in null-email linked
+  // OWNER satırları email ile bulunamaz ama link ile bulunur → CREATE yerine CONVERGE (email set).
+  const existingByEmail = new Map<string, ProvisioningStoreUser>();
+  const existingByLink = new Map<string, ProvisioningStoreUser>();
+  for (const u of input.existingStoreUsers) {
+    if (u.email) existingByEmail.set(`${u.storeId}::${normalizeEmail(u.email)}`, u);
+    if (u.linkedPlatformUserId) existingByLink.set(`${u.storeId}::${u.linkedPlatformUserId}`, u);
+  }
   const platformByEmail = new Map(input.platformUsers.map((p) => [normalizeEmail(p.email), p]));
 
   const decisions: ProvisioningDecision[] = [];
   const conflicts: ProvisioningConflict[] = [];
   const mappedStoreIds = new Set<string>();
   const seenStoreRefs = new Set<string>();
+
+  // EXPLICIT system-store allowlist doğrulaması. Bir slug ancak GERÇEKTEN system (systemPurpose
+  // != null) ise hariç tutulabilir; aksi halde conflict (gerçek kiracı gizlenemez → prod fail-closed
+  // semantiği korunur). Var olmayan slug → no-op (ACTIVE mağaza gizlemez).
+  const mappedSlugs = new Set(
+    input.manifest
+      .map((m) => (m.storeId ? storeById.get(m.storeId)?.slug : m.storeSlug))
+      .filter((s): s is string => !!s),
+  );
+  const excludedValidSlugs = new Set<string>();
+  for (const slug of new Set(input.excludeStoreSlugs ?? [])) {
+    const s = storeBySlug.get(slug);
+    if (!s) continue; // var olmayan → hiçbir ACTIVE mağazayı gizlemez
+    if (s.systemPurpose == null) {
+      conflicts.push({
+        ref: `exclude:${slug}`,
+        reason: "SYSTEM_EXCLUDE_NOT_SYSTEM",
+        detail: `'${slug}' bir system mağaza değil (systemPurpose yok) — allowlist ile hariç tutulamaz.`,
+      });
+      continue;
+    }
+    if (mappedSlugs.has(slug)) {
+      conflicts.push({
+        ref: `exclude:${slug}`,
+        reason: "SYSTEM_EXCLUDE_ALSO_MAPPED",
+        detail: `'${slug}' hem systemStores'ta hem stores mapping'inde — çelişkili.`,
+      });
+      continue;
+    }
+    excludedValidSlugs.add(slug);
+  }
 
   for (const entry of input.manifest) {
     const ref = entryRef(entry);
@@ -236,7 +307,20 @@ export function planStoreOwnerProvisioning(input: ProvisioningInput): Provisioni
     mappedStoreIds.add(store.id);
     const platform = platformByEmail.get(ownerEmail); // yalnız GERÇEK email eşleşmesi
     const platformReusable = !!platform && platform.hasPasswordHash;
-    const existing = existingByKey.get(`${store.id}::${ownerEmail}`);
+
+    // Mevcut satır: önce (storeId,email); yoksa reuse platform user'ın (storeId,link) satırı
+    // (seed null-email OWNER dahil). İkisi FARKLI satırsa split → conflict.
+    const byEmail = existingByEmail.get(`${store.id}::${ownerEmail}`);
+    const byLink = platform ? existingByLink.get(`${store.id}::${platform.id}`) : undefined;
+    if (byEmail && byLink && byEmail.id !== byLink.id) {
+      conflicts.push({
+        ref,
+        reason: "LINK_EMAIL_SPLIT",
+        detail: "Aynı mağazada email ile eşleşen satır ile platform-link ile eşleşen satır FARKLI — manuel çözüm.",
+      });
+      continue;
+    }
+    const existing = byEmail ?? byLink;
 
     if (existing) {
       // --- CONVERGE ---
@@ -270,6 +354,7 @@ export function planStoreOwnerProvisioning(input: ProvisioningInput): Provisioni
         (credential === "PLATFORM_HASH_REUSE" ? platform!.id : null);
       const noop =
         loginReady && // yalnız login-ready iken NOOP olabilir; değilse INVITED converge olarak raporlanır
+        existing.email === ownerEmail && // null/farklı email → email set edilecek → NOOP değil
         existing.role === "OWNER" &&
         existing.status === targetStatus &&
         existing.linkedPlatformUserId === willLink &&
@@ -306,8 +391,9 @@ export function planStoreOwnerProvisioning(input: ProvisioningInput): Provisioni
     });
   }
 
+  // Unmapped-ACTIVE: eşlenmemiş VE explicit system-allowlist'te olmayan ACTIVE mağazalar.
   const unmappedActiveStores = activeStores
-    .filter((s) => !mappedStoreIds.has(s.id))
+    .filter((s) => !mappedStoreIds.has(s.id) && !excludedValidSlugs.has(s.slug))
     .map((s) => ({ storeId: s.id, slug: s.slug }));
 
   const summary = {

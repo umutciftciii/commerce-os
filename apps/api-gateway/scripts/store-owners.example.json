@@ -1,6 +1,7 @@
 {
-  "_comment": "Faz D OWNER provisioning manifest ORNEGI. SECRET/parola ICEREMEZ (parola/passwordHash/token/secret alanlari reddedilir). Her giris: storeSlug VEYA storeId'den TAM biri + ownerEmail. passwordHash yalniz email-eslesen PlatformUser'dan reuse edilir; yoksa OWNER INVITED birakilir. Kullanim: node --import tsx apps/api-gateway/scripts/provision-store-owners.ts --manifest=<bu-dosya> [--apply]",
+  "_comment": "Faz D OWNER provisioning manifest ORNEGI. SECRET/parola ICEREMEZ (parola/passwordHash/token/secret alanlari reddedilir). Her giris: storeSlug VEYA storeId'den TAM biri + ownerEmail. passwordHash yalniz email-eslesen PlatformUser'dan reuse edilir; yoksa OWNER INVITED birakilir. Opsiyonel systemStores: EXPLICIT allowlist — kapsam disi birakilacak system/fixture magazalar (yalniz systemPurpose!=null olanlar; gercek kiraci haric tutulamaz -> conflict). Kullanim: node --import tsx apps/api-gateway/scripts/provision-store-owners.ts --manifest=<bu-dosya> [--apply]",
   "version": 1,
+  "systemStores": ["__theme-library__"],
   "stores": [
     { "storeSlug": "enterprise-demo", "ownerEmail": "owner@example.com" }
   ]

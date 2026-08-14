@@ -15,12 +15,15 @@ import {
 
 type PrismaLike = Pick<PrismaClient, "store" | "storeUser" | "platformUser" | "$transaction">;
 
-/** Manifest + DB'den SAF planlayıcı girdisini toplar. */
+/** Manifest + DB'den SAF planlayıcı girdisini toplar. `excludeStoreSlugs`: manifest.systemStores. */
 export async function collectProvisioningInput(
   prisma: PrismaLike,
   manifest: OwnerManifestEntry[],
+  excludeStoreSlugs: string[] = [],
 ): Promise<ProvisioningInput> {
-  const stores = await prisma.store.findMany({ select: { id: true, slug: true, status: true } });
+  const stores = await prisma.store.findMany({
+    select: { id: true, slug: true, status: true, systemPurpose: true },
+  });
 
   const emails = Array.from(new Set(manifest.map((m) => normalizeEmail(m.ownerEmail))));
   const storeById = new Map(stores.map((s) => [s.id, s]));
@@ -32,40 +35,6 @@ export async function collectProvisioningInput(
         .filter((id): id is string => !!id),
     ),
   );
-
-  const wantPairs = new Set<string>();
-  for (const m of manifest) {
-    const store = m.storeId ? storeById.get(m.storeId) : storeBySlug.get(m.storeSlug ?? "");
-    if (store) wantPairs.add(`${store.id}::${normalizeEmail(m.ownerEmail)}`);
-  }
-
-  const storeUserRows =
-    mappedStoreIds.length && emails.length
-      ? await prisma.storeUser.findMany({
-          where: { storeId: { in: mappedStoreIds }, email: { in: emails } },
-          select: {
-            id: true,
-            storeId: true,
-            email: true,
-            role: true,
-            status: true,
-            passwordHash: true,
-            linkedPlatformUserId: true,
-          },
-        })
-      : [];
-
-  const existingStoreUsers = storeUserRows
-    .filter((u) => u.email != null && wantPairs.has(`${u.storeId}::${normalizeEmail(u.email)}`))
-    .map((u) => ({
-      id: u.id,
-      storeId: u.storeId,
-      email: normalizeEmail(u.email as string),
-      role: u.role,
-      status: u.status,
-      hasPasswordHash: !!u.passwordHash,
-      linkedPlatformUserId: u.linkedPlatformUserId,
-    }));
 
   const platformRows = emails.length
     ? await prisma.platformUser.findMany({
@@ -79,8 +48,43 @@ export async function collectProvisioningInput(
     name: p.name,
     hasPasswordHash: !!p.passwordHash,
   }));
+  const platformIds = platformRows.map((p) => p.id);
 
-  return { manifest, stores, existingStoreUsers, platformUsers };
+  // Mevcut StoreUser adayları: mapped mağazalarda (email eşleşmesi) VEYA (owner platform-user'a
+  // link). İkincisi seed'in null-email linked OWNER satırlarını yakalar → CREATE yerine CONVERGE.
+  const storeUserRows =
+    mappedStoreIds.length && (emails.length || platformIds.length)
+      ? await prisma.storeUser.findMany({
+          where: {
+            storeId: { in: mappedStoreIds },
+            OR: [
+              ...(emails.length ? [{ email: { in: emails } }] : []),
+              ...(platformIds.length ? [{ linkedPlatformUserId: { in: platformIds } }] : []),
+            ],
+          },
+          select: {
+            id: true,
+            storeId: true,
+            email: true,
+            role: true,
+            status: true,
+            passwordHash: true,
+            linkedPlatformUserId: true,
+          },
+        })
+      : [];
+
+  const existingStoreUsers = storeUserRows.map((u) => ({
+    id: u.id,
+    storeId: u.storeId,
+    email: u.email ? normalizeEmail(u.email) : null,
+    role: u.role,
+    status: u.status,
+    hasPasswordHash: !!u.passwordHash,
+    linkedPlatformUserId: u.linkedPlatformUserId,
+  }));
+
+  return { manifest, stores, existingStoreUsers, platformUsers, excludeStoreSlugs };
 }
 
 export interface ApplyResult {
@@ -139,6 +143,8 @@ export async function applyProvisioning(
         await tx.storeUser.update({
           where: { id: d.existingStoreUserId },
           data: {
+            // email set: seed null-email OWNER'ı login-ready hale getirir (kimlik-bütünlüğü).
+            email: d.ownerEmail,
             role: d.targetRole,
             status: d.targetStatus,
             ...(reusePlatform

@@ -12,11 +12,12 @@ import {
   type ProvisioningStoreUser,
 } from "../src/store-auth/provisioning.js";
 
-const store = (id: string, slug: string, status: ProvisioningStore["status"] = "ACTIVE"): ProvisioningStore => ({
-  id,
-  slug,
-  status,
-});
+const store = (
+  id: string,
+  slug: string,
+  status: ProvisioningStore["status"] = "ACTIVE",
+  systemPurpose: string | null = null,
+): ProvisioningStore => ({ id, slug, status, systemPurpose });
 
 function plan(over: Partial<ProvisioningInput>) {
   return planStoreOwnerProvisioning({
@@ -24,21 +25,30 @@ function plan(over: Partial<ProvisioningInput>) {
     stores: over.stores ?? [],
     existingStoreUsers: over.existingStoreUsers ?? [],
     platformUsers: over.platformUsers ?? [],
+    excludeStoreSlugs: over.excludeStoreSlugs ?? [],
   });
 }
 
 describe("parseOwnerManifest", () => {
-  it("parses valid entries (slug or id + ownerEmail)", () => {
+  it("parses valid entries (slug or id + ownerEmail) + optional systemStores", () => {
     const m = parseOwnerManifest({
+      systemStores: ["__theme-library__"],
       stores: [
         { storeSlug: "acme", ownerEmail: "a@e.com" },
         { storeId: "store_1", ownerEmail: "b@e.com" },
       ],
     });
-    expect(m).toEqual([
+    expect(m.entries).toEqual([
       { storeSlug: "acme", storeId: undefined, ownerEmail: "a@e.com" },
       { storeSlug: undefined, storeId: "store_1", ownerEmail: "b@e.com" },
     ]);
+    expect(m.systemStores).toEqual(["__theme-library__"]);
+  });
+
+  it("systemStores defaults to [] and validates slug shape", () => {
+    expect(parseOwnerManifest({ stores: [{ storeSlug: "a", ownerEmail: "x@e.com" }] }).systemStores).toEqual([]);
+    expect(() => parseOwnerManifest({ systemStores: "nope", stores: [] })).toThrow(/systemStores/);
+    expect(() => parseOwnerManifest({ systemStores: [""], stores: [] })).toThrow(/systemStores/);
   });
 
   it("REJECTS secret/password fields (no plaintext secret in manifest)", () => {
@@ -103,6 +113,66 @@ describe("planStoreOwnerProvisioning — fail-closed conditions", () => {
       manifest: [{ storeSlug: "acme", ownerEmail: "a@e.com" }],
       platformUsers: [{ id: "p1", email: "a@e.com", name: "A", hasPasswordHash: true }],
     });
+    expect(r.applicable).toBe(true);
+  });
+});
+
+describe("planStoreOwnerProvisioning — EXPLICIT system-store allowlist", () => {
+  const owner = [{ id: "p1", email: "a@e.com", name: "A", hasPasswordHash: true }];
+
+  it("empty allowlist: system store is NOT auto-excluded (prod fail-closed unchanged)", () => {
+    const r = plan({
+      stores: [store("s1", "acme"), store("sys", "__theme-library__", "ACTIVE", "THEME_LIBRARY")],
+      manifest: [{ storeSlug: "acme", ownerEmail: "a@e.com" }],
+      platformUsers: owner,
+    });
+    // Sistem mağaza generic olarak dışlanmaz → unmapped ACTIVE → applicable false.
+    expect(r.unmappedActiveStores.map((s) => s.slug)).toEqual(["__theme-library__"]);
+    expect(r.applicable).toBe(false);
+  });
+
+  it("explicit allowlist excludes a genuine system store → applicable=true", () => {
+    const r = plan({
+      stores: [store("s1", "acme"), store("sys", "__theme-library__", "ACTIVE", "THEME_LIBRARY")],
+      manifest: [{ storeSlug: "acme", ownerEmail: "a@e.com" }],
+      platformUsers: owner,
+      excludeStoreSlugs: ["__theme-library__"],
+    });
+    expect(r.unmappedActiveStores).toEqual([]);
+    expect(r.conflicts).toEqual([]);
+    expect(r.applicable).toBe(true);
+  });
+
+  it("cannot exclude a NON-system store (real tenant) → conflict SYSTEM_EXCLUDE_NOT_SYSTEM", () => {
+    const r = plan({
+      stores: [store("s1", "acme"), store("s2", "real-tenant")], // systemPurpose null
+      manifest: [{ storeSlug: "acme", ownerEmail: "a@e.com" }],
+      platformUsers: owner,
+      excludeStoreSlugs: ["real-tenant"],
+    });
+    expect(r.conflicts.some((c) => c.reason === "SYSTEM_EXCLUDE_NOT_SYSTEM")).toBe(true);
+    expect(r.applicable).toBe(false);
+  });
+
+  it("cannot exclude a slug that is also mapped → conflict SYSTEM_EXCLUDE_ALSO_MAPPED", () => {
+    const r = plan({
+      stores: [store("sys", "__theme-library__", "ACTIVE", "THEME_LIBRARY")],
+      manifest: [{ storeSlug: "__theme-library__", ownerEmail: "a@e.com" }],
+      platformUsers: owner,
+      excludeStoreSlugs: ["__theme-library__"],
+    });
+    expect(r.conflicts.some((c) => c.reason === "SYSTEM_EXCLUDE_ALSO_MAPPED")).toBe(true);
+    expect(r.applicable).toBe(false);
+  });
+
+  it("non-existent excluded slug → no-op (cannot hide any ACTIVE store)", () => {
+    const r = plan({
+      stores: [store("s1", "acme")],
+      manifest: [{ storeSlug: "acme", ownerEmail: "a@e.com" }],
+      platformUsers: owner,
+      excludeStoreSlugs: ["ghost-does-not-exist"],
+    });
+    expect(r.conflicts).toEqual([]);
     expect(r.applicable).toBe(true);
   });
 });
@@ -228,6 +298,60 @@ describe("planStoreOwnerProvisioning — decisions", () => {
     });
     expect(r.decisions[0]!.outcome).toBe("CONVERGE_INVITED");
     expect(r.decisions[0]!.loginReady).toBe(false);
+  });
+
+  it("seed null-email OWNER linked to owner platform-user → CONVERGE (email set), not CREATE collision", () => {
+    // Mağazada bu platform-user'a ZATEN linked ama email=null bir OWNER var (seed). Email ile
+    // bulunamaz; link ile bulunur → CONVERGE (email set edilir) → login-ready; unique link ihlali yok.
+    const existing: ProvisioningStoreUser = {
+      id: "seedrow",
+      storeId: "s1",
+      email: null,
+      role: "OWNER",
+      status: "ACTIVE",
+      hasPasswordHash: true,
+      linkedPlatformUserId: "p1",
+    };
+    const r = plan({
+      stores: [store("s1", "acme")],
+      manifest: [{ storeSlug: "acme", ownerEmail: "a@e.com" }],
+      existingStoreUsers: [existing],
+      platformUsers: [{ id: "p1", email: "a@e.com", name: "A", hasPasswordHash: true }],
+    });
+    const d = r.decisions[0]!;
+    expect(d.outcome).toBe("CONVERGE_LOGIN_READY");
+    expect(d.existingStoreUserId).toBe("seedrow"); // link-satırı converge; yeni satır YOK
+    expect(d.targetStatus).toBe("ACTIVE");
+    expect(d.loginReady).toBe(true);
+  });
+
+  it("email-row and link-row are DIFFERENT rows → conflict LINK_EMAIL_SPLIT", () => {
+    const emailRow: ProvisioningStoreUser = {
+      id: "byEmail",
+      storeId: "s1",
+      email: "a@e.com",
+      role: "MANAGER",
+      status: "ACTIVE",
+      hasPasswordHash: true,
+      linkedPlatformUserId: null,
+    };
+    const linkRow: ProvisioningStoreUser = {
+      id: "byLink",
+      storeId: "s1",
+      email: null,
+      role: "OWNER",
+      status: "ACTIVE",
+      hasPasswordHash: true,
+      linkedPlatformUserId: "p1",
+    };
+    const r = plan({
+      stores: [store("s1", "acme")],
+      manifest: [{ storeSlug: "acme", ownerEmail: "a@e.com" }],
+      existingStoreUsers: [emailRow, linkRow],
+      platformUsers: [{ id: "p1", email: "a@e.com", name: "A", hasPasswordHash: true }],
+    });
+    expect(r.conflicts.some((c) => c.reason === "LINK_EMAIL_SPLIT")).toBe(true);
+    expect(r.applicable).toBe(false);
   });
 
   it("existing DISABLED → conflict EXISTING_DISABLED (no silent re-enable)", () => {

@@ -29,17 +29,20 @@ async function main(): Promise<void> {
     return;
   }
 
-  let manifest;
+  let parsed;
   try {
-    manifest = parseOwnerManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
+    parsed = parseOwnerManifest(JSON.parse(readFileSync(manifestPath, "utf8")));
   } catch (e) {
     console.error(`HATA: manifest okunamadı/geçersiz: ${e instanceof Error ? e.message : "unknown"}`);
     process.exitCode = 1;
     return;
   }
 
-  const input = await collectProvisioningInput(prisma, manifest);
+  const input = await collectProvisioningInput(prisma, parsed.entries, parsed.systemStores);
   const report = planStoreOwnerProvisioning(input);
+  if (parsed.systemStores.length) {
+    console.log(`Sistem/fixture allowlist (kapsam dışı): ${parsed.systemStores.join(", ")}`);
+  }
 
   // İnsan-okunur rapor (parola/hash YOK).
   console.log("=== OWNER Provisioning Raporu (%s) ===", apply ? "APPLY" : "DRY-RUN");
