@@ -7,6 +7,20 @@ export type StoreRole = "OWNER" | "ADMIN" | "MANAGER" | "STAFF" | "VIEWER";
 export type { StorePermission } from "./permissions.js";
 export { ROLE_PERMISSIONS, hasStorePermission } from "./permissions.js";
 
+export type {
+  StoreAuthorizationDecision,
+  StoreAuthorizationPrincipal,
+  StoreAuthorizationInput,
+  StorePolicyModule,
+  StoreAction,
+} from "./store-authorization.js";
+export {
+  authorizeStoreRequest,
+  resolveStorePermission,
+  SENSITIVE_STORE_PERMISSIONS,
+  isSensitiveStorePermission,
+} from "./store-authorization.js";
+
 export type { StoreAdminTenantContext, TenantResolverSource } from "./tenant-resolver.js";
 export { resolveStoreAdminTenantContext } from "./tenant-resolver.js";
 

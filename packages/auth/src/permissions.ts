@@ -63,6 +63,8 @@ export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> =
   ]),
 };
 
+// FAIL-CLOSED: bilinmeyen role (matrix'te olmayan) VEYA bilinmeyen permission → false.
+// Optional-chain, çalışma-zamanı geçersiz bir role gelse bile (ör. tipi zorlanmış) throw etmez.
 export function hasStorePermission(role: StoreRole, permission: StorePermission): boolean {
-  return ROLE_PERMISSIONS[role].has(permission);
+  return ROLE_PERMISSIONS[role]?.has(permission) ?? false;
 }
