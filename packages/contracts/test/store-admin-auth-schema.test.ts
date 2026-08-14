@@ -30,9 +30,10 @@ describe("store-admin auth contracts", () => {
       expect((u as Record<string, unknown>)[k]).toBeUndefined();
     }
   });
-  it("session response carries timing", () => {
+  it("session response carries timing + session-derived store context (Faz E1)", () => {
     const parsed = storeAdminSessionResponseSchema.parse({
       user: { id: "u", storeId: "s", email: "a@e.test", name: null, role: "VIEWER" },
+      store: { id: "s", slug: "acme", name: "Acme", status: "ACTIVE" },
       session: { timing: {
         idleExpiresAt: new Date().toISOString(),
         absoluteExpiresAt: new Date().toISOString(),
@@ -42,6 +43,21 @@ describe("store-admin auth contracts", () => {
       } },
     });
     expect(parsed.session.timing.warningLeadSeconds).toBe(300);
+    expect(parsed.store).toEqual({ id: "s", slug: "acme", name: "Acme", status: "ACTIVE" });
+  });
+  it("session response REQUIRES store (context is session-derived, not optional)", () => {
+    expect(() =>
+      storeAdminSessionResponseSchema.parse({
+        user: { id: "u", storeId: "s", email: "a@e.test", name: null, role: "VIEWER" },
+        session: { timing: {
+          idleExpiresAt: new Date().toISOString(),
+          absoluteExpiresAt: new Date().toISOString(),
+          warningLeadSeconds: 300,
+          rememberMe: false,
+          lastActivityAt: new Date().toISOString(),
+        } },
+      } as never),
+    ).toThrow();
   });
   it("login response shape", () => {
     const parsed = storeAdminLoginResponseSchema.parse({

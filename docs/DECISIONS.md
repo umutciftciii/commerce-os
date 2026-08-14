@@ -294,7 +294,9 @@
   (`commerce_os_store_admin_session`) SADECE server tarafinda tutulur; istemciye yalnizca kullanici
   meta'si doner. (2) Secili mağaza her istekte server-side `admin.stores.list` ile cozulur
   (`STORE_ADMIN_DEMO_STORE_SLUG`, default `demo-store`; yoksa ilk mağaza); `storeId` istemciden gelmez,
-  boylece tarayici keyfi mağaza secemez. (3) Tum gateway cagrilari ayni-origin `/api/*` proxy
+  boylece tarayici keyfi mağaza secemez. (Faz E1 ile bu geçici model kaldırıldı: aktif mağaza artık
+  kimlik doğrulanan StoreUser oturumundan — `session.storeId`, gateway `/auth/store/session` — türetilir;
+  BFF hiçbir slug env okumaz ve `admin.stores.list`/"ilk mağaza" fallback'i yoktur.) (3) Tum gateway cagrilari ayni-origin `/api/*` proxy
   uzerinden; mutating route'lar double-submit CSRF ile korunur. Cookie adlari admin-web'den ayridir.
 - Sonuc: Store-user auth gelmeden guvenli, token-sizdirmayan store-admin UI mumkun olur. Store-user
   session/role modeli geldiginde login proxy gercek store-user akisina, server-side store context

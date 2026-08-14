@@ -13,7 +13,9 @@ export async function POST(request: NextRequest) {
   }
   const token = getSessionToken(request);
   if (token) {
-    await createApiClient().auth.platformLogout(token).catch(() => {
+    // Faz E1 cutover — GERÇEK StoreUser oturumunu revoke eder (`/auth/store/logout`);
+    // PlatformUser logout DEĞİL. Platform Admin oturumu/logout'u etkilenmez.
+    await createApiClient().storeAuth.logout(token).catch(() => {
       // Gateway revoke basarisiz olsa bile yerel cookie temizlenir.
     });
   }

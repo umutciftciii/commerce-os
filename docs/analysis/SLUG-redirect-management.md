@@ -75,7 +75,7 @@ BRAND'i kapsar; marka güncelleme prisma veri katmanı slug değişince `recordS
 ## 6. Tenant izolasyonu
 
 - Store Admin yalnız kendi store kayıtlarını görür (tüm sorgular `storeId`-scoped; cross-store id → 404).
-- Platform Admin, mevcut demo-stage BFF modelinde tek aktif store bağlamıyla çalışır (`STORE_ADMIN_DEMO_STORE_SLUG`).
+- Store Admin, aktif store bağlamını kimlik doğrulanan StoreUser oturumundan türetir (Faz E1); slug env okunmaz, kanonik `STORE_ADMIN_STORE_SLUG` yalnız gateway ön-login tenant çözümünde kullanılır.
 - Cross-store source/target: source store-scoped; target off-site/başka-host reddi (`isSafeLocalRedirectTarget`).
 - Fail-closed: capability + auth guard reddi leak-siz.
 - Audit: her mutation `createAuditLog` (CREATE/UPDATE/DELETE, `entityType: "Redirect"`).

@@ -545,9 +545,10 @@ asamasinda platform admin login'i vekaleten kullanir:
    `commerce_os_store_admin_session`) yazar; istemciye yalnizca kullanici doner. Cookie adi
    admin-web'den ayridir.
 2. Store context: catalog/inventory/dashboard handler'lari her istekte `requireStoreContext` ile
-   cookie token'i dogrular ve hedef mağazayi gateway `admin.stores.list`'ten server-side cozer
-   (`STORE_ADMIN_DEMO_STORE_SLUG`, varsayilan `demo-store`; yoksa ilk mağaza). `storeId` istemciden
-   gelmez; `GET /api/store/context` UI'a yalnizca mağaza meta'sini (id/ad/slug/durum) doner.
+   cookie token'i dogrular ve aktif mağazayi SADECE kimlik doğrulanan StoreUser oturumundan
+   (gateway `/auth/store/session`) turetir (Faz E1); BFF hiçbir slug env okumaz, `admin.stores.list`
+   ve "ilk mağaza" fallback'i kaldırıldı. `storeId` istemciden gelmez; `GET /api/store/context` UI'a
+   yalnizca mağaza meta'sini (id/ad/slug/durum) doner.
 3. Katalog islemleri: `/api/catalog/categories`, `/api/catalog/products` (+`/:id`),
    `.../variants` (+`/:id`), `/api/catalog/inventory` (+`/:variantId/adjust`) cozulen `storeId` ve
    cookie token ile gateway store-scoped endpointlerine proxy yapar. `/api/dashboard/summary` urun/

@@ -1495,7 +1495,7 @@ yönetir; yeni motor kurmaz.
 
 **Smoke (worktree stack, enterprise-demo, paylaşımlı docker postgres):**
 - Gateway :4100, store-admin :3100, storefront :3200 (host `next dev`, `API_GATEWAY_URL=http://localhost:4100`,
-  `STORE_ADMIN_DEMO_STORE_SLUG=enterprise-demo`). Login: seed'lenmiş platform-admin hesabı (bkz. `packages/db/scripts/seed.mjs`).
+  `STORE_ADMIN_STORE_SLUG=enterprise-demo`). Login: seed'lenmiş platform-admin hesabı (bkz. `packages/db/scripts/seed.mjs`).
 - Ürün/marka slug PATCH → eski URL storefront'ta 301 (cache TTL ≤60s sonra). Kategori → 200 (PLP listelemesi, TD-064).
 
 ## TODO-167 Persistent Cart (Faz A) — operasyon notları (2026-08-03)
@@ -1708,7 +1708,7 @@ pnpm --filter @commerce-os/api-gateway exec tsx src/main.ts    # curl :4100/heal
 API_GATEWAY_URL=http://localhost:4100 STOREFRONT_DEMO_STORE_SLUG=enterprise-demo \
   pnpm --filter @commerce-os/storefront-web exec next dev --port 3100
 # Store-admin :3202 → :4100
-API_GATEWAY_URL=http://localhost:4100 STORE_ADMIN_DEMO_STORE_SLUG=enterprise-demo SESSION_SECRET=<same> \
+API_GATEWAY_URL=http://localhost:4100 STORE_ADMIN_STORE_SLUG=enterprise-demo SESSION_SECRET=<same> \
   pnpm --filter @commerce-os/store-admin-web exec next dev --port 3202
 ```
 

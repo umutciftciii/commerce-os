@@ -53,9 +53,9 @@ import type {
   PaymentRecoveryAttempt,
   CreatePaymentLinkRequest,
   RecordManualPaymentRequest,
-  PlatformMeResponse,
   SessionTiming,
-  PlatformUserContract,
+  StoreAdminCurrentUser,
+  StoreAdminSessionResponse,
   Product,
   ProductCategory,
   ProductCategoryCreateRequest,
@@ -434,7 +434,9 @@ export class UiError extends Error {
   }
 }
 
-export type StoreUser = PlatformUserContract;
+// Faz E1 cutover — UI kimliği artık GERÇEK StoreUser principal'ıdır (PlatformUser DEĞİL).
+// Güvenli DTO: passwordHash/tokenHash/linkedPlatformUserId/session id TAŞIMAZ.
+export type StoreUser = StoreAdminCurrentUser;
 
 export interface StoreContext {
   id: string;
@@ -713,7 +715,7 @@ export const storeApi = {
       method: "POST",
       body: JSON.stringify({ email, password, rememberMe }),
     }),
-  me: () => call<PlatformMeResponse>("/api/auth/me"),
+  me: () => call<StoreAdminSessionResponse>("/api/auth/me"),
   logout: () => mutatingCall<{ ok: true }>("/api/auth/logout", { method: "POST" }),
   // ADR-271 — oturum uzatma (CSRF korumalı; token rotate). Yeni zamanlama döner.
   extendSession: () =>

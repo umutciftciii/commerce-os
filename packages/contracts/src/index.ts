@@ -346,8 +346,18 @@ export const storeAdminLoginResponseSchema = z.object({
   user: storeAdminCurrentUserSchema,
 });
 
+// Store context, session'dan SERVER-otoriter türetilir: `store.id` (== user.storeId)
+// tek kaynak. store-admin-web BFF artık mağazayı listeleyip ilk/demo mağazayı SEÇMEZ;
+// aktif mağaza yalnızca oturumun bağlı olduğu mağazadır (Faz E1 cutover). `status`
+// oturum doğrulamada zaten ACTIVE olmalıdır (aksi halde /session 401 döner).
 export const storeAdminSessionResponseSchema = z.object({
   user: storeAdminCurrentUserSchema,
+  store: z.object({
+    id: z.string().min(1),
+    slug: z.string().min(1),
+    name: z.string(),
+    status: z.enum(["DRAFT", "ACTIVE", "SUSPENDED", "CLOSED"]),
+  }),
   session: z.object({
     timing: sessionTimingSchema,
   }),

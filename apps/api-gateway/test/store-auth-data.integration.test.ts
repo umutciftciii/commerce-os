@@ -100,9 +100,12 @@ describe.skipIf(!hasTestDb)("store-auth data-access (integration)", () => {
     expect(row!.storeUser.id).toBe(user.id);
     expect("passwordHash" in row!.storeUser).toBe(false);
     expect("tokenHash" in row!).toBe(false);
-    // store allowlist: yalnız status (store status policy için); başka store alanı sızmaz.
-    expect(Object.keys(row!.store)).toEqual(["status"]);
+    // store allowlist (Faz E1): slug + name (session store context için) + status (status policy).
+    // Başka store alanı sızmaz (id/metadata/timestamps YOK — storeId zaten üst düzeyde taşınır).
+    expect(Object.keys(row!.store).sort()).toEqual(["name", "slug", "status"]);
     expect(row!.store.status).toBe("ACTIVE");
+    expect(row!.store.slug).toBeTypeOf("string");
+    expect(row!.store.name).toBeTypeOf("string");
   });
 
   it("revokeStoreSession: ilk çağrıda true, ikinci çağrıda false (idempotent-safe)", async () => {

@@ -245,6 +245,14 @@ export const trStoreAdmin = {
     SUSPENDED: "Askıda",
     CLOSED: "Kapalı",
   },
+  // Faz E1 — StoreUser rolü (insan-okunur; ham enum gösterilmez).
+  roleLabels: {
+    OWNER: "Sahip",
+    ADMIN: "Yönetici",
+    MANAGER: "Müdür",
+    STAFF: "Personel",
+    VIEWER: "Görüntüleyici",
+  },
   dashboard: {
     eyebrow: "Mağaza",
     title: "Mağaza Paneli",

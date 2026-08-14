@@ -90,6 +90,8 @@ import type {
   PlatformSessionExtendResponse,
   // Store Admin Auth & RBAC (B1) — tenant-scoped store-admin login/session/logout.
   // Ayrı bir `storeAuth` namespace'i besler; `auth.platform*` ile KARIŞTIRILMAZ.
+  // (StoreAdminCurrentUser burada iç kullanımda değil; yalnız aşağıdaki export bloğunda
+  // consumer'lara re-export edilir — bu yüzden import edilmez.)
   StoreAdminLoginRequest,
   StoreAdminLoginResponse,
   StoreAdminSessionResponse,
@@ -517,6 +519,12 @@ export type {
   PlatformLogoutResponse,
   PlatformMeResponse,
   PlatformSessionExtendResponse,
+  // Store Admin Auth (B1) — consumer'lara (store-admin-web BFF/UI) re-export.
+  StoreAdminCurrentUser,
+  StoreAdminLoginRequest,
+  StoreAdminLoginResponse,
+  StoreAdminSessionResponse,
+  StoreAdminLogoutResponse,
   CustomerSessionExtendResponse,
   SessionTiming,
   HeroSlide,

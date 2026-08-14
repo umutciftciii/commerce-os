@@ -38,7 +38,7 @@ test dosyaları). Bu doküman yalnız E2E paketini anlatır.
 
 > **Store-admin E2E (ADR-288).** İlk store-admin Playwright kapsamı. `baseURL = STORE_ADMIN_URL`
 > (`E2E_STORE_ADMIN_URL`, CI'da `http://localhost:3110`). CI'da branch checkout'undan build eden
-> `store-admin-web-e2e` servisi (:3110, `STORE_ADMIN_DEMO_STORE_SLUG=e2e-store`, `ADMIN_COOKIE_SECURE=false`)
+> `store-admin-web-e2e` servisi (:3110, gateway tenant `STORE_ADMIN_STORE_SLUG=e2e-store`, `ADMIN_COOKIE_SECURE=false`)
 > ayağa kalkar; `admin-smoke` required `smoke` job'ının bir adımıdır. Lokal: `pnpm e2e:store-admin`
 > (host `next dev :3110`, branch kodunu servis eder — storefront `pnpm e2e:storefront` deseniyle aynı;
 > docker store-admin build context'i main olduğundan branch route/sayfaları docker'da yoktur).
@@ -60,7 +60,7 @@ pnpm e2e:responsive    # playwright test --project=responsive
 pnpm e2e:regression    # playwright test --project=regression (PR2 finansal/lifecycle senaryoları)
 pnpm e2e:admin-smoke      # playwright test --project=admin-smoke (Shopping Balance Admin READ smoke; store-admin-setup önce koşar)
 pnpm e2e:admin-regression # playwright test --project=admin-regression (grant + persistence + izolasyon)
-pnpm e2e:store-admin      # host next dev :3110 (branch store-admin; STORE_ADMIN_DEMO_STORE_SLUG=e2e-store)
+pnpm e2e:store-admin      # host next dev :3110 (branch store-admin; gateway tenant STORE_ADMIN_STORE_SLUG=e2e-store)
 pnpm e2e:prod-smoke    # playwright test --project=prod-smoke
 pnpm e2e:report        # playwright show-report (son HTML raporunu açar)
 pnpm e2e:storefront    # host `next dev --port 3100`, e2e-store env'iyle (yerel storefront servisi)

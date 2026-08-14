@@ -63,7 +63,8 @@ export function createStoreAuthData(prisma: PrismaClient) {
           rememberMe: true,
           policyVersion: true,
           // Store status: mağaza SUSPENDED/CLOSED olduğunda mevcut oturum reddedilir (authenticate.ts).
-          store: { select: { status: true } },
+          // slug/name: /auth/store/session store context'i için (Faz E1) — server-otoriter.
+          store: { select: { slug: true, name: true, status: true } },
           storeUser: {
             select: {
               id: true,

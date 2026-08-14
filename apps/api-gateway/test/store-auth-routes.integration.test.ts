@@ -403,10 +403,45 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
     const sessionBody = session.json();
     expect(sessionBody.user).toEqual(user);
     expect(sessionBody.session.timing.warningLeadSeconds).toBeTypeOf("number");
+    // Faz E1 — store context SERVER-otoriter: oturumun bağlı olduğu mağazadan gelir
+    // (BFF için tek kaynak; mağaza listeleme/demo-first YOK). store.id == user.storeId.
+    expect(sessionBody.store.id).toBe(user.storeId);
+    expect(sessionBody.store.slug).toBe(store.slug);
+    expect(sessionBody.store.name).toBeTypeOf("string");
+    expect(sessionBody.store.name.length).toBeGreaterThan(0);
+    expect(sessionBody.store.status).toBe("ACTIVE");
     assertNoForbiddenKeys(sessionBody, FORBIDDEN_KEYS);
 
     const noToken = await app.inject({ method: "GET", url: "/auth/store/session" });
     expect(noToken.statusCode).toBe(401);
+  });
+
+  // E2 READINESS PROBE (Faz E1 çıktısı) — StoreUser oturum token'ı gerçek bir StoreUserSession
+  // satırıdır ama PlatformSession DEĞİLDİR. Gateway business route guard'ları (requireStoreAdmin
+  // → requireStorePlatformAdmin → requirePlatformAdmin → authenticatePlatform) yalnız
+  // PlatformSession'ı token-hash ile çözer; StoreUser token'ı orada BULUNMAZ → 401. Bu, Phase E1
+  // sonunda business route'lara StoreUser oturumuyla ERİŞİLEMEDİĞİNİ (Senaryo B) kanıtlar: gateway
+  // guard cutover'ı (E2) gereklidir. (Silent dual-auth YOK; identity-bridge YOK.)
+  it("E2 probe: StoreUser session token is a store session, NOT a platform session (business routes reject it)", async () => {
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "probe@e.test" });
+    const { app } = buildApp(store.slug);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "probe@e.test", password },
+    });
+    expect(login.statusCode).toBe(200);
+    const { token } = login.json();
+    const tokenHash = hashToken(token);
+
+    // Token GERÇEK bir StoreUserSession'a çözülür (store-auth doğrular).
+    const storeSession = await prisma.storeUserSession.findFirst({ where: { tokenHash } });
+    expect(storeSession).not.toBeNull();
+    // Aynı token bir PlatformSession DEĞİLDİR → authenticatePlatform (business guard) null döner → 401.
+    const platformSession = await prisma.platformSession.findUnique({ where: { tokenHash } });
+    expect(platformSession).toBeNull();
   });
 
   it("logout revokes the session; subsequent session check → 401", async () => {

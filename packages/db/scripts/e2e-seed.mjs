@@ -42,8 +42,9 @@ const PLAN_CODE = "e2e-plan";
 const CUSTOMER_EMAIL = "e2e-customer@example.test";
 const CUSTOMER_PASSWORD = "E2eCustomer!pass1";
 const CUSTOMER_ID = "e2e-customer-1";
-// Store-admin login (Shopping Balance Admin E2E) — SUPER_ADMIN platform user; store-admin app
-// mağazayı STORE_ADMIN_DEMO_STORE_SLUG=e2e-store ile seçer (bkz. store-context.ts).
+// Store-admin login (Shopping Balance Admin E2E) — store-admin app aktif mağazayı kimlik
+// doğrulanan StoreUser oturumundan türetir (bkz. store-context.ts); gateway ön-login tenant =
+// STORE_ADMIN_STORE_SLUG=e2e-store.
 const ADMIN_EMAIL = "e2e-admin@example.test";
 const ADMIN_PASSWORD = "E2eAdmin!pass1";
 // TODO-178 Faz F — ikinci platform kullanıcısı (assignable directory). AssigneeSelector
@@ -177,7 +178,8 @@ async function main() {
   });
 
   // 3b) Store-admin platform kullanıcısı (SUPER_ADMIN) — Shopping Balance Admin E2E login'i.
-  //     store-admin app STORE_ADMIN_DEMO_STORE_SLUG=e2e-store ile mağazayı seçer.
+  //     store-admin app aktif mağazayı StoreUser oturumundan türetir; gateway ön-login tenant =
+  //     STORE_ADMIN_STORE_SLUG=e2e-store.
   const adminPasswordHash = await hashPassword(ADMIN_PASSWORD, process.env.PASSWORD_HASH_PEPPER ?? "");
   await prisma.platformUser.upsert({
     where: { email: ADMIN_EMAIL },

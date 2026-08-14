@@ -174,6 +174,14 @@ export function registerStoreAuthRoutes(app: FastifyInstance, deps: StoreAuthRou
         name: result.principal.name,
         role: result.principal.role,
       },
+      // Store context — SERVER-otoriter, oturumun bağlı olduğu mağazadan (Faz E1). BFF bu
+      // meta'yı mağaza listeleyerek/demo-first seçerek DEĞİL yalnızca oturumdan alır.
+      store: {
+        id: result.principal.storeId,
+        slug: result.session.store.slug,
+        name: result.session.store.name,
+        status: result.session.store.status,
+      },
       session: {
         timing: {
           idleExpiresAt: timing.idleExpiresAt.toISOString(),

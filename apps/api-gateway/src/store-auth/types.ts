@@ -35,7 +35,11 @@ export interface StoreSessionAuthRecord {
   policyVersion: number;
   // Store status oturum doğrulamada değerlendirilir: mağaza sonradan SUSPENDED/CLOSED
   // (veya ACTIVE dışı) olursa mevcut oturum artık geçerli sayılmaz (bkz. authenticate.ts).
+  // slug/name, /auth/store/session yanıtındaki store context için taşınır (Faz E1): BFF
+  // aktif mağaza meta'sını yalnız oturumdan alır (mağaza listeleme / demo-first YOK).
   store: {
+    slug: string;
+    name: string;
     status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "CLOSED";
   };
   storeUser: {

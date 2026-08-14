@@ -2,12 +2,16 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiClient = {
-  auth: {
-    platformLogin: vi.fn(),
-    platformLogout: vi.fn(),
-    platformMe: vi.fn(),
+  // Faz E1 cutover — BFF artık GERÇEK StoreUser auth namespace'ini kullanır (PlatformUser
+  // login/me/logout DEĞİL). `auth.platform*` bilinçli olarak MOCK'lanmaz: bir regresyon onu
+  // yeniden çağırırsa test "not a function" ile patlar (fallback sızıntısını yakalar).
+  storeAuth: {
+    login: vi.fn(),
+    logout: vi.fn(),
+    session: vi.fn(),
   },
   admin: {
+    // Store context artık oturumdan gelir; stores.list ÇAĞRILMAMALI (demo/first-store yok).
     stores: { list: vi.fn() },
     categories: { list: vi.fn(), create: vi.fn(), update: vi.fn() },
     products: {
@@ -42,18 +46,23 @@ vi.mock("@commerce-os/api-client", () => ({
   createApiClient: () => apiClient,
 }));
 
-const SESSION = "commerce_os_store_admin_session=platform-token";
+const SESSION = "commerce_os_store_admin_session=store-session-token";
 const CSRF_COOKIE = "; commerce_os_store_admin_csrf=csrf-token";
 
-const DEMO_STORE = {
-  id: "store-1",
-  name: "Demo Store",
-  slug: "demo-store",
-  domain: null,
-  status: "ACTIVE",
-  metadata: null,
-  createdAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
-  updatedAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+const TIMING = {
+  idleExpiresAt: new Date("2026-01-01T00:30:00.000Z").toISOString(),
+  absoluteExpiresAt: new Date("2026-01-01T08:00:00.000Z").toISOString(),
+  warningLeadSeconds: 300,
+  rememberMe: false,
+  lastActivityAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+};
+
+// Faz E1 — /auth/store/session yanıtı: StoreUser principal + oturumun bağlı olduğu
+// mağaza (store context server-otoriter) + timing. Store context BURADAN gelir.
+const SESSION_RESULT = {
+  user: { id: "su-1", storeId: "store-1", email: "owner@demo.local", name: "Owner", role: "OWNER" },
+  store: { id: "store-1", slug: "demo-store", name: "Demo Store", status: "ACTIVE" },
+  session: { timing: TIMING },
 };
 
 function request(path: string, init: ConstructorParameters<typeof NextRequest>[1] = {}) {
@@ -67,10 +76,8 @@ function jsonInit(method: string, cookie: string, body?: unknown, csrf = false) 
 }
 
 beforeEach(() => {
-  apiClient.admin.stores.list.mockResolvedValue({
-    data: [DEMO_STORE],
-    pagination: { limit: 50, offset: 0, total: 1 },
-  });
+  // Store context artık oturumdan türetilir (mağaza listeleme/demo-first YOK).
+  apiClient.storeAuth.session.mockResolvedValue(SESSION_RESULT);
 });
 
 afterEach(() => {
@@ -79,10 +86,11 @@ afterEach(() => {
 
 describe("store-admin BFF — token confidentiality", () => {
   it("login returns only the user (token is set in an httpOnly cookie, never in the body)", async () => {
-    apiClient.auth.platformLogin.mockResolvedValue({
+    // Faz E1 — GERÇEK StoreUser login; kullanıcı DTO'su storeId + store role taşır.
+    apiClient.storeAuth.login.mockResolvedValue({
       token: "secret-bearer-token",
       expiresAt: new Date("2026-12-31T00:00:00.000Z").toISOString(),
-      user: { id: "u1", email: "admin@example.local", name: "Admin", role: "SUPER_ADMIN" },
+      user: { id: "su-1", storeId: "store-1", email: "owner@demo.local", name: "Owner", role: "OWNER" },
     });
     const { POST } = await import("../app/api/auth/login/route.js");
 
@@ -107,7 +115,7 @@ describe("store-admin BFF — token confidentiality", () => {
     expect(body).toEqual({
       store: { id: "store-1", name: "Demo Store", slug: "demo-store", status: "ACTIVE" },
     });
-    expect(JSON.stringify(body)).not.toContain("platform-token");
+    expect(JSON.stringify(body)).not.toContain("store-session-token");
   });
 });
 
@@ -119,15 +127,15 @@ describe("store-admin BFF — auth + store guards", () => {
     expect(apiClient.admin.categories.list).not.toHaveBeenCalled();
   });
 
-  it("returns NO_STORE when no store is linked to the session", async () => {
-    apiClient.admin.stores.list.mockResolvedValue({
-      data: [],
-      pagination: { limit: 50, offset: 0, total: 0 },
-    });
+  it("rejects catalog reads when the session token is invalid/expired (gateway 401) — no store listing", async () => {
+    // Faz E1 — store context oturumdan gelir; geçersiz/expired token'da gateway
+    // /auth/store/session 401 fırlatır → BFF 401 döner (NO_STORE/first-store yolu YOK).
+    apiClient.storeAuth.session.mockRejectedValue(new MockApiError(401, "UNAUTHORIZED"));
     const { GET } = await import("../app/api/catalog/products/route.js");
     const response = await GET(request("/api/catalog/products", { headers: { cookie: SESSION } }));
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: { code: "NO_STORE" } });
+    expect(response.status).toBe(401);
+    // Mağaza HİÇ listelenmez (demo/first-store fallback kaldırıldı).
+    expect(apiClient.admin.stores.list).not.toHaveBeenCalled();
   });
 });
 
@@ -143,7 +151,7 @@ describe("store-admin BFF — categories proxy", () => {
     expect(response.status).toBe(200);
     // TODO-159A (ADR-089) — BFF artık liste query'sini (allowlist ile) taşır; query
     // verilmeyen istekte boş nesne gider (gateway varsayılanları uygulanır).
-    expect(apiClient.admin.categories.list).toHaveBeenCalledWith("store-1", "platform-token", {});
+    expect(apiClient.admin.categories.list).toHaveBeenCalledWith("store-1", "store-session-token", {});
   });
 
   it("rejects a forged mutating request via CSRF before any upstream store lookup", async () => {
@@ -181,7 +189,7 @@ describe("store-admin BFF — categories proxy", () => {
     expect(apiClient.admin.categories.create).toHaveBeenCalledWith(
       "store-1",
       { name: "Tişört", slug: "tisort" },
-      "platform-token",
+      "store-session-token",
     );
   });
 
@@ -229,7 +237,7 @@ describe("store-admin BFF — products & variants proxy", () => {
         inquiryEnabled: true,
         inquiryFormTitle: "Fiyat isteyin",
       }),
-      "platform-token",
+      "store-session-token",
     );
   });
 
@@ -269,7 +277,7 @@ describe("store-admin BFF — products & variants proxy", () => {
         primaryAction: "BOOK_APPOINTMENT",
         purchasable: false,
       }),
-      "platform-token",
+      "store-session-token",
     );
   });
 
@@ -288,7 +296,7 @@ describe("store-admin BFF — products & variants proxy", () => {
       "store-1",
       "p1",
       { status: "ACTIVE" },
-      "platform-token",
+      "store-session-token",
     );
   });
 
@@ -318,7 +326,7 @@ describe("store-admin BFF — inventory proxy", () => {
     const { GET } = await import("../app/api/catalog/inventory/route.js");
     const response = await GET(request("/api/catalog/inventory", { headers: { cookie: SESSION } }));
     expect(response.status).toBe(200);
-    expect(apiClient.admin.inventory.list).toHaveBeenCalledWith("store-1", "platform-token");
+    expect(apiClient.admin.inventory.list).toHaveBeenCalledWith("store-1", "store-session-token");
   });
 
   it("rejects an adjustment without CSRF", async () => {
@@ -368,7 +376,7 @@ describe("store-admin BFF — orders proxy (F2G)", () => {
     );
     expect(response.status).toBe(200);
     // storeId daima server bağlamından; client'tan gelen storeId yok sayılır.
-    expect(apiClient.admin.orders.list).toHaveBeenCalledWith("store-1", {}, "platform-token");
+    expect(apiClient.admin.orders.list).toHaveBeenCalledWith("store-1", {}, "store-session-token");
   });
 
   it("forwards only known order filter keys to the gateway (TODO-073)", async () => {
@@ -387,7 +395,7 @@ describe("store-admin BFF — orders proxy (F2G)", () => {
     expect(apiClient.admin.orders.list).toHaveBeenCalledWith(
       "store-1",
       { status: "PLACED", paymentStatus: "PAID", search: "ahmet" },
-      "platform-token",
+      "store-session-token",
     );
   });
 
@@ -398,7 +406,7 @@ describe("store-admin BFF — orders proxy (F2G)", () => {
       params: Promise.resolve({ id: "o1" }),
     });
     expect(response.status).toBe(200);
-    expect(apiClient.admin.orders.get).toHaveBeenCalledWith("store-1", "o1", "platform-token");
+    expect(apiClient.admin.orders.get).toHaveBeenCalledWith("store-1", "o1", "store-session-token");
   });
 
   it("rejects placing an order without a CSRF token before any upstream call", async () => {
@@ -419,7 +427,7 @@ describe("store-admin BFF — orders proxy (F2G)", () => {
       { params: Promise.resolve({ id: "o1" }) },
     );
     expect(response.status).toBe(200);
-    expect(apiClient.admin.orders.place).toHaveBeenCalledWith("store-1", "o1", "platform-token");
+    expect(apiClient.admin.orders.place).toHaveBeenCalledWith("store-1", "o1", "store-session-token");
   });
 
   it("rejects cancelling an order without a CSRF token", async () => {
@@ -447,7 +455,7 @@ describe("store-admin BFF — orders proxy (F2G)", () => {
       "store-1",
       "o1",
       { reason: "Stok yok" },
-      "platform-token",
+      "store-session-token",
     );
   });
 
@@ -465,8 +473,8 @@ describe("store-admin BFF — orders proxy (F2G)", () => {
     );
     const raw = await response.text();
     expect(response.status).toBe(201);
-    expect(raw).not.toContain("platform-token");
-    expect(apiClient.admin.orders.create).toHaveBeenCalledWith("store-1", body, "platform-token");
+    expect(raw).not.toContain("store-session-token");
+    expect(apiClient.admin.orders.create).toHaveBeenCalledWith("store-1", body, "store-session-token");
   });
 
   it("maps an insufficient-stock ApiError on place to the gateway code and status", async () => {
@@ -533,6 +541,6 @@ describe("store-admin BFF — dashboard summary", () => {
     expect(body.products).toEqual({ total: 3, active: 2 });
     expect(body.categories).toEqual({ total: 1 });
     expect(body.inventory).toEqual({ records: 2, lowStock: 1, totalOnHand: 14 });
-    expect(JSON.stringify(body)).not.toContain("platform-token");
+    expect(JSON.stringify(body)).not.toContain("store-session-token");
   });
 });
