@@ -40,6 +40,10 @@ services:
       DATABASE_URL: postgresql://commerce_os:commerce_os_password@postgres:5432/commerce_os?schema=public
       REDIS_URL: redis://redis:6379
       API_GATEWAY_PORT: 4000
+      # TODO-B (ADR-271) — Store-admin TENANT TRUST BOUNDARY. Store-auth login tenant'i
+      # YALNIZCA bu sunucu-tarafi config'ten cozulur (istemci header/govde tenant SECEMEZ).
+      # BFF'nin STORE_ADMIN_DEMO_STORE_SLUG'i ile AYNI magaza (enterprise-demo) olmali.
+      STORE_ADMIN_STORE_SLUG: enterprise-demo
       # F3C.1 — Kargo credential sifreleme anahtari. YALNIZCA local docker dev/smoke
       # icin sabit deger (gercek secret DEGIL). Fallback yoktur; bu anahtar olmadan
       # kargo credential save/test/decrypt CONFIG_MISSING doner. Uretimde override edin.

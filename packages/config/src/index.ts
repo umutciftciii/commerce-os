@@ -48,6 +48,12 @@ export const envSchema = z.object({
   SESSION_TTL_SECONDS: optionalNumberEnv(z.coerce.number().int().positive().default(60 * 60 * 8)),
   PASSWORD_HASH_PEPPER: z.string().optional().default(""),
   ADMIN_AUTH_COOKIE_NAME: optionalEnv(z.string().min(1).default("commerce_os_admin_session")),
+  // TODO-B (ADR-271) — Store-admin tenant TRUST BOUNDARY. Bu tek-magaza deployment'inda
+  // store-auth login tenant context'i YALNIZCA sunucu-tarafi bu deployment config'inden
+  // cozulur; hicbir istemci header'i/govde alani tenant SECEMEZ. Tanimsiz/bos ise
+  // resolveStoreAdminTenantContext null doner ve TUM store-auth login'ler fail-closed 401
+  // olur (bilerek). Ileride host/subdomain resolver eklenebilir (tenant-resolver abstraction).
+  STORE_ADMIN_STORE_SLUG: optionalEnv(z.string().min(1).optional()),
   AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS: optionalNumberEnv(
     z.coerce.number().int().positive().default(60),
   ),

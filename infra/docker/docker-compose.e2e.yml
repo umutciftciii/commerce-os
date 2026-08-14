@@ -91,3 +91,10 @@ services:
       timeout: 5s
       retries: 30
       start_period: 40s
+
+  # TODO-B (ADR-271) — Base api-gateway servisinin store-auth TENANT config'ini e2e mağazasına
+  # hizala (base = enterprise-demo). Overlay `environment` yalnız bu anahtarı override eder; diğer
+  # base env korunur. Store-auth login henüz e2e'de koşmuyor; bu, ileride tutarlı tek-mağaza içindir.
+  api-gateway:
+    environment:
+      STORE_ADMIN_STORE_SLUG: e2e-store

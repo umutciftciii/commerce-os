@@ -1,10 +1,15 @@
 /**
  * Store-auth routes (Faz B, TODO-B3) — GERÇEK-DB entegrasyon testleri.
  *
- * CALISTIRMA: DATABASE_URL verilmezse SKIP (CI-safe). Fastify inject; tenant `x-store-admin-tenant`
- * header'ından. Güvenlik değişmezleri: TÜM login başarısızlıkları aynı jenerik 401
- * INVALID_CREDENTIALS (enumeration yok); PlatformUser fallback yok; başarısız denemeler audit
- * YAZMAZ; response body'lerde passwordHash/tokenHash/linkedPlatformUserId/sessionId ASLA yok.
+ * CALISTIRMA: DATABASE_URL verilmezse SKIP (CI-safe). Fastify inject.
+ *
+ * TENANT TRUST BOUNDARY: tenant context YALNIZCA sunucu-tarafı deployment config'inden
+ * (`buildApp(configuredStoreSlug)` ← STORE_ADMIN_STORE_SLUG) çözülür. İstemci tenant SEÇEMEZ:
+ * spoof edilmiş `x-store-admin-tenant` header'ı, host, body/query storeSlug/storeId YOKSAYILIR.
+ * Config tanımsız/bilinmeyen ise login fail-closed 401. Güvenlik değişmezleri: TÜM login
+ * başarısızlıkları aynı jenerik 401 INVALID_CREDENTIALS (enumeration yok); PlatformUser fallback
+ * yok; başarısız denemeler audit YAZMAZ; response body'lerde passwordHash/tokenHash/
+ * linkedPlatformUserId/sessionId ASLA yok.
  */
 import { createHash, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
@@ -69,12 +74,15 @@ interface CapturedAudit {
   metadata?: Record<string, unknown>;
 }
 
-function buildApp(): { app: FastifyInstance; audits: CapturedAudit[] } {
+// Tenant, deployment config'inden (configuredStoreSlug) enjekte edilir — istemci header'ından
+// DEĞİL. Tek-mağaza deployment modeli: her app instance'ı tek bir mağazaya pinlenir.
+function buildApp(configuredStoreSlug?: string): { app: FastifyInstance; audits: CapturedAudit[] } {
   const audits: CapturedAudit[] = [];
   const app = Fastify();
   const deps: StoreAuthRouteDeps = {
     data: createStoreAuthData(prisma),
     policy: resolveSessionPolicy({}),
+    configuredStoreSlug,
     hashToken,
     verifyPassword: (pw, hash) => verifyPassword(pw, hash, ""),
     createAuditLog: async (input) => {
@@ -108,15 +116,14 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
     }
   });
 
-  it("successful ACTIVE login → 200; safe DTO only", async () => {
-    const { app } = buildApp();
+  it("configured deployment tenant → successful ACTIVE login → 200; safe DTO only", async () => {
     const store = await makeStore();
     const { userId, password } = await makeStoreUser(store.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(store.slug);
 
     const res = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "owner@e.test", password },
     });
 
@@ -130,14 +137,13 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
   });
 
   it("wrong password → 401 INVALID_CREDENTIALS", async () => {
-    const { app } = buildApp();
     const store = await makeStore();
     await makeStoreUser(store.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(store.slug);
 
     const res = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "owner@e.test", password: "totally-wrong" },
     });
 
@@ -146,13 +152,12 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
   });
 
   it("unknown email → 401 INVALID_CREDENTIALS", async () => {
-    const { app } = buildApp();
     const store = await makeStore();
+    const { app } = buildApp(store.slug);
 
     const res = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "nobody@e.test", password: "whatever12" },
     });
 
@@ -160,38 +165,115 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
     expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
   });
 
-  it("unknown/missing tenant header → 401 (no store leak)", async () => {
-    const { app } = buildApp();
+  // --- TENANT TRUST BOUNDARY (ADR-271 takip) -------------------------------------------------
+
+  it("missing configured tenant → fail-closed 401 (no store leak)", async () => {
     const store = await makeStore();
     const { password } = await makeStoreUser(store.storeId, { email: "owner@e.test" });
-
-    const missing = await app.inject({
-      method: "POST",
-      url: "/auth/store/login",
-      payload: { email: "owner@e.test", password },
-    });
-    expect(missing.statusCode).toBe(401);
-    expect(missing.json().error.code).toBe("INVALID_CREDENTIALS");
-
-    const unknown = await app.inject({
-      method: "POST",
-      url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": "does-not-exist" },
-      payload: { email: "owner@e.test", password },
-    });
-    expect(unknown.statusCode).toBe(401);
-    expect(unknown.json().error.code).toBe("INVALID_CREDENTIALS");
-  });
-
-  it("INVITED user → 401", async () => {
-    const { app } = buildApp();
-    const store = await makeStore();
-    const { password } = await makeStoreUser(store.storeId, { email: "invited@e.test", status: "INVITED" });
+    const { app } = buildApp(undefined); // deployment config yok → resolver null → fail-closed
 
     const res = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
+      payload: { email: "owner@e.test", password },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("unknown configured tenant → fail-closed 401", async () => {
+    // Config gerçek bir mağazaya işaret etmiyor: findStoreBySlug null → generic 401.
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(`does-not-exist-${randomUUID().slice(0, 8)}`);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "owner@e.test", password },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("spoofed x-store-admin-tenant header CANNOT change tenant (ignored; config still authenticates)", async () => {
+    // App storeA'ya pinli; kullanıcı yalnız storeA'da. Saldırgan spoof header + host yollar.
+    const storeA = await makeStore();
+    const { userId, password } = await makeStoreUser(storeA.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(storeA.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      headers: {
+        "x-store-admin-tenant": "attacker-controlled-slug",
+        host: "attacker.example.com",
+      },
+      payload: { email: "owner@e.test", password },
+    });
+
+    // Header/host YOKSAYILIR: config'teki storeA'ya karşı doğrulanır → 200, storeA döner.
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.id).toBe(userId);
+    expect(res.json().user.storeId).toBe(storeA.storeId);
+  });
+
+  it("spoofed tenant header pointing at a REAL other store cannot cross-authenticate", async () => {
+    // App storeA'ya pinli. Kurban storeB'de geçerli creds'e sahip. Saldırgan storeB.slug'ı
+    // header/body ile enjekte etse bile tenant storeA kalır → storeB kullanıcısı storeA'da yok → 401.
+    const storeA = await makeStore();
+    const storeB = await makeStore();
+    await makeStoreUser(storeB.storeId, { email: "victim@e.test", password: "victim-pass-1" });
+    const { app } = buildApp(storeA.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      headers: { "x-store-admin-tenant": storeB.slug },
+      payload: {
+        email: "victim@e.test",
+        password: "victim-pass-1",
+        // İstemci gövde alanları da tenant SEÇEMEZ (schema strip'ler; route yoksayar):
+        storeSlug: storeB.slug,
+        storeId: storeB.storeId,
+      },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("client body storeSlug/storeId is ignored (config tenant wins)", async () => {
+    // App storeA'ya pinli, kullanıcı storeA'da. Gövdeye başka mağazayı hedefleyen alanlar konur.
+    const storeA = await makeStore();
+    const storeB = await makeStore();
+    const { userId, password } = await makeStoreUser(storeA.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(storeA.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: {
+        email: "owner@e.test",
+        password,
+        storeSlug: storeB.slug,
+        storeId: storeB.storeId,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.storeId).toBe(storeA.storeId);
+    expect(res.json().user.id).toBe(userId);
+  });
+
+  it("INVITED user → 401", async () => {
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "invited@e.test", status: "INVITED" });
+    const { app } = buildApp(store.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
       payload: { email: "invited@e.test", password },
     });
     expect(res.statusCode).toBe(401);
@@ -199,14 +281,13 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
   });
 
   it("DISABLED user → 401", async () => {
-    const { app } = buildApp();
     const store = await makeStore();
     const { password } = await makeStoreUser(store.storeId, { email: "disabled@e.test", status: "DISABLED" });
+    const { app } = buildApp(store.slug);
 
     const res = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "disabled@e.test", password },
     });
     expect(res.statusCode).toBe(401);
@@ -214,40 +295,39 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
   });
 
   it("legacy null-passwordHash ACTIVE user → 401 (no fallback)", async () => {
-    const { app } = buildApp();
     const store = await makeStore();
     await makeStoreUser(store.storeId, { email: "legacy@e.test", password: null });
+    const { app } = buildApp(store.slug);
 
     const res = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "legacy@e.test", password: "anything123" },
     });
     expect(res.statusCode).toBe(401);
     expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
   });
 
-  it("same-email two-store isolation", async () => {
-    const { app } = buildApp();
+  it("same-email different-store isolation (app pinned to storeA)", async () => {
     const storeA = await makeStore();
     const storeB = await makeStore();
     await makeStoreUser(storeA.storeId, { email: "same@e.test", password: "password-A-1" });
     await makeStoreUser(storeB.storeId, { email: "same@e.test", password: "password-B-1" });
+    const { app } = buildApp(storeA.slug);
 
+    // storeA creds → storeA'da başarılı.
     const okA = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": storeA.slug },
       payload: { email: "same@e.test", password: "password-A-1" },
     });
     expect(okA.statusCode).toBe(200);
     expect(okA.json().user.storeId).toBe(storeA.storeId);
 
+    // storeB'nin (doğru) şifresi storeA'ya karşı çalışmaz — tenant izolasyonu korunur.
     const crossed = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": storeA.slug },
       payload: { email: "same@e.test", password: "password-B-1" },
     });
     expect(crossed.statusCode).toBe(401);
@@ -255,7 +335,6 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
   });
 
   it("PlatformUser-only email → 401 (no PlatformUser fallback)", async () => {
-    const { app } = buildApp();
     const store = await makeStore();
     const platformUserId = `sar-pu-${randomUUID().slice(0, 12)}`;
     await prisma.platformUser.create({
@@ -267,12 +346,12 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
         role: "SUPPORT_ADMIN",
       },
     });
+    const { app } = buildApp(store.slug);
 
     try {
       const res = await app.inject({
         method: "POST",
         url: "/auth/store/login",
-        headers: { "x-store-admin-tenant": store.slug },
         payload: { email: "pu@e.test", password: "platform-pass-1" },
       });
       expect(res.statusCode).toBe(401);
@@ -283,14 +362,13 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
   });
 
   it("GET /auth/store/session — 200 with token; 401 without", async () => {
-    const { app } = buildApp();
     const store = await makeStore();
     const { password } = await makeStoreUser(store.storeId, { email: "sess@e.test" });
+    const { app } = buildApp(store.slug);
 
     const login = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "sess@e.test", password },
     });
     expect(login.statusCode).toBe(200);
@@ -312,14 +390,13 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
   });
 
   it("logout revokes the session; subsequent session check → 401", async () => {
-    const { app } = buildApp();
     const store = await makeStore();
     const { password } = await makeStoreUser(store.storeId, { email: "logout@e.test" });
+    const { app } = buildApp(store.slug);
 
     const login = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "logout@e.test", password },
     });
     const { token } = login.json();
@@ -341,17 +418,16 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
   });
 
   it("audit snapshot: LOGIN + LOGOUT capture STORE_USER actor; no password leak", async () => {
-    const { app, audits } = buildApp();
     const store = await makeStore();
     const { userId, password } = await makeStoreUser(store.storeId, {
       email: "audit@e.test",
       name: "Audit Person",
     });
+    const { app, audits } = buildApp(store.slug);
 
     const login = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "audit@e.test", password },
     });
     const { token } = login.json();
@@ -381,28 +457,26 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
   });
 
   it("failed login attempts write NO audit row", async () => {
-    const { app, audits } = buildApp();
     const store = await makeStore();
     await makeStoreUser(store.storeId, { email: "noaudit@e.test" });
+    const { app, audits } = buildApp(store.slug);
 
     await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "noaudit@e.test", password: "wrong-one" },
     });
     expect(audits).toHaveLength(0);
   });
 
   it("rememberMe timing parity: propagates through login → session", async () => {
-    const { app } = buildApp();
     const store = await makeStore();
     const { password } = await makeStoreUser(store.storeId, { email: "remember@e.test" });
+    const { app } = buildApp(store.slug);
 
     const login = await app.inject({
       method: "POST",
       url: "/auth/store/login",
-      headers: { "x-store-admin-tenant": store.slug },
       payload: { email: "remember@e.test", password, rememberMe: true },
     });
     expect(login.statusCode).toBe(200);

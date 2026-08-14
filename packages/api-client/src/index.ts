@@ -1591,11 +1591,12 @@ export interface ApiClient {
   };
   /**
    * Store Admin Auth & RBAC — tenant-scoped store-admin oturumu. `auth.platform*`ten
-   * AYRI namespace: tenantSlug asla govdeye degil `x-store-admin-tenant` header'ina
-   * girer (BFF tarafindan, tarayicidan degil, sunulur).
+   * AYRI namespace. Tenant istemci tarafindan SECILEMEZ: gateway tenant context'i
+   * sunucu-tarafi deployment config'inden (STORE_ADMIN_STORE_SLUG) cozer. login()
+   * NE govdede NE header'da tenant TASIMAZ (guven-sinir invariant'i).
    */
   storeAuth: {
-    login(input: StoreAdminLoginRequest, tenantSlug: string): Promise<StoreAdminLoginResponse>;
+    login(input: StoreAdminLoginRequest): Promise<StoreAdminLoginResponse>;
     logout(token?: string): Promise<StoreAdminLogoutResponse>;
     session(token?: string): Promise<StoreAdminSessionResponse>;
   };
@@ -3539,11 +3540,12 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
         sendJson<PlatformSessionExtendResponse>("/auth/platform/extend", "POST", undefined, token),
     },
     storeAuth: {
-      login: (input, tenantSlug) =>
+      // Tenant istemciden GONDERILMEZ: gateway sunucu-tarafi config'ten cozer. Govde
+      // yalnizca credential tasir (storeSlug/storeId yok — bkz. storeAdminLoginRequestSchema).
+      login: (input) =>
         requestJson<StoreAdminLoginResponse>("/auth/store/login", {
           method: "POST",
           body: JSON.stringify(input),
-          headers: { "x-store-admin-tenant": tenantSlug },
         }),
       logout: (token) =>
         sendJson<StoreAdminLogoutResponse>("/auth/store/logout", "POST", undefined, token),

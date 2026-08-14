@@ -22,7 +22,7 @@ describe("storeAuth namespace (Task B4)", () => {
     expect((client.auth as Record<string, unknown>).storeAuth).toBeUndefined();
   });
 
-  it("login() posts to /auth/store/login with the tenant header and a body free of storeSlug/storeId", async () => {
+  it("login() posts to /auth/store/login WITHOUT any tenant header and a body free of storeSlug/storeId", async () => {
     const loginResponse = {
       token: "raw-store-token",
       expiresAt: new Date(Date.now() + 1000).toISOString(),
@@ -38,13 +38,14 @@ describe("storeAuth namespace (Task B4)", () => {
     const client = createApiClient({ baseUrl: "http://localhost:4000", fetch: fetchImpl });
 
     const input = { email: "owner@acme.test", password: "secret", rememberMe: false };
-    const result = await client.storeAuth.login(input, "acme");
+    const result = await client.storeAuth.login(input);
 
     expect(calls[0]?.url).toBe("http://localhost:4000/auth/store/login");
     expect(calls[0]?.init?.method).toBe("POST");
 
     const headers = calls[0]?.init?.headers as Headers;
-    expect(headers.get("x-store-admin-tenant")).toBe("acme");
+    // Guven-sinir invariant'i: istemci tenant SECEMEZ; hicbir tenant header'i gonderilmez.
+    expect(headers.get("x-store-admin-tenant")).toBeNull();
     expect(headers.get("content-type")).toBe("application/json");
 
     const sentBody = JSON.parse(calls[0]?.init?.body as string);

@@ -7570,11 +7570,14 @@ export function createServer(
   });
 
   // TODO-B3 (Faz B, ADR-271) — Store-admin auth: login/logout/session (STORE_USER ilk-sınıf
-  // vatandaş kimlik doğrulaması). Tenant SUNUCU tarafında `x-store-admin-tenant` header'ından
-  // çözülür (asla body'den). NO store-route guard değişikliği (Faz E); NO /auth/store/extend (Faz F).
+  // vatandaş kimlik doğrulaması). TENANT TRUST BOUNDARY: tenant context YALNIZCA sunucu-tarafı
+  // deployment config'inden (STORE_ADMIN_STORE_SLUG) çözülür — hiçbir istemci header'ı/host/body
+  // alanı tenant seçemez; tanımsızsa login fail-closed. NO store-route guard değişikliği (Faz E);
+  // NO /auth/store/extend (Faz F).
   registerStoreAuthRoutes(app, {
     data: createStoreAuthData(prisma),
     policy: sessionPolicy,
+    configuredStoreSlug: config.STORE_ADMIN_STORE_SLUG,
     hashToken: (t) => hashSessionToken(t, config.SESSION_SECRET),
     verifyPassword: (pw, hash) => verifyPassword(pw, hash, config.PASSWORD_HASH_PEPPER),
     createAuditLog: dataAccess.createAuditLog,

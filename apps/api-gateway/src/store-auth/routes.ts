@@ -1,11 +1,14 @@
 /**
  * Store-auth (Faz B, TODO-B3) — gateway route'ları: login/logout/session.
  *
- * Tenant SUNUCU tarafında `x-store-admin-tenant` header'ından çözülür (asla body/host'tan
- * güvenilir kabul edilmez — bkz. resolveStoreAdminTenantContext). TÜM login başarısızlıkları
- * (bilinmeyen tenant/store/email, INVITED/DISABLED, null passwordHash, yanlış şifre) AYNI jenerik
- * 401 INVALID_CREDENTIALS döner — enumeration sızıntısı yok. PlatformUser fallback YOK. Başarısız
- * denemeler audit YAZMAZ (yalnız rate-limiter). Yanıt gövdeleri B1 safe-DTO şemalarından geçer.
+ * TENANT TRUST BOUNDARY (ADR-271 takip): tenant context YALNIZCA sunucu-tarafı deployment
+ * config'inden (`deps.configuredStoreSlug` ← STORE_ADMIN_STORE_SLUG) çözülür. İstemci tenant
+ * SEÇEMEZ: hiçbir request header'ı (eski `x-store-admin-tenant` dahil), host, body/query alanı
+ * (storeSlug/storeId) tenant belirlemez — tarayıcı/keyfî dış çağıran kurban mağazayı hedef
+ * ALAMAZ. Config tanımsızsa resolver null döner → fail-closed. TÜM login başarısızlıkları
+ * (config yok, bilinmeyen store/email, INVITED/DISABLED, null passwordHash, yanlış şifre) AYNI
+ * jenerik 401 INVALID_CREDENTIALS döner — enumeration sızıntısı yok. PlatformUser fallback YOK.
+ * Başarısız denemeler audit YAZMAZ (yalnız rate-limiter). Yanıtlar B1 safe-DTO şemalarından geçer.
  */
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -29,6 +32,12 @@ const firstHeader = (v: string | string[] | undefined): string | undefined =>
 export interface StoreAuthRouteDeps {
   data: StoreAuthData;
   policy: SessionPolicy;
+  /**
+   * Sunucu-tarafı deployment tenant slug'ı (STORE_ADMIN_STORE_SLUG). Login tenant context'i
+   * YALNIZCA buradan çözülür; istemci hiçbir şekilde tenant seçemez. Tanımsız/boş ise tüm
+   * store-auth login'ler fail-closed 401 döner (bilerek — güven-sınır invariant'ı).
+   */
+  configuredStoreSlug?: string;
   hashToken: (token: string) => string;
   verifyPassword: (password: string, passwordHash: string) => Promise<boolean>;
   createAuditLog: (input: {
@@ -68,12 +77,13 @@ export function registerStoreAuthRoutes(app: FastifyInstance, deps: StoreAuthRou
     return result;
   }
 
-  // POST /auth/store/login — tenant is resolved SERVER-SIDE from the trusted BFF header, never the body.
+  // POST /auth/store/login — tenant is resolved SERVER-SIDE from deployment config ONLY.
+  // No request header (incl. legacy x-store-admin-tenant), host, or body/query field can select
+  // the tenant: an arbitrary external caller cannot target another store. Fail-closed if unset.
   app.post("/auth/store/login", async (request, reply) => {
     const input = storeAdminLoginRequestSchema.parse(request.body);
     const tenant = resolveStoreAdminTenantContext({
-      host: firstHeader(request.headers.host),
-      configuredStoreSlug: firstHeader(request.headers["x-store-admin-tenant"]),
+      configuredStoreSlug: deps.configuredStoreSlug,
     });
     const normalizedEmail = input.email.toLowerCase();
     const genericFail = () => reply.code(401).send(err("INVALID_CREDENTIALS", "Invalid email or password."));
