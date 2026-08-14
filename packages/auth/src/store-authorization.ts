@@ -63,10 +63,11 @@ export function authorizeStoreRequest(input: StoreAuthorizationInput): StoreAuth
 
 // --- Policy mapping: modül + aksiyon → StorePermission ------------------------------------
 //
-// Faz A kilitli matris'e göre TEK yerde tanımlı eşleme (section 6). "returns" için ayrı
-// permission YOKTUR → orders'a alias'lanır (iade, sipariş yaşam döngüsü operasyonu; para
-// hareketi ayrıca refunds:manage ile kapılanır). Manage tier'ı olmayan modüllerde "manage"
-// aksiyonu write permission'ına düşer; settings'te write→manage (settings:write yok).
+// Faz A kilitli matris'e göre TEK yerde tanımlı eşleme (section 6). "returns" kendi
+// permission'larına sahiptir (returns:read/returns:manage); orders'a alias DEĞİL. İade yönetimi
+// (returns:manage) TEK BAŞINA para iadesi yetkisi VERMEZ — refund execution ayrıca refunds:manage
+// gerektirir. Manage tier'ı olmayan modüllerde "manage" write'a düşer; settings'te write→manage
+// (settings:write yok); returns'te write→manage (returns:write yok).
 
 export type StorePolicyModule =
   | "catalog"
@@ -87,8 +88,8 @@ const MODULE_ACTION_PERMISSION: Record<
 > = {
   catalog: { read: "catalog:read", write: "catalog:write", manage: "catalog:write" },
   orders: { read: "orders:read", write: "orders:write", manage: "orders:write" },
-  // returns → orders (Faz A matris'inde returns permission'ı yok; RMA yaşam döngüsü = sipariş).
-  returns: { read: "orders:read", write: "orders:write", manage: "orders:write" },
+  // returns: read + manage (write tier yok → write manage'e düşer). refunds'tan bağımsızdır.
+  returns: { read: "returns:read", write: "returns:manage", manage: "returns:manage" },
   refunds: { read: "refunds:read", write: "refunds:write", manage: "refunds:manage" },
   "shopping-balance": {
     read: "shopping-balance:read",

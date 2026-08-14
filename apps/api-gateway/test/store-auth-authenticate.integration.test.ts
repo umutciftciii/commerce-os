@@ -22,20 +22,26 @@ function hashToken(token: string): string {
   return createHash("sha256").update(`${token}.test-secret`).digest("hex");
 }
 
-async function makeStore(): Promise<{ storeId: string }> {
+async function makeStore(
+  status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "CLOSED" = "ACTIVE",
+): Promise<{ storeId: string }> {
   const sfx = randomUUID().slice(0, 12);
   const storeId = `saa-store-${sfx}`;
-  await prisma.store.create({ data: { id: storeId, name: `SAA ${sfx}`, slug: `saa-${sfx}` } });
+  await prisma.store.create({ data: { id: storeId, name: `SAA ${sfx}`, slug: `saa-${sfx}`, status } });
   created.push(storeId);
   return { storeId };
 }
 
-async function makeStoreUser(storeId: string, status: StoreUserStatus = "ACTIVE") {
+async function makeStoreUser(
+  storeId: string,
+  status: StoreUserStatus = "ACTIVE",
+  over: { email?: string | null } = {},
+) {
   const sfx = randomUUID().slice(0, 12);
   return prisma.storeUser.create({
     data: {
       storeId,
-      email: `saa-${sfx}@example.test`,
+      email: over.email === null ? null : (over.email ?? `saa-${sfx}@example.test`),
       name: "Auth Test User",
       passwordHash: "irrelevant-for-session-tests",
       status,
@@ -117,6 +123,31 @@ describe.skipIf(!hasTestDb)("authenticateStoreToken (ADR-271, integration)", () 
     });
     expect("passwordHash" in result!.principal).toBe(false);
     expect("tokenHash" in result!.session).toBe(false);
+  });
+
+  it("mağaza SUSPENDED → null (store status policy; valid session olsa bile)", async () => {
+    const { storeId } = await makeStore("SUSPENDED");
+    const user = await makeStoreUser(storeId);
+    const deps = buildDeps();
+    const { token } = await seedSession(storeId, user.id);
+    expect(await authenticateStoreToken(deps, token, new Date())).toBeNull();
+  });
+
+  it("mağaza CLOSED → null (store status policy)", async () => {
+    const { storeId } = await makeStore("CLOSED");
+    const user = await makeStoreUser(storeId);
+    const deps = buildDeps();
+    const { token } = await seedSession(storeId, user.id);
+    expect(await authenticateStoreToken(deps, token, new Date())).toBeNull();
+  });
+
+  it("native null-email StoreUser → null (kimlik-bütünlüğü fail-closed; 500 değil)", async () => {
+    const { storeId } = await makeStore();
+    const user = await makeStoreUser(storeId, "ACTIVE", { email: null });
+    const deps = buildDeps();
+    const { token } = await seedSession(storeId, user.id);
+    // Fixture ile valid session oluşsa bile null-email → geçersiz → null (endpoint 500 üretmez).
+    expect(await authenticateStoreToken(deps, token, new Date())).toBeNull();
   });
 
   it("iptal edilmiş (revokedAt set) oturum → null", async () => {

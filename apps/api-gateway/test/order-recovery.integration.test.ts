@@ -209,6 +209,29 @@ describe.skipIf(!hasTestDb)("Order Experience Recovery (integration)", () => {
     expect(users.find((u) => u.id === u2.id)).toBeUndefined();
   });
 
+  it("TD-AUTH-001: native/unlinked StoreUser (linkedPlatformUserId=null) assignee'ye GİRMEZ; boş id asla", async () => {
+    const f = await seedOrder();
+    const linked = await seedPlatformUser("Linked Owner");
+    await prisma.storeUser.create({ data: { storeId: f.storeId, linkedPlatformUserId: linked.id, role: "OWNER" } });
+    // native/unlinked Phase 1 StoreUser: linkedPlatformUserId YOK, email VAR.
+    await prisma.storeUser.create({
+      data: {
+        storeId: f.storeId,
+        linkedPlatformUserId: null,
+        email: `native-${randomUUID().slice(0, 8)}@e.test`,
+        name: "Native User",
+        role: "ADMIN",
+      },
+    });
+
+    const users = await listAssignableUsers(f.storeId);
+    // Yalnız gerçek linked kullanıcı; native/unlinked girmez.
+    expect(users.map((u) => u.id)).toEqual([linked.id]);
+    // Hiçbir koşulda boş id yok.
+    expect(users.some((u) => u.id === "")).toBe(false);
+    expect(users.every((u) => u.id.length > 0)).toBe(true);
+  });
+
   it("SLA overdue: dueAt geçmiş → overdueOnly listeler + KPI sayar", async () => {
     const f = await seedOrder();
     const r = await review(f, 1);

@@ -44,6 +44,31 @@ describe("loadConfig", () => {
     expect(loadConfig(validEnv).AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS).toBe(4);
   });
 
+  it("store-admin slug parity: canonical == alias OK; both set & different → FAIL-FAST; one-side OK", () => {
+    // ikisi de aynı → geçer
+    const same = loadConfig({
+      ...validEnv,
+      STORE_ADMIN_STORE_SLUG: "acme",
+      STORE_ADMIN_DEMO_STORE_SLUG: "acme",
+    });
+    expect(same.STORE_ADMIN_STORE_SLUG).toBe("acme");
+    // farklı → ConfigValidationError
+    expect(() =>
+      loadConfig({ ...validEnv, STORE_ADMIN_STORE_SLUG: "acme", STORE_ADMIN_DEMO_STORE_SLUG: "other" }),
+    ).toThrow(ConfigValidationError);
+    // yalnız kanonik set → geçer
+    expect(loadConfig({ ...validEnv, STORE_ADMIN_STORE_SLUG: "acme" }).STORE_ADMIN_STORE_SLUG).toBe("acme");
+    // yalnız alias set → geçer (parity yalnız İKİSİ set iken devreye girer)
+    expect(
+      loadConfig({ ...validEnv, STORE_ADMIN_DEMO_STORE_SLUG: "legacy" }).STORE_ADMIN_DEMO_STORE_SLUG,
+    ).toBe("legacy");
+    // boş alias (TD-036: boş→undefined) parity'yi tetiklemez
+    expect(
+      loadConfig({ ...validEnv, STORE_ADMIN_STORE_SLUG: "acme", STORE_ADMIN_DEMO_STORE_SLUG: "" })
+        .STORE_ADMIN_STORE_SLUG,
+    ).toBe("acme");
+  });
+
   it("rejects short internal tokens", () => {
     expect(() => loadConfig({ ...validEnv, INTERNAL_API_TOKEN: "short" })).toThrow();
   });

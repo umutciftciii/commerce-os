@@ -27,11 +27,13 @@ const created: string[] = [];
 const TEST_SECRET = "test-secret";
 const hashToken = (t: string) => createHash("sha256").update(`${t}.${TEST_SECRET}`).digest("hex");
 
-async function makeStore(): Promise<{ storeId: string; slug: string }> {
+async function makeStore(
+  status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "CLOSED" = "ACTIVE",
+): Promise<{ storeId: string; slug: string }> {
   const sfx = randomUUID().slice(0, 12);
   const storeId = `sar-store-${sfx}`;
   const slug = `sar-${sfx}`;
-  await prisma.store.create({ data: { id: storeId, name: `SAR ${sfx}`, slug } });
+  await prisma.store.create({ data: { id: storeId, name: `SAR ${sfx}`, slug, status } });
   created.push(storeId);
   return { storeId, slug };
 }
@@ -164,6 +166,24 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
     expect(res.statusCode).toBe(401);
     expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
   });
+
+  // --- STORE STATUS POLICY (Faz D) -----------------------------------------------------------
+
+  it.each(["SUSPENDED", "CLOSED", "DRAFT"] as const)(
+    "store %s → login 401 (yalnız ACTIVE eligible)",
+    async (status) => {
+      const store = await makeStore(status);
+      const { password } = await makeStoreUser(store.storeId, { email: "owner@e.test" });
+      const { app } = buildApp(store.slug);
+      const res = await app.inject({
+        method: "POST",
+        url: "/auth/store/login",
+        payload: { email: "owner@e.test", password },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+    },
+  );
 
   // --- TENANT TRUST BOUNDARY (ADR-271 takip) -------------------------------------------------
 

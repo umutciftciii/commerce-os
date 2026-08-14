@@ -42,8 +42,10 @@ services:
       API_GATEWAY_PORT: 4000
       # TODO-B (ADR-271) — Store-admin TENANT TRUST BOUNDARY. Store-auth login tenant'i
       # YALNIZCA bu sunucu-tarafi config'ten cozulur (istemci header/govde tenant SECEMEZ).
-      # BFF'nin STORE_ADMIN_DEMO_STORE_SLUG'i ile AYNI magaza (enterprise-demo) olmali.
+      # KANONIK env: STORE_ADMIN_STORE_SLUG. Compat alias STORE_ADMIN_DEMO_STORE_SLUG (BFF ile
+      # ayni deger) parity guard icin buraya da verilir; farkli olurlarsa gateway boot FAIL-FAST.
       STORE_ADMIN_STORE_SLUG: enterprise-demo
+      STORE_ADMIN_DEMO_STORE_SLUG: enterprise-demo
       # F3C.1 — Kargo credential sifreleme anahtari. YALNIZCA local docker dev/smoke
       # icin sabit deger (gercek secret DEGIL). Fallback yoktur; bu anahtar olmadan
       # kargo credential save/test/decrypt CONFIG_MISSING doner. Uretimde override edin.

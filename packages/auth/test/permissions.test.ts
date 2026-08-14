@@ -29,6 +29,17 @@ describe("store permissions", () => {
     expect(hasStorePermission("VIEWER", "orders:write")).toBe(false);
     expect(hasStorePermission("VIEWER", "catalog:write")).toBe(false);
   });
+  it("returns:manage for OWNER/ADMIN/MANAGER, read-only for STAFF/VIEWER; independent of refunds", () => {
+    for (const r of ["OWNER", "ADMIN", "MANAGER"] as const) {
+      expect(hasStorePermission(r, "returns:manage")).toBe(true);
+    }
+    expect(hasStorePermission("STAFF", "returns:manage")).toBe(false);
+    expect(hasStorePermission("STAFF", "returns:read")).toBe(true);
+    expect(hasStorePermission("VIEWER", "returns:manage")).toBe(false);
+    // returns:manage ≠ refunds:manage (finansal ayrım)
+    expect(hasStorePermission("MANAGER", "returns:manage")).toBe(true);
+    expect(hasStorePermission("MANAGER", "refunds:manage")).toBe(false);
+  });
   it("every role has a Set entry", () => {
     for (const r of ["OWNER", "ADMIN", "MANAGER", "STAFF", "VIEWER"] as const) {
       expect(ROLE_PERMISSIONS[r]).toBeInstanceOf(Set);

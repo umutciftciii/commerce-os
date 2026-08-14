@@ -30,10 +30,12 @@ const createdPlatformUsers: string[] = [];
 const TEST_SECRET = "test-secret";
 const hashToken = (t: string) => createHash("sha256").update(`${t}.${TEST_SECRET}`).digest("hex");
 
-async function makeStore(): Promise<{ storeId: string; slug: string }> {
+async function makeStore(
+  status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "CLOSED" = "ACTIVE",
+): Promise<{ storeId: string; slug: string }> {
   const sfx = randomUUID().slice(0, 12);
   const storeId = `sag-store-${sfx}`;
-  await prisma.store.create({ data: { id: storeId, name: `SAG ${sfx}`, slug: `sag-${sfx}` } });
+  await prisma.store.create({ data: { id: storeId, name: `SAG ${sfx}`, slug: `sag-${sfx}`, status } });
   created.push(storeId);
   return { storeId, slug: `sag-${sfx}` };
 }
@@ -232,6 +234,25 @@ describe.skipIf(!hasTestDb)("Store-auth guard (integration)", () => {
     const token = await makeSession(store.storeId, userId);
     const res = await app.inject({ method: "GET", url: "/t/me", headers: { authorization: `Bearer ${token}` } });
     expect(res.statusCode).toBe(401);
+  });
+
+  it.each(["SUSPENDED", "CLOSED"] as const)("store %s → 401 (store status policy)", async (status) => {
+    const app = buildGuardApp();
+    const store = await makeStore(status);
+    const { userId } = await makeStoreUser(store.storeId);
+    const token = await makeSession(store.storeId, userId);
+    const res = await app.inject({ method: "GET", url: "/t/me", headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(401);
+  });
+
+  it("native null-email StoreUser session → 401 (identity-integrity fail-closed; never 500)", async () => {
+    const app = buildGuardApp();
+    const store = await makeStore();
+    const { userId } = await makeStoreUser(store.storeId, { email: null });
+    const token = await makeSession(store.storeId, userId);
+    const res = await app.inject({ method: "GET", url: "/t/me", headers: { authorization: `Bearer ${token}` } });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("UNAUTHORIZED");
   });
 
   it("path :storeId mismatch → 404 STORE_ACCESS_DENIED (leak-free)", async () => {

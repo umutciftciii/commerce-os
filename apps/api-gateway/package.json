@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "lint": "eslint .",
     "test": "vitest run test",
-    "backfill:recovery-cases": "tsx scripts/backfill-recovery-cases.ts"
+    "backfill:recovery-cases": "tsx scripts/backfill-recovery-cases.ts",
+    "provision:store-owners": "tsx scripts/provision-store-owners.ts"
   },
   "dependencies": {
     "@commerce-os/auth": "workspace:*",

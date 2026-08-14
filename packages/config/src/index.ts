@@ -54,6 +54,12 @@ export const envSchema = z.object({
   // resolveStoreAdminTenantContext null doner ve TUM store-auth login'ler fail-closed 401
   // olur (bilerek). Ileride host/subdomain resolver eklenebilir (tenant-resolver abstraction).
   STORE_ADMIN_STORE_SLUG: optionalEnv(z.string().min(1).optional()),
+  // TODO-B (ADR-271) — GEÇİCİ compat alias. Yeni store-auth için KANONİK env
+  // STORE_ADMIN_STORE_SLUG'dır; STORE_ADMIN_DEMO_STORE_SLUG yalnız BFF'nin legacy
+  // platform-admin store-picking akışı için korunur. İkisi de set edilir ve FARKLI
+  // olursa loadConfig FAIL-FAST eder (parity). Faz E/F cutover'ından sonra bu alias
+  // kaldırılacaktır (bkz. .env.example removal notu).
+  STORE_ADMIN_DEMO_STORE_SLUG: optionalEnv(z.string().min(1).optional()),
   AUTH_LOGIN_RATE_LIMIT_WINDOW_SECONDS: optionalNumberEnv(
     z.coerce.number().int().positive().default(60),
   ),
@@ -438,6 +444,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   } catch (error) {
     throw new ConfigValidationError([
       `SESSION_ACTIVITY_THROTTLE_SECONDS: ${error instanceof Error ? error.message : "invalid"}`,
+    ]);
+  }
+  // TODO-B (ADR-271) — Store-admin slug PARITY (fail-fast). Kanonik STORE_ADMIN_STORE_SLUG ile
+  // geçici compat alias STORE_ADMIN_DEMO_STORE_SLUG ikisi de set edilip FARKLI ise boot durur.
+  // (Slug'lar secret değildir ama config konvansiyonu gereği değer basmayız — yalnız anahtarlar.)
+  const canonicalSlug = result.data.STORE_ADMIN_STORE_SLUG;
+  const aliasSlug = result.data.STORE_ADMIN_DEMO_STORE_SLUG;
+  if (canonicalSlug && aliasSlug && canonicalSlug !== aliasSlug) {
+    throw new ConfigValidationError([
+      "STORE_ADMIN_STORE_SLUG: kanonik slug ile STORE_ADMIN_DEMO_STORE_SLUG (compat alias) farklı; " +
+        "ikisi de set edildiğinde AYNI mağazayı göstermeli (Faz E/F sonrası alias kaldırılacak).",
     ]);
   }
   return result.data;

@@ -98,3 +98,5 @@ services:
   api-gateway:
     environment:
       STORE_ADMIN_STORE_SLUG: e2e-store
+      # Compat alias (parity guard); e2e mağazasıyla aynı olmalı.
+      STORE_ADMIN_DEMO_STORE_SLUG: e2e-store

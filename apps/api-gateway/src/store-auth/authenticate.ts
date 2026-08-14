@@ -34,8 +34,16 @@ export async function authenticateStoreToken(
   const session = await deps.data.findStoreSessionByTokenHash(deps.hashToken(token));
   if (!session) return null;
   if (!isSessionValid(deps.policy, session, now)) return null;
+  // Store status policy (Faz D): yalnız ACTIVE mağaza eligible. Mağaza sonradan SUSPENDED/
+  // CLOSED (veya ACTIVE dışı) olduysa mevcut oturum artık geçerli sayılmaz → fail-closed.
+  if (session.store.status !== "ACTIVE") return null;
   // DISABLED mağaza kullanıcısı mevcut bir oturumu kullanamaz (doğrulamada reddedilir).
   if (session.storeUser.status !== "ACTIVE") return null;
+  // KİMLİK-BÜTÜNLÜĞÜ (Faz D): native/unlinked null-email StoreUser oturumu GEÇERSİZ. Böylece
+  // principal/session-DTO asla `email:""` sentineli üretmez ve session endpoint 500 vermez.
+  // (Bir fixture ile oturum oluşmuş olsa bile burada fail-closed 401.)
+  const storeUserEmail = session.storeUser.email;
+  if (!storeUserEmail) return null;
 
   if (countAsActivity && now.getTime() <= effectiveAbsolute(session).getTime()) {
     const warn = deps.onTouchError ?? (() => {});
@@ -56,7 +64,7 @@ export async function authenticateStoreToken(
       storeId: session.storeId,
       role: session.storeUser.role,
       name: session.storeUser.name,
-      email: session.storeUser.email ?? "",
+      email: storeUserEmail, // yukarıda non-null garantilendi (aksi halde null döndük)
     },
   };
 }

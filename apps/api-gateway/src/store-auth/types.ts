@@ -7,13 +7,17 @@
  */
 import type { StoreUserRole } from "@prisma/client";
 
-/** authenticateStoreToken başarılı dönüşünde taşınan asgari kimlik. */
+/**
+ * authenticateStoreToken başarılı dönüşünde taşınan asgari kimlik. `email` NON-NULL'dır:
+ * kimlik-bütünlüğü eksik (null-email) StoreUser oturumu GEÇERSİZ sayılır (401) — bkz.
+ * authenticate.ts. Böylece session DTO'su asla `email:""` sentineli üretmez / 500 vermez.
+ */
 export interface StoreSessionPrincipal {
   storeUserId: string;
   storeId: string;
   role: StoreUserRole;
   name: string | null;
-  email: string; // normalize edilmiş (lowercase) e-posta
+  email: string; // normalize edilmiş (lowercase) e-posta — garantili non-null
 }
 
 /**
@@ -29,6 +33,11 @@ export interface StoreSessionAuthRecord {
   absoluteExpiresAt: Date | null;
   rememberMe: boolean;
   policyVersion: number;
+  // Store status oturum doğrulamada değerlendirilir: mağaza sonradan SUSPENDED/CLOSED
+  // (veya ACTIVE dışı) olursa mevcut oturum artık geçerli sayılmaz (bkz. authenticate.ts).
+  store: {
+    status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "CLOSED";
+  };
   storeUser: {
     id: string;
     storeId: string;

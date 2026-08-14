@@ -3,6 +3,7 @@ import type { StoreRole } from "./index.js";
 export type StorePermission =
   | "catalog:read" | "catalog:write"
   | "orders:read" | "orders:write"
+  | "returns:read" | "returns:manage"
   | "refunds:read" | "refunds:write" | "refunds:manage"
   | "shopping-balance:read" | "shopping-balance:write" | "shopping-balance:manage"
   | "product-support:read" | "product-support:write"
@@ -15,6 +16,7 @@ export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> =
   OWNER: new Set<StorePermission>([
     "catalog:read", "catalog:write",
     "orders:read", "orders:write",
+    "returns:read", "returns:manage",
     "refunds:read", "refunds:write", "refunds:manage",
     "shopping-balance:read", "shopping-balance:write", "shopping-balance:manage",
     "product-support:read", "product-support:write",
@@ -26,6 +28,7 @@ export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> =
   ADMIN: new Set<StorePermission>([
     "catalog:read", "catalog:write",
     "orders:read", "orders:write",
+    "returns:read", "returns:manage",
     "refunds:read", "refunds:write", "refunds:manage",
     "shopping-balance:read", "shopping-balance:write", "shopping-balance:manage",
     "product-support:read", "product-support:write",
@@ -36,6 +39,7 @@ export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> =
   MANAGER: new Set<StorePermission>([
     "catalog:read", "catalog:write",
     "orders:read", "orders:write",
+    "returns:read", "returns:manage",
     "refunds:read", "refunds:write",
     "shopping-balance:read",
     "product-support:read", "product-support:write",
@@ -46,6 +50,8 @@ export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> =
   STAFF: new Set<StorePermission>([
     "catalog:read",
     "orders:read", "orders:write",
+    // STAFF: yalnız returns:read — manage'i operasyon modeli gerçekten gerektirmedikçe vermeyiz (fail-closed).
+    "returns:read",
     "refunds:read",
     "shopping-balance:read",
     "product-support:read", "product-support:write",
@@ -55,6 +61,7 @@ export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> =
   VIEWER: new Set<StorePermission>([
     "catalog:read",
     "orders:read",
+    "returns:read",
     "refunds:read",
     "shopping-balance:read",
     "product-support:read",

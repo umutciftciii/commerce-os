@@ -20,7 +20,7 @@ function hashToken(token: string): string {
 async function makeStore(): Promise<{ storeId: string }> {
   const sfx = randomUUID().slice(0, 12);
   const storeId = `sad-store-${sfx}`;
-  await prisma.store.create({ data: { id: storeId, name: `SAD ${sfx}`, slug: `sad-${sfx}` } });
+  await prisma.store.create({ data: { id: storeId, name: `SAD ${sfx}`, slug: `sad-${sfx}`, status: "ACTIVE" } });
   created.push(storeId);
   return { storeId };
 }
@@ -100,6 +100,9 @@ describe.skipIf(!hasTestDb)("store-auth data-access (integration)", () => {
     expect(row!.storeUser.id).toBe(user.id);
     expect("passwordHash" in row!.storeUser).toBe(false);
     expect("tokenHash" in row!).toBe(false);
+    // store allowlist: yalnız status (store status policy için); başka store alanı sızmaz.
+    expect(Object.keys(row!.store)).toEqual(["status"]);
+    expect(row!.store.status).toBe("ACTIVE");
   });
 
   it("revokeStoreSession: ilk çağrıda true, ikinci çağrıda false (idempotent-safe)", async () => {

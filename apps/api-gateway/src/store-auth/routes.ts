@@ -99,7 +99,11 @@ export function registerStoreAuthRoutes(app: FastifyInstance, deps: StoreAuthRou
     // Run verify whenever a passwordHash exists (ACTIVE or DISABLED) to keep the disabled-vs-wrong-password
     // timing indistinguishable; the ACTIVE gate is applied to the boolean, not to whether verify runs.
     const passwordMatches = user?.passwordHash ? await deps.verifyPassword(input.password, user.passwordHash) : false;
-    const ok = !!store && !!user && user.status === "ACTIVE" && passwordMatches;
+    // Store status policy (Faz D): yalnız ACTIVE mağaza login'e eligible; SUSPENDED/CLOSED/DRAFT → deny
+    // (jenerik 401'e katlanır — enumeration yok). Not: null-email StoreUser zaten storeId_email ile
+    // bulunamaz (email input non-null), dolayısıyla login üzerinden asla kimlik doğrulayamaz.
+    const ok =
+      !!store && store.status === "ACTIVE" && !!user && user.status === "ACTIVE" && passwordMatches;
     if (!ok) {
       deps.loginRateLimiter.recordFailure(request.ip, rlKey);
       return genericFail();

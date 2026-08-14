@@ -91,6 +91,28 @@ describe("role matrix through authorizeStoreRequest", () => {
   it("VIEWER: orders:read allow", () => expect(check("VIEWER", "orders:read")).toBe(true));
   it("VIEWER: orders:write DENY (read-only)", () => expect(check("VIEWER", "orders:write")).toBe(false));
   it("VIEWER: shopping-balance:manage DENY", () => expect(check("VIEWER", "shopping-balance:manage")).toBe(false));
+
+  // returns matrix: OWNER/ADMIN/MANAGER read+manage; STAFF read-only; VIEWER read-only.
+  it("OWNER/ADMIN/MANAGER: returns:manage allow", () => {
+    expect(check("OWNER", "returns:manage")).toBe(true);
+    expect(check("ADMIN", "returns:manage")).toBe(true);
+    expect(check("MANAGER", "returns:manage")).toBe(true);
+  });
+  it("STAFF: returns:read allow, returns:manage DENY", () => {
+    expect(check("STAFF", "returns:read")).toBe(true);
+    expect(check("STAFF", "returns:manage")).toBe(false);
+  });
+  it("VIEWER: returns:read allow, returns:manage DENY", () => {
+    expect(check("VIEWER", "returns:read")).toBe(true);
+    expect(check("VIEWER", "returns:manage")).toBe(false);
+  });
+
+  // FINANSAL AYRIM: returns:manage TEK BAŞINA para iadesi yetkisi VERMEZ. Refund execution
+  // ayrıca refunds:manage gerektirir (Faz A matris'inde ayrı permission'lar).
+  it("returns:manage does NOT imply refunds:manage (MANAGER has returns:manage but not refunds:manage)", () => {
+    expect(check("MANAGER", "returns:manage")).toBe(true);
+    expect(check("MANAGER", "refunds:manage")).toBe(false);
+  });
 });
 
 describe("resolveStorePermission (policy module + action → permission)", () => {
@@ -112,10 +134,10 @@ describe("resolveStorePermission (policy module + action → permission)", () =>
     expect(resolveStorePermission("settings", "write")).toBe("settings:manage");
     expect(resolveStorePermission("settings", "manage")).toBe("settings:manage");
   });
-  it("returns is aliased to orders (no dedicated returns permission)", () => {
-    expect(resolveStorePermission("returns", "read")).toBe("orders:read");
-    expect(resolveStorePermission("returns", "write")).toBe("orders:write");
-    expect(resolveStorePermission("returns", "manage")).toBe("orders:write");
+  it("returns has dedicated read + manage (write folds to manage)", () => {
+    expect(resolveStorePermission("returns", "read")).toBe("returns:read");
+    expect(resolveStorePermission("returns", "write")).toBe("returns:manage");
+    expect(resolveStorePermission("returns", "manage")).toBe("returns:manage");
   });
   it("customers / orders / product-support / platform-requests read+write", () => {
     expect(resolveStorePermission("orders", "write")).toBe("orders:write");
