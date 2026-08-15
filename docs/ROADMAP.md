@@ -1714,12 +1714,19 @@ Faz zinciri: B (login/logout/session + tenant trust) → C (RBAC guard foundatio
 Store.status policy) → E1 (BFF cutover) / E2 (gateway route+RBAC cutover + audit-actor) → F (oturum UX +
 extend rotation + cleanup) → G (Playwright gerçek-login E2E + docs/ADR + gate + ship).
 
-**IMPLEMENTED — LOCAL GATE GREEN (ship pending, 2026-08-15):** gateway store-auth Run1+Run2 (authenticate/
+**CLOSED & DEPLOYED (2026-08-15; PR #216 merge `2d3fff8`):** gateway store-auth Run1+Run2 (authenticate/
 data/routes/guard/rbac + `/auth/store/extend` suite) + gateway full Run1+Run2 2981/2981 + BFF cutover +
 SessionGuard component + Playwright `@store-admin-auth` (OWNER+VIEWER gerçek login; identity/canonical/tenant/
-RBAC-403/session-lifecycle; Run1+Run2 + repeat-each=3 sıfır flake) + admin-smoke regresyon GREEN. Additive
-migration YOK (Faz B identity migration zaten canlı; `rotatedFromSessionId`/`policyVersion` şemada mevcut).
-CI + merge + runtime deploy + post-deploy smoke bekliyor → tamamlanınca **CLOSED & DEPLOYED** + ADR-291
-`IMPLEMENTED & GATE GREEN`. FUTURE: TD-AUTH-002 (legacy actor-field rename), Phase 1.5 impersonation,
-multi-store host/subdomain resolver, Structural Tenant Isolation/RLS. Docs: ADR-291 / TECHNICAL_DEBT /
-TESTING / OPERATIONS.
+RBAC-403/session-lifecycle; Run1+Run2 + repeat-each=3 sıfır flake) + admin-smoke regresyon GREEN. CI required
+(`lint · test · build` + `smoke`) GREEN — **store-admin real-login Playwright CI'da 16 passed** (docker branch
+stack); admin/platform/storefront smoke auth cutover sonrası regresyonsuz. Deploy: docker api-gateway +
+store-admin-web main'den rebuild+recreate (storefront/admin-web/worker/postgres/redis DOKUNULMADI); `migrate
+deploy` idempotent (Faz B identity migration zaten canlı; extend rotation migration istemez —
+`rotatedFromSessionId`/`policyVersion` şemada mevcut). **Post-deploy smoke (deployed :4000, gerçek OWNER
+`enterprise-demo`) GREEN:** login/session/extend-rotation(new≠old·absolute-sabit·old→401·new→200)/logout ·
+wrong-pw→401 · cross-store own→200/wrong→404 · PlatformUser token→store session/extend→401 (bridge yok;
+platform auth etkilenmemiş) · LOGIN audit `actorKind=STORE_USER`+`platformUserId` NULL. §16 provisioning HARD
+gate: enterprise-demo login-ready OWNER `platform-admin@example.local` (Phase D explicit manifest; heuristic
+YOK). FUTURE: TD-AUTH-002 (legacy actor-field rename), TD-AUTH-003 (Phase 1.5 impersonation), TD-AUTH-004
+(multi-store host/subdomain resolver), TD-AUTH-005 (Structural Tenant Isolation/RLS), TD-AUTH-006 (rate-limit
+map, minor). Docs: ADR-291 / ARCHITECTURE / TESTING §9d / OPERATIONS / TECHNICAL_DEBT.

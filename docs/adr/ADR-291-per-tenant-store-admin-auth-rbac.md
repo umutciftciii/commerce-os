@@ -1,10 +1,16 @@
 # ADR-291 — Per-Tenant Store Admin Authentication & RBAC
 
-- **Status:** ACCEPTED — Phase B–G local gate GREEN (2026-08-15). CI + merge + runtime deploy pending;
-  flips to **IMPLEMENTED & GATE GREEN** only after all required CI checks + post-deploy smoke are green
-  (see `docs/ROADMAP.md`). No new session policy is introduced (ADR-271 reuse); additive-only schema
-  (`StoreUser` / `StoreUserSession` identity foundation migration `20260811231121_store_user_identity_foundation`);
-  no `TD-AUTH-002` migration; Impersonation (Phase 1.5) remains FUTURE.
+- **Status:** IMPLEMENTED & GATE GREEN (2026-08-15). PR #216 merged (`2d3fff8`); CI required checks
+  (`lint · test · build` 7m0s + `smoke` 6m38s — store-admin real-login Playwright **16 passed** on the docker
+  branch stack, admin/platform/storefront smoke green) GREEN; docker enterprise stack rebuilt (api-gateway +
+  store-admin-web only; storefront/admin-web/worker/postgres/redis untouched) + `prisma migrate deploy`
+  idempotent (no pending; identity migration already live); **post-deploy runtime smoke GREEN** (deployed
+  :4000, real StoreUser OWNER `enterprise-demo`): login/session/**extend rotation** (new≠old token, absolute
+  unchanged, old→401, new→200)/logout · wrong-pw→401 · cross-store own→200/wrong→404 · PlatformUser token →
+  store session/extend → 401 (no bridge; platform auth unaffected) · LOGIN AuditLog `actorKind=STORE_USER`,
+  `platformUserId` NULL. No new session policy (ADR-271 reuse); additive-only identity foundation migration
+  `20260811231121_store_user_identity_foundation` (session rotation needs no new migration); no `TD-AUTH-002`
+  migration; Impersonation (Phase 1.5) remains FUTURE.
 - **Date:** 2026-08-11 (Phase B) … 2026-08-15 (Phase G)
 - **Builds on:** ADR-271 (Unified Session Policy — idle+absolute+remember-me+extend rotation+warning+multi-tab;
   `packages/config` platform-owned policy), ADR-287 (Playwright E2E = source-of-truth release gate),
