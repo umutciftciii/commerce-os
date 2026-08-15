@@ -87,6 +87,49 @@ export function createStoreAuthData(prisma: PrismaClient) {
       return res.count > 0;
     },
 
+    // ADR-271 (Faz F) — extend/rotation: eskiyi revoke + yenisini oluştur, TEK transaction.
+    // `rotatePlatformSession`/`rotateSession` (customer) ile birebir semantik. absoluteExpiresAt
+    // DEĞİŞMEZ (çağıran `effectiveAbsolute(session)`'ı geçirir; idle capası `lastActivityAt=now`
+    // ile yenilenir). Eşzamanlılık: `updateMany where revokedAt:null` yalnız TEK çağırana count>0
+    // verir → race'te tek kanonik başarı; kaybeden (ve replay eden eski token) count=0 → null
+    // (dirilme YOK, retry ile maskeleme YOK). Yeni satır `rotatedFromSessionId` ile zincir izlenir.
+    rotateStoreSession: async (input: {
+      currentSessionId: string;
+      storeUserId: string;
+      storeId: string;
+      newTokenHash: string;
+      lastActivityAt: Date;
+      expiresAt: Date;
+      absoluteExpiresAt: Date;
+      rememberMe: boolean;
+      userAgent?: string | null;
+      ipAddress?: string | null;
+    }): Promise<{ id: string; expiresAt: Date } | null> => {
+      return prisma.$transaction(async (tx) => {
+        const revoked = await tx.storeUserSession.updateMany({
+          where: { id: input.currentSessionId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        // Yarışta eski oturum zaten revoke/expired olduysa DİRİLTME: rotation reddedilir.
+        if (revoked.count === 0) return null;
+        return tx.storeUserSession.create({
+          data: {
+            storeUserId: input.storeUserId,
+            storeId: input.storeId,
+            tokenHash: input.newTokenHash,
+            expiresAt: input.expiresAt,
+            lastActivityAt: input.lastActivityAt,
+            absoluteExpiresAt: input.absoluteExpiresAt,
+            rememberMe: input.rememberMe,
+            rotatedFromSessionId: input.currentSessionId,
+            userAgent: input.userAgent ?? null,
+            ipAddress: input.ipAddress ?? null,
+          },
+          select: { id: true, expiresAt: true },
+        });
+      });
+    },
+
     touchStoreSessionActivity: (sessionId: string, now: Date, promoteLegacy = false) =>
       prisma.storeUserSession.update({
         where: { id: sessionId },

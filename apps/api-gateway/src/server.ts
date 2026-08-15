@@ -7686,11 +7686,11 @@ export function createServer(
     requireStoreAdmin: storeAdmin(null, "customers"),
   });
 
-  // TODO-B3 (Faz B, ADR-271) — Store-admin auth: login/logout/session (STORE_USER ilk-sınıf
+  // TODO-B3 (Faz B, ADR-271) — Store-admin auth: login/logout/session/extend (STORE_USER ilk-sınıf
   // vatandaş kimlik doğrulaması). TENANT TRUST BOUNDARY: tenant context YALNIZCA sunucu-tarafı
   // deployment config'inden (STORE_ADMIN_STORE_SLUG) çözülür — hiçbir istemci header'ı/host/body
   // alanı tenant seçemez; tanımsızsa login fail-closed. Business route guard cutover'ı Faz E2'de
-  // yapılır (yukarıdaki storeAdmin/storeAdminManage); NO /auth/store/extend (Faz F).
+  // yapılır (yukarıdaki storeAdmin/storeAdminManage). Faz F: /auth/store/extend (token rotation).
   registerStoreAuthRoutes(app, {
     data: storeAuthData,
     policy: sessionPolicy,
@@ -7699,6 +7699,8 @@ export function createServer(
     verifyPassword: (pw, hash) => verifyPassword(pw, hash, config.PASSWORD_HASH_PEPPER),
     createAuditLog: dataAccess.createAuditLog,
     loginRateLimiter,
+    // Faz F — extend rate limiter (Platform ile AYNI evaluator; anahtar ip:sessionId).
+    extendRateLimiter: { isLimited: isExtendLimited, record: recordExtend },
     onError: (e) => logger.warn("store session activity touch failed", { message: e instanceof Error ? e.message : "unknown" }),
   });
 

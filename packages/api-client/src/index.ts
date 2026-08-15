@@ -96,6 +96,7 @@ import type {
   StoreAdminLoginResponse,
   StoreAdminSessionResponse,
   StoreAdminLogoutResponse,
+  StoreAdminSessionExtendResponse,
   HeroSlide,
   HeroSlideCreateRequest,
   HeroSlideListResponse,
@@ -525,6 +526,7 @@ export type {
   StoreAdminLoginResponse,
   StoreAdminSessionResponse,
   StoreAdminLogoutResponse,
+  StoreAdminSessionExtendResponse,
   CustomerSessionExtendResponse,
   SessionTiming,
   HeroSlide,
@@ -1607,6 +1609,8 @@ export interface ApiClient {
     login(input: StoreAdminLoginRequest): Promise<StoreAdminLoginResponse>;
     logout(token?: string): Promise<StoreAdminLogoutResponse>;
     session(token?: string): Promise<StoreAdminSessionResponse>;
+    // ADR-271 (Faz F) — oturum uzatma (token ROTATE; absolute değişmez). Aktif token gerekir.
+    extend(token?: string): Promise<StoreAdminSessionExtendResponse>;
   };
   admin: {
     stores: {
@@ -3558,6 +3562,8 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       logout: (token) =>
         sendJson<StoreAdminLogoutResponse>("/auth/store/logout", "POST", undefined, token),
       session: (token) => getJson<StoreAdminSessionResponse>("/auth/store/session", token),
+      extend: (token) =>
+        sendJson<StoreAdminSessionExtendResponse>("/auth/store/extend", "POST", undefined, token),
     },
     admin: {
       stores: {

@@ -17,9 +17,10 @@ import {
   storeAdminLoginResponseSchema,
   storeAdminSessionResponseSchema,
   storeAdminLogoutResponseSchema,
+  storeAdminSessionExtendResponseSchema,
 } from "@commerce-os/contracts";
 import type { SessionPolicy } from "@commerce-os/config";
-import { computeSessionExpiry, sessionTiming } from "@commerce-os/config";
+import { computeSessionExpiry, effectiveAbsolute, sessionTiming } from "@commerce-os/config";
 import { resolveStoreAdminTenantContext } from "@commerce-os/auth";
 import type { StoreAuthData } from "./data.js";
 import { authenticateStoreToken } from "./authenticate.js";
@@ -41,7 +42,7 @@ export interface StoreAuthRouteDeps {
   hashToken: (token: string) => string;
   verifyPassword: (password: string, passwordHash: string) => Promise<boolean>;
   createAuditLog: (input: {
-    action: "LOGIN" | "LOGOUT";
+    action: "LOGIN" | "LOGOUT" | "UPDATE";
     storeId?: string;
     actorKind?: "STORE_USER";
     actorStoreUserId?: string;
@@ -55,6 +56,15 @@ export interface StoreAuthRouteDeps {
     isLimited(ip: string, key: string): boolean;
     recordFailure(ip: string, key: string): void;
     reset(ip: string, key: string): void;
+  };
+  /**
+   * ADR-271 (Faz F) — extend uçları için ayrı rate limiter (Platform `isExtendLimited`/
+   * `recordExtend` ile parity). Anahtar `${ip}:${sessionId}`. Opsiyonel: verilmezse extend
+   * limitlenmez (test harness'ı ya da sınırlamayı üst katmanda yapan deployment).
+   */
+  extendRateLimiter?: {
+    isLimited(key: string): boolean;
+    record(key: string): void;
   };
   onError?: (e: unknown) => void;
 }
@@ -160,6 +170,74 @@ export function registerStoreAuthRoutes(app: FastifyInstance, deps: StoreAuthRou
       metadata: { authSurface: "store" },
     });
     return storeAdminLogoutResponseSchema.parse({ revoked });
+  });
+
+  // POST /auth/store/extend (ADR-271, Faz F) — StoreUser oturum uzatma. YALNIZ geçerli (aktif)
+  // oturum uzatılır: `authenticateStoreToken` revoked/idle-expired/absolute-expired/DISABLED-user/
+  // non-ACTIVE-store/null-email hepsini jenerik 401 yapar (dirilme YOK). Token ROTATE edilir
+  // (fixation savunması); absolute tavan DEĞİŞMEZ; idle capası yenilenir. Yarışta yalnız TEK
+  // rotation kanonik başarılıdır; kaybeden ve replay eden eski token 401 (retry ile maskeleme YOK).
+  // PlatformUser token'ı StoreUserSession'da bulunmaz → 401 (identity-bridge / dual-auth YOK).
+  app.post("/auth/store/extend", async (request, reply) => {
+    // Extend kendi rotation'ında lastActivityAt=now yazar; on-auth idle-bump gereksiz (çift yazım).
+    const result = await authenticate(request, reply, false);
+    if (!result) return;
+
+    const rlKey = `${request.ip}:${result.session.id}`;
+    if (deps.extendRateLimiter?.isLimited(rlKey)) {
+      return reply.code(429).send(err("AUTH_RATE_LIMITED", "Too many attempts. Please try again later."));
+    }
+    deps.extendRateLimiter?.record(rlKey);
+
+    const now = new Date();
+    const abs = effectiveAbsolute(result.session); // absolute DEĞİŞMEZ (uzatılamaz)
+    const newToken = randomBytes(32).toString("base64url");
+    const rotated = await deps.data.rotateStoreSession({
+      currentSessionId: result.session.id,
+      storeUserId: result.principal.storeUserId,
+      storeId: result.principal.storeId,
+      newTokenHash: deps.hashToken(newToken),
+      lastActivityAt: now,
+      expiresAt: abs,
+      absoluteExpiresAt: abs,
+      rememberMe: result.session.rememberMe,
+      userAgent: firstHeader(request.headers["user-agent"]) ?? null,
+      ipAddress: request.ip,
+    });
+    if (!rotated) {
+      // Yarışta eski oturum revoke/expired olduysa DİRİLTME.
+      return reply.code(401).send(err("UNAUTHORIZED", "Unauthorized."));
+    }
+    await deps.createAuditLog({
+      action: "UPDATE",
+      storeId: result.principal.storeId,
+      actorKind: "STORE_USER",
+      actorStoreUserId: result.principal.storeUserId,
+      actorName: result.principal.name,
+      actorEmail: result.principal.email,
+      entityType: "StoreUserSession",
+      entityId: rotated.id,
+      metadata: { authSurface: "store", event: "SESSION_EXTEND", rememberMe: result.session.rememberMe },
+    });
+
+    const timing = sessionTiming(deps.policy, {
+      lastActivityAt: now,
+      absoluteExpiresAt: abs,
+      expiresAt: abs,
+      rememberMe: result.session.rememberMe,
+      revokedAt: null,
+    });
+    return storeAdminSessionExtendResponseSchema.parse({
+      token: newToken,
+      expiresAt: abs.toISOString(),
+      timing: {
+        idleExpiresAt: timing.idleExpiresAt.toISOString(),
+        absoluteExpiresAt: timing.absoluteExpiresAt.toISOString(),
+        warningLeadSeconds: timing.warningLeadSeconds,
+        rememberMe: timing.rememberMe,
+        lastActivityAt: timing.lastActivityAt.toISOString(),
+      },
+    });
   });
 
   app.get("/auth/store/session", async (request, reply) => {

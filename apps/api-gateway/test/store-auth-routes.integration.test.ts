@@ -11,7 +11,7 @@
  * yok; başarısız denemeler audit YAZMAZ; response body'lerde passwordHash/tokenHash/
  * linkedPlatformUserId/sessionId ASLA yok.
  */
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import Fastify, { type FastifyInstance } from "fastify";
 import { prisma } from "@commerce-os/db";
@@ -551,5 +551,226 @@ describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
     const diffDays = (absoluteMs - lastActivityMs) / (24 * 60 * 60 * 1000);
     expect(diffDays).toBeGreaterThan(29);
     expect(diffDays).toBeLessThan(31);
+  });
+
+  // ── Faz F (ADR-271) — POST /auth/store/extend (token rotation) ────────────────────────────
+  // Extend başarılı bir rotation'dır: yeni token + yenilenmiş idle capası döner; absolute tavan
+  // DEĞİŞMEZ; eski token geçersizlenir. Tüm güvenlik invariant'ları (expired/revoked/DISABLED/
+  // SUSPENDED-CLOSED/PlatformUser/corrupt) jenerik 401 üretir. Eşzamanlılıkta TEK kanonik başarı.
+  describe("POST /auth/store/extend", () => {
+    // Ortak: ACTIVE store + ACTIVE user + login → { token, session row }.
+    async function loginAndSession(over?: { rememberMe?: boolean; role?: StoreUserRole }) {
+      const store = await makeStore();
+      const email = `ext-${randomUUID().slice(0, 8)}@e.test`;
+      const { userId, password } = await makeStoreUser(store.storeId, {
+        email,
+        role: over?.role ?? "OWNER",
+        name: "Extend User",
+      });
+      const { app, audits } = buildApp(store.slug);
+      const login = await app.inject({
+        method: "POST",
+        url: "/auth/store/login",
+        payload: { email, password, rememberMe: over?.rememberMe ?? false },
+      });
+      expect(login.statusCode).toBe(200);
+      const { token } = login.json();
+      const row = await prisma.storeUserSession.findUniqueOrThrow({
+        where: { tokenHash: hashToken(token) },
+      });
+      return { store, userId, app, audits, token, sessionId: row.id };
+    }
+
+    const extend = (app: FastifyInstance, token: string) =>
+      app.inject({ method: "POST", url: "/auth/store/extend", headers: { authorization: `Bearer ${token}` } });
+    const session = (app: FastifyInstance, token: string) =>
+      app.inject({ method: "GET", url: "/auth/store/session", headers: { authorization: `Bearer ${token}` } });
+
+    it("extend success → 200; rotates token (new ≠ old); safe DTO only (no tokenHash/session id/policy)", async () => {
+      const { app, token } = await loginAndSession();
+      const res = await extend(app, token);
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(typeof body.token).toBe("string");
+      expect(body.token).not.toBe(token); // rotation
+      expect(body.expiresAt).toBeTypeOf("string");
+      expect(body.timing.warningLeadSeconds).toBeTypeOf("number");
+      // Güvenli DTO: yalnız token/expiresAt/timing. Internal alanlar sızmaz.
+      expect(Object.keys(body).sort()).toEqual(["expiresAt", "timing", "token"]);
+      assertNoForbiddenKeys(body, [...FORBIDDEN_KEYS, "policyVersion", "revokedAt", "id"]);
+    });
+
+    it("new token authenticates the rotated session (/session → 200)", async () => {
+      const { app, token } = await loginAndSession();
+      const { token: newToken } = (await extend(app, token)).json();
+      const res = await session(app, newToken);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().session.timing).toBeTruthy();
+    });
+
+    it("rotation invalidates old token: old on /session → 401; old on /extend (replay) → 401", async () => {
+      const { app, token } = await loginAndSession();
+      await extend(app, token); // rotate
+      expect((await session(app, token)).statusCode).toBe(401);
+      expect((await extend(app, token)).statusCode).toBe(401); // replay eski token reddedilir
+    });
+
+    it("absolute expiry is NEVER extended (rotated absolute == original absolute)", async () => {
+      const { app, token, sessionId } = await loginAndSession();
+      const original = await prisma.storeUserSession.findUniqueOrThrow({
+        where: { id: sessionId },
+        select: { absoluteExpiresAt: true, expiresAt: true },
+      });
+      const origAbs = (original.absoluteExpiresAt ?? original.expiresAt).getTime();
+      const body = (await extend(app, token)).json();
+      expect(new Date(body.expiresAt).getTime()).toBe(origAbs);
+      expect(new Date(body.timing.absoluteExpiresAt).getTime()).toBe(origAbs);
+    });
+
+    it("idle capacity IS renewed on rotation (new lastActivityAt ≈ now; idle deadline moves forward)", async () => {
+      const { app, token, sessionId } = await loginAndSession();
+      // lastActivityAt'i geçmişe al ki rotation'ın onu 'now'a taşıdığını görelim (ama hâlâ geçerli).
+      const past = new Date(Date.now() - 5 * 60 * 1000);
+      await prisma.storeUserSession.update({ where: { id: sessionId }, data: { lastActivityAt: past } });
+      const body = (await extend(app, token)).json();
+      const la = new Date(body.timing.lastActivityAt).getTime();
+      expect(la).toBeGreaterThan(past.getTime()); // yenilendi
+      expect(Math.abs(la - Date.now())).toBeLessThan(10_000);
+    });
+
+    it("expired session → extend 401 (no resurrection)", async () => {
+      const { app, token, sessionId } = await loginAndSession();
+      const pastDate = new Date(Date.now() - 60 * 60 * 1000);
+      await prisma.storeUserSession.update({
+        where: { id: sessionId },
+        data: { lastActivityAt: pastDate, absoluteExpiresAt: pastDate, expiresAt: pastDate },
+      });
+      expect((await extend(app, token)).statusCode).toBe(401);
+    });
+
+    it("revoked (logged-out) session → extend 401", async () => {
+      const { app, token } = await loginAndSession();
+      await app.inject({ method: "POST", url: "/auth/store/logout", headers: { authorization: `Bearer ${token}` } });
+      expect((await extend(app, token)).statusCode).toBe(401);
+    });
+
+    it("DISABLED store user → extend 401", async () => {
+      const { app, token, userId } = await loginAndSession();
+      await prisma.storeUser.update({ where: { id: userId }, data: { status: "DISABLED" } });
+      expect((await extend(app, token)).statusCode).toBe(401);
+    });
+
+    it("SUSPENDED and CLOSED store → extend 401", async () => {
+      const suspended = await loginAndSession();
+      await prisma.store.update({ where: { id: suspended.store.storeId }, data: { status: "SUSPENDED" } });
+      expect((await extend(suspended.app, suspended.token)).statusCode).toBe(401);
+
+      const closed = await loginAndSession();
+      await prisma.store.update({ where: { id: closed.store.storeId }, data: { status: "CLOSED" } });
+      expect((await extend(closed.app, closed.token)).statusCode).toBe(401);
+    });
+
+    it("rememberMe parity: rotation preserves rememberMe window (timing + persisted row)", async () => {
+      const { app, token, sessionId } = await loginAndSession({ rememberMe: true });
+      const body = (await extend(app, token)).json();
+      expect(body.timing.rememberMe).toBe(true);
+      // Yeni (rotate edilen) satır da rememberMe taşır; eskisi rotatedFromSessionId ile işaretli.
+      const rotated = await prisma.storeUserSession.findFirstOrThrow({
+        where: { rotatedFromSessionId: sessionId },
+        select: { rememberMe: true, revokedAt: true },
+      });
+      expect(rotated.rememberMe).toBe(true);
+      expect(rotated.revokedAt).toBeNull();
+      // ~30 gün mutlak pencere korunur (uzatılmaz).
+      const diffDays =
+        (new Date(body.timing.absoluteExpiresAt).getTime() - new Date(body.timing.lastActivityAt).getTime()) /
+        (24 * 60 * 60 * 1000);
+      expect(diffDays).toBeGreaterThan(29);
+    });
+
+    it("logout AFTER extend: new token logs out (200 revoked); then /session → 401", async () => {
+      const { app, token } = await loginAndSession();
+      const { token: newToken } = (await extend(app, token)).json();
+      const logout = await app.inject({
+        method: "POST",
+        url: "/auth/store/logout",
+        headers: { authorization: `Bearer ${newToken}` },
+      });
+      expect(logout.statusCode).toBe(200);
+      expect(logout.json().revoked).toBe(true);
+      expect((await session(app, newToken)).statusCode).toBe(401);
+    });
+
+    it("PlatformUser session token → extend 401 (StoreUser table only; no identity-bridge)", async () => {
+      const store = await makeStore();
+      const { app } = buildApp(store.slug);
+      // Gerçek bir PlatformSession satırı oluştur; token'ı StoreUserSession'da YOK → 401.
+      const platformUserId = `ext-pu-${randomUUID().slice(0, 8)}`;
+      const platformToken = randomBytes(32).toString("base64url");
+      await prisma.platformUser.create({
+        data: {
+          id: platformUserId,
+          email: `${platformUserId}@e.test`,
+          name: "Platform Ext",
+          passwordHash: await hashPassword("pw-ext-1"),
+          role: "SUPPORT_ADMIN",
+        },
+      });
+      try {
+        await prisma.platformSession.create({
+          data: {
+            platformUserId,
+            tokenHash: hashToken(platformToken),
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+            lastActivityAt: new Date(),
+            absoluteExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          },
+        });
+        expect((await extend(app, platformToken)).statusCode).toBe(401);
+      } finally {
+        await prisma.platformSession.deleteMany({ where: { platformUserId } }).catch(() => {});
+        await prisma.platformUser.delete({ where: { id: platformUserId } }).catch(() => {});
+      }
+    });
+
+    it("corrupt / unknown token → generic 401; missing token → 401", async () => {
+      const store = await makeStore();
+      const { app } = buildApp(store.slug);
+      expect((await extend(app, "not-a-real-token")).statusCode).toBe(401);
+      const noToken = await app.inject({ method: "POST", url: "/auth/store/extend" });
+      expect(noToken.statusCode).toBe(401);
+    });
+
+    it("audit: extend writes a single UPDATE / SESSION_EXTEND row with STORE_USER actor (no secret leak)", async () => {
+      const { app, audits, userId, token } = await loginAndSession();
+      const before = audits.length;
+      await extend(app, token);
+      const extendAudits = audits.slice(before);
+      expect(extendAudits).toHaveLength(1);
+      const a = extendAudits[0];
+      expect(a.action).toBe("UPDATE");
+      expect(a.actorKind).toBe("STORE_USER");
+      expect(a.actorStoreUserId).toBe(userId);
+      expect(a.entityType).toBe("StoreUserSession");
+      expect((a.metadata as { event?: string }).event).toBe("SESSION_EXTEND");
+      expect(JSON.stringify(audits)).not.toMatch(/correct-horse-battery-staple/);
+    });
+
+    // §6 — Rotation concurrency: aynı oturum için EŞZAMANLI iki extend → yalnız BİRİ kanonik
+    // başarılıdır (updateMany where revokedAt:null tek kazanan garantisi). Kaybeden 401 (retry
+    // ile MASKELENMEZ). Sonuçta tam olarak BİR aktif (revokedAt IS NULL) rotate-edilmiş satır olur.
+    it("concurrent extend on same session → exactly one 200 + one 401; single active successor", async () => {
+      const { app, token, sessionId } = await loginAndSession();
+      const [a, b] = await Promise.all([extend(app, token), extend(app, token)]);
+      const codes = [a.statusCode, b.statusCode].sort();
+      expect(codes).toEqual([200, 401]);
+      // Eski oturum revoke; yalnız BİR canlı halef (rotatedFromSessionId == eski).
+      const successors = await prisma.storeUserSession.findMany({
+        where: { rotatedFromSessionId: sessionId, revokedAt: null },
+      });
+      expect(successors).toHaveLength(1);
+      const old = await prisma.storeUserSession.findUniqueOrThrow({ where: { id: sessionId } });
+      expect(old.revokedAt).not.toBeNull();
+    });
   });
 });

@@ -367,6 +367,17 @@ export const storeAdminLogoutResponseSchema = z.object({
   revoked: z.boolean(),
 });
 
+// Faz F (ADR-271) — Store Admin oturum uzatma (extend). `platformSessionExtendResponseSchema`
+// ile BİRE BİR parity: gateway StoreUser token'ını ROTATE eder (absoluteExpiresAt DEĞİŞMEZ,
+// idle capası yenilenir); yeni token + zamanlama döner (BFF cookie'yi yeni token ile atomik
+// yeniden yazar). SADECE transport'un ihtiyaç duyduğu `token` çıkar; tokenHash / session id /
+// policyVersion / lastActivityAt-dışı internal alanlar DTO'ya ASLA sızmaz.
+export const storeAdminSessionExtendResponseSchema = z.object({
+  token: z.string().min(1),
+  expiresAt: z.string().datetime(),
+  timing: sessionTimingSchema,
+});
+
 export const storeStatusSchema = z.enum(["DRAFT", "ACTIVE", "SUSPENDED", "CLOSED"]);
 
 export const adminStoreSchema = z.object({
@@ -6269,6 +6280,9 @@ export type StoreAdminLoginRequest = z.infer<typeof storeAdminLoginRequestSchema
 export type StoreAdminLoginResponse = z.infer<typeof storeAdminLoginResponseSchema>;
 export type StoreAdminSessionResponse = z.infer<typeof storeAdminSessionResponseSchema>;
 export type StoreAdminLogoutResponse = z.infer<typeof storeAdminLogoutResponseSchema>;
+export type StoreAdminSessionExtendResponse = z.infer<
+  typeof storeAdminSessionExtendResponseSchema
+>;
 export type AdminStore = z.infer<typeof adminStoreSchema>;
 export type AdminStoreListResponse = z.infer<typeof adminStoreListResponseSchema>;
 export type AdminStoreCreateRequest = z.infer<typeof adminStoreCreateRequestSchema>;

@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * (`storeAuth.*`) kullanır — PlatformUser login/me/logout/extend'e FALLBACK YOK; oturum
  * cookie'si Platform Admin'inkinden ayrıdır; store context yalnız oturumdan gelir (mağaza
  * listeleme / demo-first YOK); yanıtlar ham StoreUser/session id / linkedPlatformUserId
- * SIZDIRMAZ; extend token ROTATE ETMEZ (Faz F); geçersiz oturumda cookie temizlenir.
+ * SIZDIRMAZ; extend token ROTATE eder + cookie'yi atomik yeniden yazar (Faz F); geçersiz
+ * oturumda cookie temizlenir.
  *
  * `auth.platform*` BİLİNÇLİ olarak mock'lanmaz: bir fallback regresyonu onu çağırırsa
  * test "not a function" ile PATLAR (silent dual-auth'u yakalar).
@@ -18,6 +19,7 @@ const storeAuth = {
   login: vi.fn(),
   logout: vi.fn(),
   session: vi.fn(),
+  extend: vi.fn(),
 };
 const adminStores = { list: vi.fn() };
 
@@ -177,23 +179,52 @@ describe("Faz E1 — logout cutover", () => {
   });
 });
 
-describe("Faz E1 — extend (soft reconcile; token rotation deferred to Faz F)", () => {
-  it("returns server-authoritative timing from storeAuth.session and does NOT rotate the cookie", async () => {
+describe("Faz F — extend (token rotation + atomic cookie replace)", () => {
+  const EXTEND_RESULT = {
+    token: "rotated-store-session-token",
+    expiresAt: new Date("2026-01-01T08:00:00.000Z").toISOString(),
+    timing: TIMING,
+  };
+
+  it("rotates the token via storeAuth.extend and atomically rewrites the httpOnly cookie; returns timing only", async () => {
+    storeAuth.extend.mockResolvedValue(EXTEND_RESULT);
     const { POST } = await import("../app/api/auth/extend/route.js");
     const res = await POST(request("/api/auth/extend", jsonInit("POST", SESSION + CSRF, undefined, true)));
     const body = await res.json();
     expect(res.status).toBe(200);
-    expect(storeAuth.session).toHaveBeenCalledWith("store-session-token");
+    // GERÇEK rotation ucu (soft-reconcile session() DEĞİL).
+    expect(storeAuth.extend).toHaveBeenCalledWith("store-session-token");
+    expect(storeAuth.session).not.toHaveBeenCalled();
     expect(body.timing.warningLeadSeconds).toBe(300);
-    // Rotation YOK → oturum cookie'si yeniden yazılmaz (Set-Cookie'de token yok).
-    expect(res.headers.get("set-cookie") ?? "").not.toContain("commerce_os_store_admin_session=store-session-token");
+    // Cookie YENİ token ile atomik yeniden yazılır; raw token gövdeye SIZMAZ.
+    const setCookie = res.headers.get("set-cookie") ?? "";
+    expect(setCookie).toContain("commerce_os_store_admin_session=rotated-store-session-token");
+    expect(setCookie.toLowerCase()).toContain("httponly");
+    expect(JSON.stringify(body)).not.toContain("rotated-store-session-token");
+    expect(Object.keys(body)).toEqual(["timing"]);
   });
 
-  it("rejects extend without a CSRF token", async () => {
+  it("extend failure (gateway 401 — session invalid) → 401 surfaced; no cookie rotation", async () => {
+    storeAuth.extend.mockRejectedValue(new MockApiError(401, "UNAUTHORIZED"));
+    const { POST } = await import("../app/api/auth/extend/route.js");
+    const res = await POST(request("/api/auth/extend", jsonInit("POST", SESSION + CSRF, undefined, true)));
+    expect(res.status).toBe(401);
+    // Başarısız rotation eski token'ı yeni değerle DEĞİŞTİRMEZ (Set-Cookie'de rotate edilmiş token yok).
+    expect(res.headers.get("set-cookie") ?? "").not.toContain("rotated-store-session-token");
+  });
+
+  it("rejects extend without a CSRF token (no gateway call)", async () => {
     const { POST } = await import("../app/api/auth/extend/route.js");
     const res = await POST(request("/api/auth/extend", jsonInit("POST", SESSION)));
     expect(res.status).toBe(403);
-    expect(storeAuth.session).not.toHaveBeenCalled();
+    expect(storeAuth.extend).not.toHaveBeenCalled();
+  });
+
+  it("401 without a session cookie (no gateway call)", async () => {
+    const { POST } = await import("../app/api/auth/extend/route.js");
+    const res = await POST(request("/api/auth/extend", jsonInit("POST", CSRF.replace(/^; /, ""), undefined, true)));
+    expect(res.status).toBe(401);
+    expect(storeAuth.extend).not.toHaveBeenCalled();
   });
 });
 

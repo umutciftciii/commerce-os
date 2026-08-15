@@ -177,14 +177,40 @@ async function main() {
     create: { storeId: store.id, customerId: customer.id, passwordHash },
   });
 
-  // 3b) Store-admin platform kullanıcısı (SUPER_ADMIN) — Shopping Balance Admin E2E login'i.
-  //     store-admin app aktif mağazayı StoreUser oturumundan türetir; gateway ön-login tenant =
-  //     STORE_ADMIN_STORE_SLUG=e2e-store.
+  // 3b) Store-admin platform kullanıcısı (SUPER_ADMIN). Faz E1/E2/F cutover'dan SONRA store-admin
+  //     UI login'i ARTIK bu PlatformUser'a gitmez (StoreUser auth — bkz. 3b2). Bu kayıt yalnız
+  //     recovery/support ASSIGN "me" hedefi (linkedPlatformUserId) ve assignable directory içindir.
   const adminPasswordHash = await hashPassword(ADMIN_PASSWORD, process.env.PASSWORD_HASH_PEPPER ?? "");
-  await prisma.platformUser.upsert({
+  const adminPlatformUser = await prisma.platformUser.upsert({
     where: { email: ADMIN_EMAIL },
     update: { name: "E2E Admin", passwordHash: adminPasswordHash, role: "SUPER_ADMIN" },
     create: { email: ADMIN_EMAIL, name: "E2E Admin", passwordHash: adminPasswordHash, role: "SUPER_ADMIN" },
+    select: { id: true },
+  });
+
+  // 3b2) Faz F (§10 — Playwright prep) — DETERMİNİSTİK StoreUser OWNER. Store-admin gerçek-UI login'i
+  //      (store-admin-auth.setup.ts → /auth/store/login) ADR-271 store-auth ile ACTIVE StoreUser'a
+  //      karşı doğrular; ACTIVE e2e-store + OWNER + passwordHash (native login) + ACTIVE. e2e-admin
+  //      PlatformUser'a LİNKLİ: recovery/support "bana ata" (linkedPlatformUserId) çözülür, native→403
+  //      TUZAĞINA düşmez. PlatformUser fallback / identity-bridge YOK — gerçek StoreUser oturumu.
+  await prisma.storeUser.upsert({
+    where: { storeId_email: { storeId: store.id, email: ADMIN_EMAIL } },
+    update: {
+      name: "E2E Admin",
+      passwordHash: adminPasswordHash,
+      role: "OWNER",
+      status: "ACTIVE",
+      linkedPlatformUserId: adminPlatformUser.id,
+    },
+    create: {
+      storeId: store.id,
+      email: ADMIN_EMAIL,
+      name: "E2E Admin",
+      passwordHash: adminPasswordHash,
+      role: "OWNER",
+      status: "ACTIVE",
+      linkedPlatformUserId: adminPlatformUser.id,
+    },
   });
 
   // 3c) TODO-178 Faz F — ikinci platform kullanıcısı (assignable directory; login yok).
