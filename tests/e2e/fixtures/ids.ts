@@ -3,6 +3,20 @@ export const ids = {
   customer: { email: "e2e-customer@example.test", password: "E2eCustomer!pass1", firstName: "E2E", lastName: "Customer" },
   // Shopping Balance Admin E2E — store-admin login (SUPER_ADMIN) + cross-store izolasyon fixture'ı.
   storeAdmin: { email: "e2e-admin@example.test", password: "E2eAdmin!pass1" },
+  // Phase G — StoreUser kimlik/RBAC/oturum E2E fixture'ları.
+  storeAuth: {
+    // Deterministik OWNER (native login + linkli PlatformUser). Rol i18n: "Sahip".
+    owner: { email: "e2e-admin@example.test", password: "E2eAdmin!pass1", roleLabel: "Sahip" },
+    // En kısıtlı rol — okuma serbest, manage/mutation yok. Rol i18n: "Görüntüleyici".
+    viewer: { email: "e2e-viewer@example.test", password: "E2eViewer!pass1", roleLabel: "Görüntüleyici" },
+    // Store context (session-derived; server-otoriter).
+    storeName: "E2E Store",
+    storeSlug: "e2e-store",
+    // PlatformUser (yalnız platform; e2e-store'da StoreUser DEĞİL) — store-admin login'de ÇALIŞMAMALI.
+    platformOnly: { email: "e2e-agent@example.test", password: "E2eAdmin!pass1" },
+    // DOM'a asla sızmaması gereken ham iç kimlik alanları.
+    forbiddenIdKeys: ["linkedPlatformUserId", "tokenHash", "passwordHash", "rotatedFromSessionId"],
+  },
   shoppingBalanceAdmin: {
     // Seed'lenen e2e-customer'ın alışveriş bakiyesi (goodwill ₺1.000,00). Liste + detay assert'i.
     customerName: "E2E Customer",

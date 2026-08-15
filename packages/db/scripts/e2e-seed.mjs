@@ -47,6 +47,9 @@ const CUSTOMER_ID = "e2e-customer-1";
 // STORE_ADMIN_STORE_SLUG=e2e-store.
 const ADMIN_EMAIL = "e2e-admin@example.test";
 const ADMIN_PASSWORD = "E2eAdmin!pass1";
+// Phase G (§5) — en kısıtlı rol (VIEWER) StoreUser: RBAC browser kanıtı için.
+const VIEWER_EMAIL = "e2e-viewer@example.test";
+const VIEWER_PASSWORD = "E2eViewer!pass1";
 // TODO-178 Faz F — ikinci platform kullanıcısı (assignable directory). AssigneeSelector
 // "başka kullanıcıya ata" + inbox assignee filter regression'ı bu kullanıcıyı arar. Login
 // GEREKMEZ (parola yok); yalnız listAssignablePlatformUsers sonucunda görünür. Arama "agent"
@@ -181,6 +184,7 @@ async function main() {
   //     UI login'i ARTIK bu PlatformUser'a gitmez (StoreUser auth — bkz. 3b2). Bu kayıt yalnız
   //     recovery/support ASSIGN "me" hedefi (linkedPlatformUserId) ve assignable directory içindir.
   const adminPasswordHash = await hashPassword(ADMIN_PASSWORD, process.env.PASSWORD_HASH_PEPPER ?? "");
+  const viewerPasswordHash = await hashPassword(VIEWER_PASSWORD, process.env.PASSWORD_HASH_PEPPER ?? "");
   const adminPlatformUser = await prisma.platformUser.upsert({
     where: { email: ADMIN_EMAIL },
     update: { name: "E2E Admin", passwordHash: adminPasswordHash, role: "SUPER_ADMIN" },
@@ -210,6 +214,22 @@ async function main() {
       role: "OWNER",
       status: "ACTIVE",
       linkedPlatformUserId: adminPlatformUser.id,
+    },
+  });
+
+  // 3b3) Phase G (§5 — RBAC browser coverage) — DETERMİNİSTİK VIEWER StoreUser (native; link yok).
+  //      En kısıtlı rol: okuma serbest, hiçbir manage/mutation değil. RBAC'ın source-of-truth'u
+  //      gateway store-rbac integration'dır; bu yalnız tek bir restricted-role browser kanıtı için.
+  await prisma.storeUser.upsert({
+    where: { storeId_email: { storeId: store.id, email: VIEWER_EMAIL } },
+    update: { name: "E2E Viewer", passwordHash: viewerPasswordHash, role: "VIEWER", status: "ACTIVE" },
+    create: {
+      storeId: store.id,
+      email: VIEWER_EMAIL,
+      name: "E2E Viewer",
+      passwordHash: viewerPasswordHash,
+      role: "VIEWER",
+      status: "ACTIVE",
     },
   });
 

@@ -39,6 +39,7 @@
     "e2e:smoke": "playwright test --project=smoke",
     "e2e:responsive": "playwright test --project=responsive",
     "e2e:regression": "playwright test --project=regression",
+    "e2e:store-admin-auth": "playwright test --project=store-admin-auth",
     "e2e:admin-smoke": "playwright test --project=admin-smoke",
     "e2e:admin-regression": "playwright test --project=admin-regression",
     "e2e:platform-smoke": "playwright test --project=platform-requests-smoke",

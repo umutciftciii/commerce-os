@@ -27,8 +27,10 @@ export default defineConfig({
   projects: [
     // Müşteri (storefront) login setup — YALNIZ auth.setup.ts (store-admin setup ayrı proje).
     { name: "setup", testMatch: /setup\/auth\.setup\.ts/ },
-    // Store-admin (platform) login setup — Shopping Balance Admin E2E için ayrı storageState.
+    // Store-admin (StoreUser OWNER) login setup — Shopping Balance + Phase G auth E2E storageState.
     { name: "store-admin-setup", testMatch: /setup\/store-admin-auth\.setup\.ts/ },
+    // Phase G (§5) — Store-admin VIEWER (restricted role) login setup; ayrı storageState.
+    { name: "store-admin-viewer-setup", testMatch: /setup\/store-admin-viewer-auth\.setup\.ts/ },
     {
       name: "smoke",
       testDir: "tests/e2e/smoke",
@@ -76,6 +78,21 @@ export default defineConfig({
         storageState: "tests/e2e/.auth/store-admin.json",
       },
       dependencies: ["store-admin-setup"],
+    },
+    {
+      // Phase G — Per-Tenant Store Admin Auth + RBAC. GERÇEK StoreUser login (e2e-admin OWNER) →
+      // kimlik/shell/context, canonical smoke + controlled mutation, tenant/RBAC güvenliği
+      // (PlatformUser-login-deny + VIEWER 403), oturum yaşam-döngüsü (extend/rotation/logout).
+      // Required PR smoke gate'e uygun. OWNER + VIEWER login setup'larına bağımlı.
+      name: "store-admin-auth",
+      testDir: "tests/e2e/store-admin-auth",
+      grep: /@store-admin-auth/,
+      use: {
+        ...devices["Desktop Chrome"],
+        baseURL: STORE_ADMIN_URL,
+        storageState: "tests/e2e/.auth/store-admin.json",
+      },
+      dependencies: ["store-admin-setup", "store-admin-viewer-setup"],
     },
     {
       // PERF-001 — Kaba (wall-clock) navigasyon gecikmesi regresyon muhafızı.

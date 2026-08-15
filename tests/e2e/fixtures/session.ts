@@ -14,8 +14,6 @@ import { STORE_ADMIN_URL } from "./env";
  */
 
 export const STORE_ADMIN_SESSION_COOKIE = "commerce_os_store_admin_session";
-const CSRF_COOKIE = "commerce_os_store_admin_csrf";
-const CSRF_HEADER = "x-commerce-os-csrf";
 
 /**
  * GERÇEK StoreUser UI login'i (store-admin-auth.setup.ts ile aynı akış; ad-hoc kullanım için
@@ -43,21 +41,34 @@ export async function getSessionTiming(page: Page): Promise<SessionTiming> {
 }
 
 /**
- * Oturumu uzat (Faz F rotation). BFF `/api/auth/extend` double-submit CSRF ister → csrf cookie'sini
- * okuyup header olarak gönderir (client api.ts ile aynı sözleşme). Yeni (rotate edilmiş) timing döner;
- * session cookie gateway rotation'ıyla ATOMİK olarak yeni token'a yeniden yazılır.
+ * Double-submit CSRF token'ını client api.ts ile AYNI şekilde edinir: `/api/auth/csrf` token'ı
+ * döndürür VE cookie'yi set eder (login akışı bunu kendiliğinden yapmaz). Header token == cookie
+ * token olacağından `isValidCsrfRequest` geçer. Header adı sunucudan gelir (hardcode yok).
+ */
+export async function csrfHeader(page: Page): Promise<{ name: string; token: string }> {
+  return page.evaluate(async () => {
+    const res = await fetch("/api/auth/csrf");
+    if (!res.ok) throw new Error(`csrf ${res.status}`);
+    const body = (await res.json()) as { csrfToken: string; headerName: string };
+    return { name: body.headerName, token: body.csrfToken };
+  });
+}
+
+/**
+ * Oturumu uzat (Faz F rotation). BFF `/api/auth/extend` double-submit CSRF ister → önce
+ * `/api/auth/csrf`'ten token alınır (client sözleşmesiyle birebir), sonra header olarak gönderilir.
+ * Yeni (rotate edilmiş) timing döner; session cookie gateway rotation'ıyla ATOMİK yeniden yazılır.
  */
 export async function extendStoreAdminSession(page: Page): Promise<SessionTiming> {
+  const csrf = await csrfHeader(page);
   return page.evaluate(
-    async ({ csrfCookie, csrfHeader }) => {
-      const match = document.cookie.match(new RegExp(`${csrfCookie}=([^;]+)`));
-      const csrf = match ? decodeURIComponent(match[1]) : "";
-      const res = await fetch("/api/auth/extend", { method: "POST", headers: { [csrfHeader]: csrf } });
+    async ({ headerName, token }) => {
+      const res = await fetch("/api/auth/extend", { method: "POST", headers: { [headerName]: token } });
       if (!res.ok) throw new Error(`extend ${res.status}`);
       const body = (await res.json()) as { timing: SessionTiming };
       return body.timing;
     },
-    { csrfCookie: CSRF_COOKIE, csrfHeader: CSRF_HEADER },
+    { headerName: csrf.name, token: csrf.token },
   );
 }
 
