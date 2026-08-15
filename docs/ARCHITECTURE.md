@@ -113,7 +113,15 @@ gitmez. storefront-web hala placeholder seviyesindedir. Next.js build ciktilari 
 
 - `packages/db`: Prisma schema, Prisma client lifecycle, seed ve tenant query pattern'leri.
 - `packages/auth`: Platform/store context ve tenant foundation yardimcilari; scrypt tabanli parola
-  hash/dogrulama, platform admin guard ve store role guard foundation'i.
+  hash/dogrulama, platform admin guard ve store role guard foundation'i. **İki kimlik, iki oturum
+  tablosu, köprü YOK (ADR-291):** `PlatformUser`/`PlatformSession` = fleet operatörü (admin-web,
+  `/admin/*`); `StoreUser`/`StoreUserSession` = per-tenant mağaza personeli (store-admin-web, tüm
+  mağaza iş route'ları). Store Admin tenant'ı YALNIZ sunucu-config'ten (`STORE_ADMIN_STORE_SLUG`)
+  çözülür (istemci header/gövde tenant SEÇEMEZ); `session.storeId` otorite; 5-rol RBAC
+  (`OWNER/ADMIN/MANAGER/STAFF/VIEWER`, `hasStorePermission` fail-closed) capability gate ile birlikte
+  uygulanır; dual-auth/PlatformUser fallback YOK. Oturum modeli ADR-271 (idle+absolute+rotation);
+  `/auth/store/extend` token rotate eder (absolute sabit). Platform-owned istisnalar (theme-binding,
+  question-set, platform-request inbox) explicit korunur.
 - `packages/config`: Environment config parsing ve validation.
 - `packages/contracts`: Paylasimli API/domain kontratlari icin hedef paket. Faz 2A ile catalog ve
   inventory Zod schema'lari, request/response tipleri ve stabil hata zarfi tipleri burada tutulur.

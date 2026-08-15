@@ -2549,3 +2549,19 @@ bilinçli olarak PR1 kapsamı DIŞINDA bırakıldı.
 - Gelecek (FUTURE, ayrı iş): scalar aktör alanlarını polimorfik aktör'e (`actorType`+`actorId`, credit
   deseni gibi) TAŞIMAK VEYA `...ByStoreUserId` olarak yeniden adlandırmak — additive olmayan migration.
   Şimdilik değer doğru (opak StoreUser id), yalnız isim legacy. Acil değil.
+
+## Per-Tenant Store Admin Auth & RBAC (ADR-291) — açık FUTURE kalemler (2026-08-15)
+
+- **TD-AUTH-003 (Phase 1.5 — explicit audited impersonation) — 🔵 FUTURE:** Platform operatörünün bir
+  mağaza *olarak* (açık, atfedilmiş, audit'li) aksiyon alması. Bu scope'ta YAPILMADI; `StoreUserSession`
+  şemasında `impersonatedByPlatformUserId` alanı ileriye dönük hazır (kullanılmıyor). Silent dual-auth
+  DEĞİL — açık impersonation başlat/bitir + banner + audit gerektirir.
+- **TD-AUTH-004 (Multi-store host/subdomain tenant resolver) — 🔵 FUTURE:** Phase 1 tek-mağaza deployment
+  resolver'dır (bir app instance = bir mağaza, `STORE_ADMIN_STORE_SLUG`). `resolveStoreAdminTenantContext`
+  host/subdomain için ayrılmış abstraction taşır; çok-mağaza host çözümü ayrı iş.
+- **TD-AUTH-005 (Structural Tenant Isolation / Postgres RLS) — 🔵 FUTURE:** Bugün izolasyon uygulama
+  katmanında `storeId` scoping + `session.storeId` otorite + path-mismatch 404 ile sağlanır. Defense-in-depth
+  olarak veritabanı-seviyesi RLS ayrı bir girişimdir.
+- **TD-AUTH-006 (Extend rate-limit map isolation) — 🔵 FUTURE (minor):** `/auth/store/extend`, platform
+  extend ile AYNI limiter map'ini kullanır (anahtar `ip:sessionId`; cuid çakışması güvenilir değil → güvenli).
+  İstenirse ayrı map'e bölmek küçük bir iyileştirme.

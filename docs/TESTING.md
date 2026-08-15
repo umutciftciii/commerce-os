@@ -285,6 +285,29 @@ doğrulama. Kalıcı, tekrarlanabilir regresyon garantisi Playwright suite'inden
   nightly/manuel `pnpm e2e:platform-regression`. Seed: `e2e-seed.mjs` `e2e-agent@example.test` (SUPPORT_ADMIN,
   login yok — AssigneeSelector hedefi; kategoriler migration'dan). **repeat-each=3 → 17/17.**
 
+## 9d. Per-Tenant Store Admin Auth & RBAC (ADR-291) test kapsamı
+
+Kaynak-otorite merdiveni (aşağıdan yukarı):
+
+- **Gateway integration (auth/RBAC/tenant için OTORİTE):** `store-auth-authenticate/data/routes/guard.integration`
+  + `store-rbac.integration` (5-rol matrisi + tenant izolasyonu + STORE_USER audit aktörü) +
+  `/auth/store/extend` suite (rotation / replay-401 / absolute-unchanged / expired / revoked / DISABLED /
+  SUSPENDED+CLOSED / rememberMe / PlatformUser-401 / **concurrent tek-kazanan**). Run1+Run2.
+- **BFF unit:** store-admin `test/store-auth-cutover.test.ts` (login/session/logout + **extend rotation +
+  atomik cookie replace**; PlatformUser fallback regresyonu "not a function" ile patlar).
+- **Component:** store-admin `test/session-guard.test.tsx` (uyarı render / extend-success / extend-fail /
+  logout / server-authoritative expiry / reconcile-no-false-logout / multi-tab logout+extended).
+- **E2E (Playwright `@store-admin-auth`, CI required gate):** GERÇEK StoreUser login (OWNER + VIEWER
+  ayrı login setup; PlatformUser storageState/token DEĞİL). `01` identity/shell/context (OWNER rolü i18n
+  "Sahip" · session-derived store · ham iç kimlik DOM/`/me`'de yok) · `02` canonical smoke (home/products/
+  inventory/orders/returns/customers/platform-requests/settings authed shell + kontrollü mutation:
+  platform-request create) · `03` tenant/RBAC (platform-only user login RED · VIEWER read serbest,
+  `settings:manage` → 403 gerçek CSRF token'ıyla) · `04` session lifecycle (login→restore→extend rotation→
+  authed→logout→login). Yapısal cross-tenant izolasyonu gateway integration'da kanıtlanır (store-admin
+  route'ları `storeId`'yi OTURUMDAN türetir → istemci-seçilebilir `:storeId` saldırı yüzeyi yok).
+  Seed: `e2e-seed.mjs` deterministik `e2e-admin` (OWNER, linkli) + `e2e-viewer` (VIEWER). **Run1+Run2 +
+  repeat-each=3 → sıfır flake.** Yerelde worktree gateway + store-admin `next dev` ile doğrulandı.
+
 ## 10. İlgili dokümanlar
 
 - [ADR-287](adr/ADR-287-playwright-e2e-release-gate.md) — karar ve gerekçe.
