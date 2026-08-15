@@ -55,6 +55,7 @@ import {
   sumCapturedMinor,
 } from "./payment-state.js";
 import type { PaymentNotificationDispatcher } from "./notification.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
 export interface PaymentRecoveryRoutesDeps {
   config: AppConfig;
@@ -62,10 +63,9 @@ export interface PaymentRecoveryRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -294,6 +294,7 @@ export function registerPaymentRecoveryRoutes(
     storeId: string,
     orderId: string,
     actorUserId: string,
+    audit: StoreAuditActor,
     providerConfigId: string | undefined,
     regenerate: boolean,
     reply: FastifyReply,
@@ -426,7 +427,7 @@ export function registerPaymentRecoveryRoutes(
 
       await recordAudit({
         action: regenerate ? "UPDATE" : "CREATE",
-        platformUserId: actorUserId,
+        ...audit,
         storeId,
         entityType: "PaymentAttempt",
         entityId: result.id,
@@ -478,7 +479,7 @@ export function registerPaymentRecoveryRoutes(
     const access = await requireStoreAdmin(request, reply, params.storeId);
     if (!access) return;
     const body = createPaymentLinkRequestSchema.parse(request.body ?? {});
-    return createLink(params.storeId, params.orderId, access.actorUserId, body.providerConfigId, false, reply);
+    return createLink(params.storeId, params.orderId, access.actorUserId, access.audit, body.providerConfigId, false, reply);
   });
 
   app.post("/stores/:storeId/orders/:orderId/payment-link/regenerate", async (request, reply) => {
@@ -486,7 +487,7 @@ export function registerPaymentRecoveryRoutes(
     const access = await requireStoreAdmin(request, reply, params.storeId);
     if (!access) return;
     const body = createPaymentLinkRequestSchema.parse(request.body ?? {});
-    return createLink(params.storeId, params.orderId, access.actorUserId, body.providerConfigId, true, reply);
+    return createLink(params.storeId, params.orderId, access.actorUserId, access.audit, body.providerConfigId, true, reply);
   });
 
   /* ─────────────────── Admin: ödeme bağlantısını e-postala ─────────────────── */
@@ -569,7 +570,7 @@ export function registerPaymentRecoveryRoutes(
     });
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "PaymentAttempt",
       entityId: active.id,
@@ -679,7 +680,7 @@ export function registerPaymentRecoveryRoutes(
 
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "PaymentAttempt",
       entityId: created.id,

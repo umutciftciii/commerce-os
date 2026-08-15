@@ -10,6 +10,9 @@ export type StorePermission =
   | "platform-requests:read" | "platform-requests:write"
   | "customers:read" | "customers:write"
   | "settings:read" | "settings:manage"
+  // Faz E2 — Finans/ticari yönetim (raporlar + sponsorluk/sponsorlu/influencer/otomasyon).
+  // Gelir-hassas: STAFF/VIEWER ERİŞMEZ (fail-closed). write mutation'ları manage'e düşer.
+  | "finance:read" | "finance:manage"
   | "store-users:manage";
 
 export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> = {
@@ -24,6 +27,7 @@ export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> =
     "customers:read", "customers:write",
     "settings:read", "settings:manage",
     "store-users:manage",
+    "finance:read", "finance:manage",
   ]),
   ADMIN: new Set<StorePermission>([
     "catalog:read", "catalog:write",
@@ -35,6 +39,7 @@ export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> =
     "platform-requests:read", "platform-requests:write",
     "customers:read", "customers:write",
     "settings:read",
+    "finance:read", "finance:manage",
   ]),
   MANAGER: new Set<StorePermission>([
     "catalog:read", "catalog:write",
@@ -46,6 +51,7 @@ export const ROLE_PERMISSIONS: Record<StoreRole, ReadonlySet<StorePermission>> =
     "platform-requests:read", "platform-requests:write",
     "customers:read",
     "settings:read",
+    "finance:read",
   ]),
   STAFF: new Set<StorePermission>([
     "catalog:read",

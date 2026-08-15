@@ -78,7 +78,8 @@ export type StorePolicyModule =
   | "product-support"
   | "platform-requests"
   | "customers"
-  | "settings";
+  | "settings"
+  | "finance";
 
 export type StoreAction = "read" | "write" | "manage";
 
@@ -109,6 +110,8 @@ const MODULE_ACTION_PERMISSION: Record<
   customers: { read: "customers:read", write: "customers:write", manage: "customers:write" },
   // settings:write yok → write ve manage aynı manage permission'ına eşlenir.
   settings: { read: "settings:read", write: "settings:manage", manage: "settings:manage" },
+  // finance:write yok → write/manage aynı manage'e (gelir-hassas ticari mutation).
+  finance: { read: "finance:read", write: "finance:manage", manage: "finance:manage" },
 };
 
 /**

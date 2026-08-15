@@ -2514,3 +2514,38 @@ bilinçli olarak PR1 kapsamı DIŞINDA bırakıldı.
   `docs/analysis/PERF-001-navigation-latency.md`.
 - Not (dev cold compile): rota başına 4–23 s ilk-hit derleme `next dev`'e içkindir; tam çözüm
   production build (`next start`) — yerel dev kapsamı dışı. AYRI raporlanır.
+
+## TD-AUTH-002 — Legacy PlatformUser-named scalar actor fields carry StoreUser id (Faz E2)
+
+- Durum: DOCUMENTED (E2'de rename/migration YAPILMADI — additive olmayan şema değişikliği; ayrı iş)
+- Öncelik: LOW–MEDIUM (crash yok; audit izi ve bazı ekranlarda ad-çözümü etkilenir)
+- Bağlam: Faz E2 cutover ile Store Admin business route'ları StoreUser auth'a geçti. Domain "aktör"
+  alanları (audit/olay atıfları) `AuditLog.platformUserId` HARİÇ hiçbiri PlatformUser'a FK DEĞİLDİR
+  (hepsi `String?` scalar) — bu yüzden StoreUser id yazmak crash ETMEZ. Ancak alan İSİMLERİ hâlâ
+  "PlatformUser" der ve değer artık StoreUser id'sidir (opak, doğru aktör; isim yanıltıcı).
+- **AuditLog**: E2'de DOĞRU şekilde çözüldü — Store Admin mutation'ları `actorKind=STORE_USER` +
+  `actorStoreUserId` yazar; `platformUserId` NULL. Bu alan borç DEĞİL.
+- Scalar aktör alanları (StoreUser id taşıyan; FK YOK; opak atıf — güvenli generic actor):
+  - `OrderEvent.actorUserId`, `InventoryMovement.actorUserId`, `InventoryAdjustment.changedByPlatformUserId`
+  - `OrderRefund.requestedByPlatformUserId` / `manualCompletedByPlatformUserId`, `OrderRefundEvent.actorId`
+  - `VariantIdentityChange/VariantCommercialChange/ProductPriceChange.changedByPlatformUserId`
+  - `SlugHistory.createdBy`, `MediaAsset.createdBy`, `Theme.createdBy/publishedBy/updatedBy`
+  - `CustomerCredentialToken.createdByUserId`, `PaymentAttempt.initiatedBy`
+  - `ReturnStatusHistory.actorId`, `ReturnRequest.createdByPlatformUserId`, `ReviewStartedEvent.platformUserId`
+  - `SupportTicketMessage.actorId`, support/recovery `StatusHistory.actorId`
+  - `SponsorshipAgreement.approvedByUserId`, `SponsorshipPayment.recordedByUserId`, `SponsorshipAdvanceAllocation.recordedByUserId`
+  - `PlatformRequest.createdByActorId` (+ message/history `actorId`), `StoreModuleOverride.source`
+  - `OrderRecoveryCase.updatedByPlatformUserId/createdByPlatformUserId`, `OrderRecoveryActivity` (`actorType`
+    artık DOĞRU `STORE_USER` + `actorId`=StoreUser id), customer-erasure `erasedByUserId`
+  - Hepsi: gerçek semantik = "aksiyonu yapan aktör"; StoreUser id doğru değer. FK yok → güvenli.
+- **Semantik olarak PlatformUser bekleyen alanlar (assignee) — E2'de DOĞRU çözüldü, borç DEĞİL:**
+  `SupportTicket.assigneePlatformUserId` ve `OrderRecoveryCase.assigneePlatformUserId` bir PlatformUser
+  kimliğidir (dropdown = `listAssignableUsers` → linked StoreUser'ların `linkedPlatformUserId`'si; ad
+  çözümü `prisma.platformUser`). Bu alanlara HAM StoreUser id YAZILMAMALIDIR (aksi halde ad çözülmez +
+  assignee filtresi kaçırır). E2'de "me" self-assign, acting StoreUser'ın KENDİ `linkedPlatformUserId`'sine
+  çözülür (product-support/service.ts + order-experience/recovery-service.ts); native/unlinked StoreUser
+  kendini atayamaz (403 ASSIGNEE_NOT_IN_STORE / ASSIGNEE_NOT_ALLOWED). Böylece atama MODELİ PlatformUser
+  kalır (ADR/Faz D `listAssignableUsers` `linkedPlatformUserId != null` ile tutarlı).
+- Gelecek (FUTURE, ayrı iş): scalar aktör alanlarını polimorfik aktör'e (`actorType`+`actorId`, credit
+  deseni gibi) TAŞIMAK VEYA `...ByStoreUserId` olarak yeniden adlandırmak — additive olmayan migration.
+  Şimdilik değer doğru (opak StoreUser id), yalnız isim legacy. Acil değil.

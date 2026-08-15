@@ -35,6 +35,7 @@ import {
   type TaxonomyValueRecord,
 } from "../src/taxonomy/taxonomy-data.js";
 import { TAXONOMY_TYPE_REGISTRY, type ProductTaxonomyType } from "@commerce-os/contracts/product-taxonomy";
+import { createStoreAuthDataFake } from "./helpers/store-auth-fixture.js";
 
 const config = {
   APP_ENV: "test" as const,
@@ -75,7 +76,11 @@ const STORES = new Map([
   [STORE_B, store(STORE_B)],
 ]);
 
+// Faz E2 — Store Admin route'ları StoreUser oturumu ile doğrulanır. Her mağazanın KENDİ token'ı
+// vardır: guard session.storeId == path storeId eşleşmesini zorlar. `AUTH` STORE_A'ya, `AUTH_B`
+// STORE_B'ye bağlıdır (tenant-izolasyon testleri için — bkz. buildApp storeAuthData).
 const AUTH = { authorization: "Bearer admin-token" };
+const AUTH_B = { authorization: "Bearer admin-b-token" };
 const NOW = new Date("2026-08-01T00:00:00.000Z");
 
 /** Mirror `taxonomy-service.test.ts`'in FakeTaxonomyData'sı (bu Task, HTTP katmanını doğrular). */
@@ -255,7 +260,17 @@ function buildApp(opts: { fashionEnabled?: boolean } = { fashionEnabled: true })
     getActivePlanMetadata: () => moduleOverrides.getActivePlanMetadata(),
   } as unknown as AppDataAccess;
 
-  const app = createServer(config, { dataAccess, taxonomyDataAccess });
+  const app = createServer(config, {
+    dataAccess,
+    taxonomyDataAccess,
+    storeAuthData: createStoreAuthDataFake(
+      [
+        { token: "admin-token", storeId: STORE_A, role: "OWNER" },
+        { token: "admin-b-token", storeId: STORE_B, role: "OWNER" },
+      ],
+      config.SESSION_SECRET,
+    ),
+  });
   return { app, taxonomyDataAccess, moduleOverrides, auditLogs };
 }
 
@@ -600,10 +615,13 @@ describe("Taxonomy routes — tenant izolasyonu", () => {
       await app.inject({ method: "POST", url: `/stores/${STORE_A}/product-taxonomy`, headers: AUTH, payload: taxonomyBody() })
     ).json().data;
 
+    // Faz E2 — İstek STORE_B path'ine STORE_B'nin KENDİ token'ıyla (AUTH_B) gelir: auth guard
+    // geçer (session.storeId==store_b), ardından DOMAIN katmanı değerin store_a'ya ait olduğunu
+    // görüp 403 TAXONOMY_CROSS_STORE üretir (auth guard'ın 404'ü DEĞİL).
     const getRes = await app.inject({
       method: "GET",
       url: `/stores/${STORE_B}/product-taxonomy/${created.id}`,
-      headers: AUTH,
+      headers: AUTH_B,
     });
     expect(getRes.statusCode).toBe(403);
     expect(getRes.json().error.code).toBe("TAXONOMY_CROSS_STORE");
@@ -611,7 +629,7 @@ describe("Taxonomy routes — tenant izolasyonu", () => {
     const patchRes = await app.inject({
       method: "PATCH",
       url: `/stores/${STORE_B}/product-taxonomy/${created.id}`,
-      headers: AUTH,
+      headers: AUTH_B,
       payload: { name: "Hijack" },
     });
     expect(patchRes.statusCode).toBe(403);
@@ -620,7 +638,7 @@ describe("Taxonomy routes — tenant izolasyonu", () => {
     const archiveRes = await app.inject({
       method: "POST",
       url: `/stores/${STORE_B}/product-taxonomy/${created.id}/archive`,
-      headers: AUTH,
+      headers: AUTH_B,
     });
     expect(archiveRes.statusCode).toBe(403);
 

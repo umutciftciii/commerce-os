@@ -9,6 +9,7 @@
  * serialize eder ve AuditLog'a yazar. Tahsilat tutarı istemciden OTORİTE kabul edilmez.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   ADMIN_LIST_DEFAULT_PAGE_SIZE,
   buildAdminListPagination,
@@ -87,9 +88,8 @@ function currencyMismatchReply(reply: FastifyReply, mismatch: { expectedCurrency
   );
 }
 
-type AuditFn = (input: {
+type AuditFn = (input: StoreAuditActor & {
   action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "SYSTEM";
-  platformUserId?: string;
   storeId?: string;
   entityType: string;
   entityId?: string;
@@ -102,7 +102,7 @@ export interface SponsorshipAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
   recordAudit: AuditFn;
 }
 
@@ -470,7 +470,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
     if (!parsed.success) return reply.code(400).send(errorBody("INVALID_BODY", "Invalid sponsor."));
     const result = await data.createSponsor(storeId, parsed.data);
     if (result === "DUPLICATE_COMPANY") return reply.code(409).send(errorBody("DUPLICATE_COMPANY", "A sponsor with this company name already exists."));
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorAccount", entityId: result.id });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "SponsorAccount", entityId: result.id });
     return reply.code(201).send(sponsorAccountDetailResponseSchema.parse({ data: serializeSponsorDetail((await data.getSponsorDetail(storeId, result.id, new Date()))!) }));
   });
 
@@ -492,7 +492,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
     const result = await data.updateSponsor(storeId, id, parsed.data);
     if (result === null) return reply.code(404).send(errorBody("NOT_FOUND", "Sponsor not found."));
     if (result === "DUPLICATE_COMPANY") return reply.code(409).send(errorBody("DUPLICATE_COMPANY", "A sponsor with this company name already exists."));
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorAccount", entityId: id });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "SponsorAccount", entityId: id });
     return reply.send(sponsorAccountDetailResponseSchema.parse({ data: serializeSponsorDetail((await data.getSponsorDetail(storeId, id, new Date()))!) }));
   });
 
@@ -555,7 +555,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = AGREEMENT_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipAgreement", entityId: result.id, metadata: { pricingModel: result.pricingModel } });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "SponsorshipAgreement", entityId: result.id, metadata: { pricingModel: result.pricingModel } });
     return reply.code(201).send(sponsorshipAgreementDetailResponseSchema.parse({ data: serializeAgreementDetail((await data.getAgreementDetail(storeId, result.id, new Date()))!) }));
   });
 
@@ -605,7 +605,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = AGREEMENT_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipAgreement", entityId: id });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "SponsorshipAgreement", entityId: id });
     return reply.send(sponsorshipAgreementDetailResponseSchema.parse({ data: serializeAgreementDetail((await data.getAgreementDetail(storeId, id, new Date()))!) }));
   });
 
@@ -620,7 +620,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = LINK_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipAgreement", entityId: id, metadata: { linkedCampaign: parsed.data.campaignId } });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "SponsorshipAgreement", entityId: id, metadata: { linkedCampaign: parsed.data.campaignId } });
     return reply.send(sponsorshipAgreementDetailResponseSchema.parse({ data: serializeAgreementDetail(result) }));
   });
 
@@ -630,7 +630,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
     if (!access) return;
     const result = await data.unlinkCampaign(storeId, id, campaignId, new Date());
     if (result === null) return reply.code(404).send(errorBody("NOT_FOUND", "Link not found."));
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipAgreement", entityId: id, metadata: { unlinkedCampaign: campaignId } });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "SponsorshipAgreement", entityId: id, metadata: { unlinkedCampaign: campaignId } });
     return reply.send(sponsorshipAgreementDetailResponseSchema.parse({ data: serializeAgreementDetail(result) }));
   });
 
@@ -695,7 +695,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = SETTLEMENT_ERROR_STATUS[result] ?? { code: 409, message: "Settlement cannot be finalized." };
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipSettlement", entityId: id, metadata: { finalized: true } });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "SponsorshipSettlement", entityId: id, metadata: { finalized: true } });
     return reply.send(sponsorshipSettlementDetailResponseSchema.parse({ data: serializeSettlement(result) }));
   });
 
@@ -706,7 +706,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
     const result = await data.deleteSettlement(storeId, id);
     if (result === "NOT_FOUND") return reply.code(404).send(errorBody("NOT_FOUND", "Settlement not found."));
     if (result === "FINALIZED") return reply.code(409).send(errorBody("SETTLEMENT_FINALIZED", "Finalized settlement is immutable and cannot be deleted."));
-    await recordAudit({ action: "DELETE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipSettlement", entityId: id });
+    await recordAudit({ action: "DELETE", ...access.audit, storeId, entityType: "SponsorshipSettlement", entityId: id });
     return reply.code(204).send();
   });
 
@@ -722,7 +722,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = CHARGE_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipCharge", entityId: result.id, metadata: { settlementId: id, totalAmountMinor: result.totalAmountMinor } });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "SponsorshipCharge", entityId: result.id, metadata: { settlementId: id, totalAmountMinor: result.totalAmountMinor } });
     return reply.code(201).send(sponsorshipChargeDetailResponseSchema.parse({ data: serializeCharge(result, now) }));
   });
 
@@ -737,7 +737,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = CHARGE_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipCharge", entityId: result.id, metadata: { adjustment: true, subtotalMinor: result.subtotalMinor } });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "SponsorshipCharge", entityId: result.id, metadata: { adjustment: true, subtotalMinor: result.subtotalMinor } });
     return reply.code(201).send(sponsorshipChargeDetailResponseSchema.parse({ data: serializeCharge(result, now) }));
   });
 
@@ -846,7 +846,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = CHARGE_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipCharge", entityId: id, metadata: { issued: true } });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "SponsorshipCharge", entityId: id, metadata: { issued: true } });
     return reply.send(sponsorshipChargeDetailResponseSchema.parse({ data: serializeCharge(result, now) }));
   });
 
@@ -862,7 +862,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = CHARGE_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipCharge", entityId: id, metadata: { cancelled: true } });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "SponsorshipCharge", entityId: id, metadata: { cancelled: true } });
     return reply.send(sponsorshipChargeDetailResponseSchema.parse({ data: serializeCharge(result, now) }));
   });
 
@@ -893,7 +893,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = PAYMENT_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipPayment", entityId: result.id, metadata: { chargeId: id, amountMinor: result.amountMinor } });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "SponsorshipPayment", entityId: result.id, metadata: { chargeId: id, amountMinor: result.amountMinor } });
     return reply.code(201).send(sponsorshipPaymentDetailResponseSchema.parse({ data: serializePayment(result) }));
   });
 
@@ -963,7 +963,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = PAYMENT_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipPayment", entityId: id, metadata: { reversed: true } });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "SponsorshipPayment", entityId: id, metadata: { reversed: true } });
     return reply.code(201).send(sponsorshipPaymentDetailResponseSchema.parse({ data: serializePayment(result) }));
   });
 
@@ -1007,7 +1007,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = FIXED_FEE_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipCharge", entityId: result.id, metadata: { agreementId: id, fixedFee: true, totalAmountMinor: result.totalAmountMinor } });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "SponsorshipCharge", entityId: result.id, metadata: { agreementId: id, fixedFee: true, totalAmountMinor: result.totalAmountMinor } });
     return reply.code(201).send(sponsorshipChargeDetailResponseSchema.parse({ data: serializeCharge(result, now) }));
   });
 
@@ -1038,7 +1038,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = ADVANCE_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipPayment", entityId: result.id, metadata: { agreementId: id, advance: true, amountMinor: result.amountMinor } });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "SponsorshipPayment", entityId: result.id, metadata: { agreementId: id, advance: true, amountMinor: result.amountMinor } });
     return reply.code(201).send(sponsorshipAdvanceDetailResponseSchema.parse({ data: serializePayment(result) }));
   });
 
@@ -1087,7 +1087,7 @@ export function registerSponsorshipAdminRoutes(app: FastifyInstance, deps: Spons
       const e = ALLOCATION_ERROR_STATUS[result];
       return reply.code(e.code).send(errorBody(result, e.message));
     }
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsorshipAdvanceAllocation", entityId: result.id, metadata: { chargeId: result.chargeId, advancePaymentId: result.advancePaymentId, amountMinor: result.amountMinor } });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "SponsorshipAdvanceAllocation", entityId: result.id, metadata: { chargeId: result.chargeId, advancePaymentId: result.advancePaymentId, amountMinor: result.amountMinor } });
     return reply.code(201).send(sponsorshipAllocationDetailResponseSchema.parse({ data: serializeAllocation(result) }));
   });
 

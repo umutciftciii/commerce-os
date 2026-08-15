@@ -44,8 +44,12 @@ import {
   type AttributeDefinitionRecord,
 } from "./data.js";
 import { assertOptionNotGoverned, AttributeOptionGovernedError } from "../taxonomy/option-resolver.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
+// PLATFORM aktörü (requireSuperAdmin) hâlâ PlatformUser id'sidir (AuditLog.platformUserId FK).
 type Actor = { actorUserId: string };
+// STORE aktörü (Faz E2): StoreUser id (opak) + STORE_USER audit actor (AuditLog store-actor'ı).
+type StoreActor = { actorUserId: string; audit: StoreAuditActor };
 
 export interface StoreAttributeRoutesDeps {
   dataAccess: AttributeDataAccess;
@@ -53,8 +57,10 @@ export interface StoreAttributeRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<Actor | null>;
-  recordAudit: (input: {
+  ) => Promise<StoreActor | null>;
+  // Store rotaları store-actor'ı spread eder (...access.audit); platform rotaları platformUserId
+  // yazar. İkisi de opsiyonel — tek paylaşılan recordAudit tipi her iki yüzeyi de karşılar.
+  recordAudit: (input: Partial<StoreAuditActor> & {
     action: "CREATE" | "UPDATE" | "DELETE";
     platformUserId?: string;
     storeId?: string;
@@ -259,7 +265,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
     }
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "AttributeDefinition",
       entityId: record.id,
@@ -290,7 +296,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
     if (!record) return reply.code(404).send(errorBody("ATTRIBUTE_NOT_FOUND", "Attribute not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "AttributeDefinition",
       entityId: record.id,
@@ -343,7 +349,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
       });
       await recordAudit({
         action: "CREATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "AttributeOption",
         entityId: record.id,
@@ -370,7 +376,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
     if (!record) return reply.code(404).send(errorBody("ATTRIBUTE_OPTION_NOT_FOUND", "Option not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "AttributeOption",
       entityId: record.id,
@@ -402,7 +408,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
     });
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "AttributeGroup",
       entityId: record.id,
@@ -429,7 +435,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
     if (!record) return reply.code(404).send(errorBody("ATTRIBUTE_GROUP_NOT_FOUND", "Group not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "AttributeGroup",
       entityId: record.id,
@@ -492,7 +498,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
       });
       await recordAudit({
         action: "CREATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "CategoryAttribute",
         entityId: record.id,
@@ -529,7 +535,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
       }
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "CategoryAttribute",
         entityId: record.id,
@@ -555,7 +561,7 @@ export function registerStoreAttributeRoutes(app: FastifyInstance, deps: StoreAt
       }
       await recordAudit({
         action: "DELETE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "CategoryAttribute",
         entityId: params.categoryAttributeId,

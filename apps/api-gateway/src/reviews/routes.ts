@@ -11,6 +11,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "@commerce-os/config";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   REVIEW_BODY_MIN_LENGTH,
   REVIEW_PUBLIC_DEFAULT_PAGE_SIZE,
@@ -72,10 +73,9 @@ export interface ReviewAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "SYSTEM";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -672,7 +672,7 @@ export function registerReviewAdminRoutes(app: FastifyInstance, deps: ReviewAdmi
     }
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId,
       entityType: "ProductReview",
       entityId: moderated.id,

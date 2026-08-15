@@ -52,16 +52,23 @@ describe.skipIf(!hasTestDb)("Order Experience Recovery (integration)", () => {
     for (const uid of createdUsers.splice(0)) await prisma.platformUser.delete({ where: { id: uid } }).catch(() => {});
   });
 
-  it("ASSIGN 'me' → gerçek actor id'ye çözülür (literal 'me' yazılmaz)", async () => {
+  it("ASSIGN 'me' → acting StoreUser'ın linkedPlatformUserId'sine çözülür (ham StoreUser id YAZILMAZ)", async () => {
     const f = await seedOrder();
     const r = await review(f, 1);
     const kase = await prisma.orderRecoveryCase.findUniqueOrThrow({ where: { orderExperienceReviewId: r.id }, select: { id: true } });
+    // Faz E2 — actor artık StoreUser'dır; "me" self-assign onun linked PlatformUser'ına çözülür
+    // (assignee MODELİ PlatformUser kalır — ad çözümü prisma.platformUser ile eşleşsin diye).
+    const pu = await seedPlatformUser("Linked Actor");
+    const su = await prisma.storeUser.create({
+      data: { storeId: f.storeId, linkedPlatformUserId: pu.id, role: "MANAGER" },
+      select: { id: true },
+    });
     const res = await applyRecoveryAction({
-      storeId: f.storeId, caseId: kase.id, action: "ASSIGN", actorPlatformUserId: "pu-actor-xyz", assigneePlatformUserId: "me",
+      storeId: f.storeId, caseId: kase.id, action: "ASSIGN", actorPlatformUserId: su.id, assigneePlatformUserId: "me",
     });
     expect(res.ok).toBe(true);
     const after = await prisma.orderRecoveryCase.findUniqueOrThrow({ where: { id: kase.id }, select: { assigneePlatformUserId: true } });
-    expect(after.assigneePlatformUserId).toBe("pu-actor-xyz");
+    expect(after.assigneePlatformUserId).toBe(pu.id);
   });
 
   it("assignee join: detail assigneeName/assigneeEmail döner (ham id sızmaz)", async () => {

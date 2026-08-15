@@ -14,6 +14,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "@commerce-os/config";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   ADMIN_LIST_DEFAULT_PAGE_SIZE,
   buildAdminListPagination,
@@ -78,9 +79,8 @@ const CAMPAIGN_LINK_STATUS: Record<string, { code: number; message: string }> = 
   CAMPAIGN_WINDOW_NOT_COVERED: { code: 400, message: "Anlaşma dönemi kampanya dönemini tam kapsamalı." },
 };
 
-type AuditFn = (input: {
+type AuditFn = (input: StoreAuditActor & {
   action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "SYSTEM";
-  platformUserId?: string;
   storeId?: string;
   entityType: string;
   entityId?: string;
@@ -94,7 +94,7 @@ export interface SponsoredAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
   recordAudit: AuditFn;
   /** TODO-161A.2 — ticari uygunluk kapısı + anlaşma bağlama köprüsü (ADR-128). */
   commercial: SponsoredCommercialBridge;
@@ -282,7 +282,7 @@ export function registerSponsoredAdminRoutes(app: FastifyInstance, deps: Sponsor
       await data.updateCampaign(storeId, created.id, { status: "ACTIVE" });
     }
 
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "SponsoredProductCampaign", entityId: created.id, metadata: { commercialMode: mode, agreementId: b.agreementId ?? null } });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "SponsoredProductCampaign", entityId: created.id, metadata: { commercialMode: mode, agreementId: b.agreementId ?? null } });
     const detail = await data.getCampaignDetail(storeId, created.id, new Date());
     return reply.code(201).send(sponsoredCampaignDetailResponseSchema.parse({ data: toCampaignDetail(detail!, new Date()) }));
   });
@@ -333,7 +333,7 @@ export function registerSponsoredAdminRoutes(app: FastifyInstance, deps: Sponsor
       if (block) return reply.code(block.status).send(errorBody(block.code, block.message));
       await data.updateCampaign(storeId, id, { status: "ACTIVE" });
     }
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "SponsoredProductCampaign", entityId: id });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "SponsoredProductCampaign", entityId: id });
     const detail = await data.getCampaignDetail(storeId, id, now);
     return reply.send(sponsoredCampaignDetailResponseSchema.parse({ data: toCampaignDetail(detail!, now) }));
   });

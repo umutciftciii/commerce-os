@@ -17,10 +17,10 @@ import type {
   CustomerErasurePreviewData,
 } from "./data.js";
 import type { StoreJobLocker } from "../commercial-automation/advisory-lock.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
-type AuditFn = (input: {
+type AuditFn = (input: StoreAuditActor & {
   action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "SYSTEM";
-  platformUserId?: string;
   storeId?: string;
   entityType: string;
   entityId?: string;
@@ -60,26 +60,26 @@ export type DeactivateServiceResult =
   | { kind: "DEACTIVATED"; revokedCount: number };
 
 export interface CustomerErasureService {
-  preview(storeId: string, customerId: string, actorUserId: string): Promise<PreviewResult>;
+  preview(storeId: string, customerId: string, actorUserId: string, audit: StoreAuditActor): Promise<PreviewResult>;
   apply(
     storeId: string,
     customerId: string,
-    input: { actorUserId: string; reason: string; confirmationPhrase: string },
+    input: { actorUserId: string; reason: string; confirmationPhrase: string; audit: StoreAuditActor },
   ): Promise<ApplyResult>;
-  deactivate(storeId: string, customerId: string, actorUserId: string): Promise<DeactivateServiceResult>;
+  deactivate(storeId: string, customerId: string, actorUserId: string, audit: StoreAuditActor): Promise<DeactivateServiceResult>;
 }
 
 export function createCustomerErasureService(deps: CustomerErasureServiceDeps): CustomerErasureService {
   const { data, locker, recordAudit, logger } = deps;
 
   return {
-    async preview(storeId, customerId, actorUserId) {
+    async preview(storeId, customerId, actorUserId, audit) {
       const report = await data.preview(storeId, customerId);
       if (!report) return { kind: "NOT_FOUND" };
       // Dry-run da operasyon kaydına düşer (ADR-154). PII yok — yalnız mod + toplamlar.
       await recordAudit({
         action: "SYSTEM",
-        platformUserId: actorUserId,
+        ...audit,
         storeId,
         entityType: "Customer",
         entityId: customerId,
@@ -133,7 +133,7 @@ export function createCustomerErasureService(deps: CustomerErasureServiceDeps): 
       // ASLA metadata'ya yazılmaz; yalnız sayaçlar + anonimleştirilen ALAN ADLARI.
       await recordAudit({
         action: "DELETE",
-        platformUserId: input.actorUserId,
+        ...input.audit,
         storeId,
         entityType: "Customer",
         entityId: customerId,
@@ -154,13 +154,13 @@ export function createCustomerErasureService(deps: CustomerErasureServiceDeps): 
       return { kind: "ERASED", result };
     },
 
-    async deactivate(storeId, customerId, actorUserId) {
+    async deactivate(storeId, customerId, actorUserId, audit) {
       const result = await data.deactivate(storeId, customerId);
       if (result.kind === "NOT_FOUND") return { kind: "NOT_FOUND" };
       if (result.kind === "ALREADY_ERASED") return { kind: "ALREADY_ERASED" };
       await recordAudit({
         action: "UPDATE",
-        platformUserId: actorUserId,
+        ...audit,
         storeId,
         entityType: "Customer",
         entityId: customerId,

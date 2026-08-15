@@ -40,6 +40,10 @@ import {
 } from "../src/campaigns/data.js";
 import type { CampaignCreateRequest, CampaignUpdateRequest } from "@commerce-os/contracts";
 import { deriveIsPublicFromAccessModel } from "@commerce-os/contracts";
+import { createStoreAuthDataFake } from "./helpers/store-auth-fixture.js";
+
+const STORE_TOKEN = "store-admin-token";
+const STORE_OTHER_TOKEN = "store-other-admin-token";
 
 const config = {
   APP_ENV: "test" as const,
@@ -2777,6 +2781,13 @@ async function createTestApp() {
   const app = createServer(config, {
     dataAccess,
     customerDataAccess,
+    storeAuthData: createStoreAuthDataFake(
+      [
+        { token: STORE_TOKEN, storeId: "store_demo", role: "OWNER" },
+        { token: STORE_OTHER_TOKEN, storeId: "store_other", role: "OWNER" },
+      ],
+      config.SESSION_SECRET,
+    ),
     checkDatabaseHealth: async () => true,
     checkRedisHealth: async () => true,
   });
@@ -3210,8 +3221,8 @@ describe("api gateway", () => {
   });
 
   it("lists, creates and updates categories with store-scoped slug validation", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
 
     const listResponse = await app.inject({
       method: "GET",
@@ -3266,8 +3277,8 @@ describe("api gateway", () => {
   });
 
   it("binds, derives and clears the category image with tenant + context guards (ADR-065 Faz 2/Dilim 3)", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
 
     // Gecerli CATEGORY gorsel (store_demo), 2. gecerli, yanlis-context (PRODUCT),
@@ -3374,8 +3385,8 @@ describe("api gateway", () => {
   });
 
   it("reads (lazy), upserts and guards store branding settings (ADR-065 Faz 2/Dilim 4)", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
 
     // Gecerli BRANDING logo/favicon (store_demo), yanlis-context (PRODUCT) ve
@@ -3519,8 +3530,8 @@ describe("api gateway", () => {
   });
 
   it("binds, orders, reorders, removes and clears the product gallery with guards (ADR-065 Faz 2/Dilim 2)", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
     const productUrl = "/stores/store_demo/products/product_hoodie";
 
@@ -3639,8 +3650,8 @@ describe("api gateway", () => {
   });
 
   it("Variant Media Engine: media-defining axis + Renk-etiketli galeri + public projeksiyon (ADR-078)", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
     const productUrl = "/stores/store_demo/products/product_hoodie";
 
@@ -3748,8 +3759,8 @@ describe("api gateway", () => {
   });
 
   it("lists, creates and updates products with category assignments", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
 
     const listResponse = await app.inject({
       method: "GET",
@@ -3839,8 +3850,8 @@ describe("api gateway", () => {
 
   // ─────────────── Faz 1A (ADR-067) — Ana kategori (primaryCategoryId) kurallari ───────────────
   it("Faz 1A: create ana kategori kurallarini stabil kodlarla uygular", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
 
     const catBId = (
@@ -3906,8 +3917,8 @@ describe("api gateway", () => {
   });
 
   it("Faz 1A: update ana kategori / assignment kaldirma kurallarini uygular", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
 
     const catB = (
@@ -3979,8 +3990,8 @@ describe("api gateway", () => {
   });
 
   it("Faz 1A: legacy null-primary urunun ilgisiz update'i ana kategoriye dokunmaz", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
     // Seed product_hoodie: categoryIds ["cat_apparel"], primaryCategoryId YOK (legacy null).
     const before = await app.inject({ method: "GET", url: "/stores/store_demo/products/product_hoodie", headers: auth });
@@ -3998,8 +4009,8 @@ describe("api gateway", () => {
   });
 
   it("Faz 1A: arsivli kategori ana kategori olarak secilemez", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
     const catB = (
       await app.inject({ method: "POST", url: "/stores/store_demo/categories", headers: auth, payload: { name: "Archived", slug: "arch" } })
@@ -4018,8 +4029,8 @@ describe("api gateway", () => {
   });
 
   it("creates variants, enforces store-scoped SKU uniqueness and creates inventory items", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
 
     const createResponse = await app.inject({
       method: "POST",
@@ -4068,8 +4079,8 @@ describe("api gateway", () => {
 
   // F4B — Maliyet/marj + fiyat degisikligi audit.
   it("F4B — tracks cost, enforces cost<=list, and records a price-change audit trail", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
 
     // Maliyet liste tavanini (compareAt) asamaz -> 400.
@@ -4138,8 +4149,8 @@ describe("api gateway", () => {
 
   // F4C (ADR-063) — KDV: admin net girer; KDV tutari + brut SUNUCUDA hesaplanir.
   it("F4C — variant VAT is server-calculated from net price and rate (client VAT never trusted)", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
 
     // Net 1.199,20 + %20 → KDV 239,84, brut (priceMinor) 1.439,04.
@@ -4205,8 +4216,8 @@ describe("api gateway", () => {
   });
 
   it("F4C — legacy gross-only input preserves the displayed gross price (backfill semantics)", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
 
     // Eski istemci yalniz brut gonderir → brut AYNEN korunur, net/KDV ayristirilir.
@@ -4239,8 +4250,8 @@ describe("api gateway", () => {
 
   // F4C (ADR-064) — Siparis satiri KDV/maliyet/liste snapshot'i + satis ozeti.
   it("F4C — order lines snapshot net/VAT/gross/cost and admin order carries a sales summary", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
     const auth = { authorization: `Bearer ${token}` };
 
     // Maliyet ekle ki kar alanlari da snapshot'lansin.
@@ -4356,8 +4367,8 @@ describe("api gateway", () => {
   });
 
   it("lists inventory and records movements for non-negative adjustments", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
     dataAccess.stores.push({
       id: "store_other",
       name: "Other Store",
@@ -4418,7 +4429,7 @@ describe("api gateway", () => {
       payload: { quantityDelta: 1 },
     });
     expect(crossStoreResponse.statusCode).toBe(404);
-    expect(crossStoreResponse.json()).toMatchObject({ error: { code: "INVENTORY_ITEM_NOT_FOUND" } });
+    expect(crossStoreResponse.json()).toMatchObject({ error: { code: "STORE_ACCESS_DENIED" } });
     expect(dataAccess.movements).toHaveLength(2);
     expect(dataAccess.auditLogs).toEqual(
       expect.arrayContaining([
@@ -4433,8 +4444,8 @@ describe("api gateway", () => {
   });
 
   it("creates draft orders with line snapshots and lists/gets them", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
 
     const createResponse = await app.inject({
       method: "POST",
@@ -4486,8 +4497,8 @@ describe("api gateway", () => {
   });
 
   it("filters orders by status, payment, fulfillment, search and date range (TODO-073)", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
 
     for (const email of ["alice@example.com", "bob@example.com", "carol@example.com"]) {
       const res = await app.inject({
@@ -4549,8 +4560,8 @@ describe("api gateway", () => {
   });
 
   it("places orders by reserving stock and blocks oversell", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
 
     await app.inject({
       method: "POST",
@@ -4597,8 +4608,8 @@ describe("api gateway", () => {
   });
 
   it("cancels orders by releasing reservations exactly once and blocks later line mutation", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
 
     await app.inject({
       method: "POST",
@@ -4646,11 +4657,11 @@ describe("api gateway", () => {
   });
 
   it("rejects missing auth, cross-store variants and inactive products for orders", async () => {
-    const { app, dataAccess, login } = await createTestApp();
+    const { app, dataAccess } = await createTestApp();
     const missingAuth = await app.inject({ method: "GET", url: "/stores/store_demo/orders" });
     expect(missingAuth.statusCode).toBe(401);
 
-    const token = await login();
+    const token = STORE_TOKEN;
     dataAccess.stores.push({
       id: "store_other",
       name: "Other Store",
@@ -4672,7 +4683,7 @@ describe("api gateway", () => {
       },
     });
     expect(crossStoreResponse.statusCode).toBe(404);
-    expect(crossStoreResponse.json()).toMatchObject({ error: { code: "VARIANT_NOT_FOUND" } });
+    expect(crossStoreResponse.json()).toMatchObject({ error: { code: "STORE_ACCESS_DENIED" } });
 
     dataAccess.products[0]!.status = "ARCHIVED";
     const inactiveResponse = await app.inject({
@@ -4691,8 +4702,8 @@ describe("api gateway", () => {
   });
 
   it("rejects non-online product sales modes in order create, add-line and place", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
     dataAccess.products[0]!.salesMode = "INQUIRY";
     dataAccess.products[0]!.primaryAction = "REQUEST_PRICE";
     dataAccess.products[0]!.inquiryEnabled = true;
@@ -4783,8 +4794,8 @@ describe("api gateway", () => {
   });
 
   it("rejects excessive order quantity before DB integer overflow", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const response = await app.inject({
       method: "POST",
       url: "/stores/store_demo/orders",
@@ -4801,8 +4812,8 @@ describe("api gateway", () => {
   });
 
   it("does not let reservation release make reserved stock negative", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
     await app.inject({
       method: "POST",
       url: "/stores/store_demo/orders",
@@ -4843,8 +4854,8 @@ describe("api gateway · store-admin customers (F3B.3)", () => {
   });
 
   it("lists store customers with safe account/membership fields only", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const response = await app.inject({
       method: "GET",
       url: "/stores/store_demo/customers",
@@ -4890,8 +4901,8 @@ describe("api gateway · store-admin customers (F3B.3)", () => {
   });
 
   it("never returns another store's customers (tenant scope)", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const response = await app.inject({
       method: "GET",
       url: "/stores/store_demo/customers",
@@ -4906,8 +4917,8 @@ describe("api gateway · store-admin customers (F3B.3)", () => {
 
 describe("api gateway · store-admin customer detail & management (F3B.3)", () => {
   async function auth() {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     return { app, token, close: () => app.close() };
   }
 
@@ -6157,8 +6168,8 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
   // ───────────────────── F4A — Kampanyalar & Kuponlar (ADR-058) ─────────────────────
   describe("F4A campaigns & coupons", () => {
     it("store admin can create/activate a coupon campaign; invalid discount is rejected", async () => {
-      const { app, login } = await createTestApp();
-      const token = await login();
+      const { app } = await createTestApp();
+      const token = STORE_TOKEN;
       const created = await app.inject({
         method: "POST",
         url: "/stores/store_demo/campaigns",
@@ -6205,8 +6216,8 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     });
 
     it("duplicate coupon code in the same store is rejected; other store can reuse it", async () => {
-      const { app, dataAccess, login } = await createTestApp();
-      const token = await login();
+      const { app, dataAccess } = await createTestApp();
+      const token = STORE_TOKEN;
       seedCouponCampaign(dataAccess, {}, "TEKRAR10");
       const duplicate = await app.inject({
         method: "POST",
@@ -6228,7 +6239,7 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
       const other = await app.inject({
         method: "POST",
         url: "/stores/store_other/campaigns",
-        headers: { authorization: `Bearer ${token}` },
+        headers: { authorization: `Bearer ${STORE_OTHER_TOKEN}` },
         payload: {
           name: "Diger Magaza",
           type: "COUPON_CODE",
@@ -6242,11 +6253,11 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     });
 
     it("campaign endpoints require store admin auth and campaigns stay store-scoped", async () => {
-      const { app, dataAccess, login } = await createTestApp();
+      const { app, dataAccess } = await createTestApp();
       const unauthorized = await app.inject({ method: "GET", url: "/stores/store_demo/campaigns" });
       expect(unauthorized.statusCode).toBe(401);
 
-      const token = await login();
+      const token = STORE_TOKEN;
       const campaign = seedCouponCampaign(dataAccess, {}, "GIZLI10");
       dataAccess.stores.push({ ...dataAccess.stores[0]!, id: "store_other", slug: "other-store", domain: null });
       const crossStore = await app.inject({
@@ -6259,8 +6270,8 @@ describe("api gateway · public cart + checkout (F3B.1)", () => {
     });
 
     it("archived campaigns cannot be edited; paused campaigns cannot be used", async () => {
-      const { app, dataAccess, login } = await createTestApp();
-      const token = await login();
+      const { app, dataAccess } = await createTestApp();
+      const token = STORE_TOKEN;
       const archived = seedCouponCampaign(dataAccess, { status: "ARCHIVED" }, "ESKI10");
       const patch = await app.inject({
         method: "PATCH",
@@ -6499,8 +6510,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("creates a provider, masks secrets in the response, and never leaks plaintext", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const res = await createProvider(app, token, {
       apiKey: "ak_secret_value_1234",
       secretKey: "sk_secret_value_abcd",
@@ -6520,8 +6531,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("preserves an existing secret when the field is omitted, replaces it when provided", async () => {
-    const { app, dataAccess, login } = await createTestApp();
-    const token = await login();
+    const { app, dataAccess } = await createTestApp();
+    const token = STORE_TOKEN;
     await createProvider(app, token, { apiKey: "ak_first_1111", secretKey: "sk_keep_2222" });
     const stored = dataAccess.paymentProviderConfigs[0]!;
     const originalSecretCipher = stored.secretKeyCipher;
@@ -6552,8 +6563,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("rejects a duplicate provider+mode and enforces amount range", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     await createProvider(app, token);
     const dup = await createProvider(app, token);
     expect(dup.statusCode).toBe(409);
@@ -6566,8 +6577,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("toggles status and reorders priorities deterministically", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const a = (await createProvider(app, token, { provider: "MOCK", priority: 50 })).json();
     const b = (await createProvider(app, token, { provider: "STRIPE", priority: 20, apiKey: "k", secretKey: "s" })).json();
 
@@ -6591,8 +6602,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("runs a mock test-connection and records the result", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     const config = (await createProvider(app, token)).json();
     const res = await app.inject({
       method: "POST",
@@ -6628,8 +6639,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("wires a token-protected test payment when a MOCK TEST provider exists (success → PAID)", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     await createProvider(app, token);
 
     const res = await checkout(app);
@@ -6675,8 +6686,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("keeps the order UNPAID and the attempt FAILED on a failure scenario", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     await createProvider(app, token);
     const body = (await checkout(app)).json();
     const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
@@ -6694,8 +6705,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   // F3B.2 — Test kart formu akisi: senaryo karttan turetilir; maskeli kart + taksit
   // yazilir; FULL PAN/CVC hicbir response'ta gorunmez.
   it("pays via the card form (success card → PAID), stores masked card + installment, never leaks the PAN", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     await createProvider(app, token, { installmentEnabled: true });
     const body = (await checkout(app)).json();
     const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
@@ -6725,8 +6736,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("derives a declined scenario from a known failure test card (order stays UNPAID)", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     await createProvider(app, token);
     const body = (await checkout(app)).json();
     const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
@@ -6745,8 +6756,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("rejects an invalid (non-Luhn) card number without faking success", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     await createProvider(app, token);
     const body = (await checkout(app)).json();
     const orderId = new URL(`http://x${body.payment.paymentPath}`).searchParams.get("orderId")!;
@@ -6765,8 +6776,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("returns a controlled error for a non-MOCK provider (IYZICO) instead of a fake success", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     // Yalniz IYZICO TEST provider (MOCK yok). Odeme adimi gosterilir ama submit
     // kontrollu hata doner; ASLA fake success.
     await createProvider(app, token, { provider: "IYZICO", displayName: "Iyzico TEST" });
@@ -6846,8 +6857,8 @@ describe("api gateway · payment providers (F3B.2)", () => {
   });
 
   it("prefers the MOCK provider for the test flow even when a real provider has higher priority", async () => {
-    const { app, login } = await createTestApp();
-    const token = await login();
+    const { app } = await createTestApp();
+    const token = STORE_TOKEN;
     // IYZICO daha yuksek oncelikli (kucuk priority) ama test odemeyi tamamlayamaz;
     // MOCK daha dusuk oncelikli. Checkout yine de MOCK attempt'i uretmeli ki
     // "MOCK aktifken test odeme calismiyor" durumu olusmasin.

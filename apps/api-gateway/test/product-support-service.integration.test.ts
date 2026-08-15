@@ -293,13 +293,16 @@ describe.skipIf(!hasDb)("Product Support — service (live DB)", () => {
     const { versionId } = await seedPublishedSet(base.sfx);
     const tn = await seedTicket(base, versionId);
     const t0 = await prisma.supportTicket.findFirst({ where: { storeId: base.storeId, ticketNumber: tn }, select: { id: true, version: true } });
+    // Faz E2 — "me" self-assign acting StoreUser'ın linked PlatformUser'ına çözülür.
+    const pu = await prisma.platformUser.create({ data: { email: `me-${randomUUID().slice(0, 8)}@ex.test`, name: "Me", passwordHash: "x" } });
+    const su = await prisma.storeUser.create({ data: { storeId: base.storeId, linkedPlatformUserId: pu.id }, select: { id: true } });
     const ok = await applyAdminAction(
-      { kind: "ASSIGN", storeId: base.storeId, ticketId: t0!.id, actorUserId: "admin-9", expectedVersion: t0!.version, assigneePlatformUserId: "me" },
+      { kind: "ASSIGN", storeId: base.storeId, ticketId: t0!.id, actorUserId: su.id, expectedVersion: t0!.version, assigneePlatformUserId: "me" },
       dispatcher,
     );
     expect(ok.ok).toBe(true);
     const assigned = await prisma.supportTicket.findUnique({ where: { id: t0!.id }, select: { assigneePlatformUserId: true } });
-    expect(assigned!.assigneePlatformUserId).toBe("admin-9");
+    expect(assigned!.assigneePlatformUserId).toBe(pu.id);
 
     const stale = await applyAdminAction(
       { kind: "SET_STATUS", storeId: base.storeId, ticketId: t0!.id, actorUserId: "admin-9", expectedVersion: t0!.version, toStatus: "RESOLVED", now: new Date() },
@@ -700,17 +703,25 @@ describe.skipIf(!hasDb)("Product Support — admin assignment (cross-store rejec
     expect(after.assigneePlatformUserId).toBe(uid);
   });
 
-  it("'me' → actor (üyelik doğrulaması gerektirmez)", async () => {
+  it("'me' → acting StoreUser'ın linkedPlatformUserId'sine çözülür (ham StoreUser id YAZILMAZ)", async () => {
     const base = await seedBase();
     const { versionId } = await seedPublishedSet(base.sfx);
     const t = await seedTicketRow(base, versionId);
+    // Faz E2 — actor StoreUser'dır; "me" self-assign onun linked PlatformUser'ına çözülür.
+    const pu = await prisma.platformUser.create({
+      data: { email: `me-${randomUUID().slice(0, 8)}@ex.test`, name: "Me", passwordHash: "x" },
+    });
+    const su = await prisma.storeUser.create({
+      data: { storeId: base.storeId, linkedPlatformUserId: pu.id },
+      select: { id: true },
+    });
     const res = await applyAdminAction(
-      { kind: "ASSIGN", storeId: base.storeId, ticketId: t.id, actorUserId: "actor-99", expectedVersion: t.version, assigneePlatformUserId: "me" },
+      { kind: "ASSIGN", storeId: base.storeId, ticketId: t.id, actorUserId: su.id, expectedVersion: t.version, assigneePlatformUserId: "me" },
       dispatcher,
     );
     expect(res.ok).toBe(true);
     const after = await prisma.supportTicket.findUniqueOrThrow({ where: { id: t.id }, select: { assigneePlatformUserId: true } });
-    expect(after.assigneePlatformUserId).toBe("actor-99");
+    expect(after.assigneePlatformUserId).toBe(pu.id);
   });
 
   it("cross-store kullanıcı ataması reddedilir (ASSIGNEE_NOT_IN_STORE)", async () => {

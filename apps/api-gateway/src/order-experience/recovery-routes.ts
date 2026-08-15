@@ -30,15 +30,16 @@ import {
 } from "./recovery-read.js";
 import { applyRecoveryAction, openRecoveryCaseForReview, type RecoveryErrorCode } from "./recovery-service.js";
 import { resolveFinanceRange, type FinancePeriodPreset } from "../finance/date-range.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
 interface StoreAdminAccess {
   actorUserId: string;
+  audit: StoreAuditActor;
 }
 export interface RecoveryAdminRoutesDeps {
   requireStoreAdmin: (request: FastifyRequest, reply: FastifyReply, storeId: string) => Promise<StoreAdminAccess | null>;
-  recordAudit: (input: {
+  recordAudit: (input: StoreAuditActor & {
     storeId: string;
-    platformUserId: string;
     action: AuditAction;
     entityType: string;
     entityId: string;
@@ -82,6 +83,7 @@ const RECOVERY_HTTP: Record<RecoveryErrorCode, { status: number; message: string
   NOTE_REQUIRED: { status: 400, message: "Bu işlem için not zorunludur." },
   RESOLUTION_REQUIRED: { status: 400, message: "Çözüm türü zorunludur." },
   ASSIGNEE_REQUIRED: { status: 400, message: "Atanacak kullanıcı zorunludur." },
+  ASSIGNEE_NOT_ALLOWED: { status: 403, message: "Bu kullanıcı kendine atama yapamaz (bağlı platform kullanıcısı yok)." },
 };
 
 export function registerRecoveryAdminRoutes(app: FastifyInstance, deps: RecoveryAdminRoutesDeps): void {
@@ -196,7 +198,7 @@ export function registerRecoveryAdminRoutes(app: FastifyInstance, deps: Recovery
     }
     await deps.recordAudit({
       storeId: params.storeId,
-      platformUserId: access.actorUserId,
+      ...access.audit,
       action: "UPDATE",
       entityType: "OrderRecoveryCase",
       entityId: params.caseId,
@@ -240,7 +242,7 @@ export function registerRecoveryAdminRoutes(app: FastifyInstance, deps: Recovery
     }
     await deps.recordAudit({
       storeId: params.storeId,
-      platformUserId: access.actorUserId,
+      ...access.audit,
       action: "CREATE",
       entityType: "OrderRecoveryCase",
       entityId: created.id,

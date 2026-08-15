@@ -29,7 +29,9 @@ import {
   type SkuService,
 } from "./service.js";
 
-type Actor = { actorUserId: string };
+import type { StoreAuditActor } from "../store-auth/guard.js";
+
+type Actor = { actorUserId: string; audit: StoreAuditActor };
 
 export interface SkuRoutesDeps {
   service: SkuService;
@@ -106,6 +108,7 @@ export function registerSkuRoutes(app: FastifyInstance, deps: SkuRoutesDeps) {
       storeId: params.storeId,
       productId: params.productId,
       actorUserId: actor.actorUserId,
+      audit: actor.audit,
       force: body.force,
       onlyAutoSource: body.onlyAutoSource,
       variantIds: body.variantIds,

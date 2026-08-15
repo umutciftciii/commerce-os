@@ -73,6 +73,7 @@ import {
   type PolicyThemeState,
 } from "@commerce-os/theme";
 import { ThemeMediaError, type ThemeDataAccess, type ThemeRecord, type ThemeVersionRecord } from "./data.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
 export interface ThemeAdminRoutesDeps {
   dataAccess: ThemeDataAccess;
@@ -80,10 +81,9 @@ export interface ThemeAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -437,7 +437,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     });
     await recordAudit({
       action: "CREATE",
-      platformUserId: admin.actorUserId,
+      ...admin.audit,
       storeId,
       entityType: "Theme",
       entityId: created.id,
@@ -466,7 +466,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     if (!updated) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: admin.actorUserId,
+      ...admin.audit,
       storeId,
       entityType: "Theme",
       entityId: themeId,
@@ -489,7 +489,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     await dataAccess.deleteTheme(storeId, themeId);
     await recordAudit({
       action: "DELETE",
-      platformUserId: admin.actorUserId,
+      ...admin.audit,
       storeId,
       entityType: "Theme",
       entityId: themeId,
@@ -557,7 +557,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     if (!saved) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: admin.actorUserId,
+      ...admin.audit,
       storeId,
       entityType: "Theme",
       entityId: themeId,
@@ -644,7 +644,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     deps.invalidateResolvedTheme?.(storeId);
     await recordAudit({
       action: "UPDATE",
-      platformUserId: admin.actorUserId,
+      ...admin.audit,
       storeId,
       entityType: "Theme",
       entityId: themeId,
@@ -668,7 +668,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     if (!restored) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: admin.actorUserId,
+      ...admin.audit,
       storeId,
       entityType: "Theme",
       entityId: themeId,
@@ -746,7 +746,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     });
     await recordAudit({
       action: "CREATE",
-      platformUserId: admin.actorUserId,
+      ...admin.audit,
       storeId,
       entityType: "Theme",
       entityId: created.id,
@@ -768,7 +768,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     if (!copy) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
     await recordAudit({
       action: "CREATE",
-      platformUserId: admin.actorUserId,
+      ...admin.audit,
       storeId,
       entityType: "Theme",
       entityId: copy.id,
@@ -793,7 +793,7 @@ export function registerThemeAdminRoutes(app: FastifyInstance, deps: ThemeAdminR
     if (!archived) return reply.code(404).send(errorBody("THEME_NOT_FOUND", "Theme not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: admin.actorUserId,
+      ...admin.audit,
       storeId,
       entityType: "Theme",
       entityId: themeId,

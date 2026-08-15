@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { type AppDataAccess, createServer } from "../src/server.js";
+import { createStoreAuthDataFake } from "./helpers/store-auth-fixture.js";
 
 /**
  * TODO-159B (ADR-090) — Admin Searchable Selector uçlarının ENTEGRASYON testleri.
@@ -159,7 +160,13 @@ function buildApp(totalProducts = 120) {
   } as unknown as AppDataAccess;
 
   return {
-    app: createServer(config, { dataAccess }),
+    app: createServer(config, {
+      dataAccess,
+      storeAuthData: createStoreAuthDataFake(
+        [{ token: "admin-token", storeId: store.id, role: "OWNER" }],
+        config.SESSION_SECRET,
+      ),
+    }),
     listProductSelector,
     listCategories,
     findCategoriesByIds,

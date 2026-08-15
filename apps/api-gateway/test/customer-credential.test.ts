@@ -8,6 +8,7 @@ import type {
   CustomerSessionRecord,
 } from "../src/customers/index.js";
 import type { CustomerCredentialTokenPurpose, CustomerStatus } from "@prisma/client";
+import { createStoreAuthDataFake } from "./helpers/store-auth-fixture.js";
 
 /**
  * TODO-087 — Store-admin müşteri oluşturma + admin tetikli credential/oturum
@@ -287,6 +288,13 @@ function makeApp() {
   const app = createServer(config, {
     dataAccess,
     customerDataAccess: customers as unknown as CustomerDataAccess,
+    // Faz E2 — Store Admin route'ları StoreUser oturumu ile doğrulanır. ADMIN_TOKEN'ı
+    // demoStore'a bağlı bir OWNER StoreUser oturumu olarak enjekte et (cross-store istekler
+    // otherStore path'ine gelince guard STORE_ACCESS_DENIED/404 üretir — mevcut beklenti korunur).
+    storeAuthData: createStoreAuthDataFake(
+      [{ token: ADMIN_TOKEN, storeId: demoStore.id, role: "OWNER" }],
+      SECRET,
+    ),
   });
   return { app, customers };
 }

@@ -172,7 +172,9 @@ export type RecoveryErrorCode =
   | "VERSION_CONFLICT"
   | "NOTE_REQUIRED"
   | "RESOLUTION_REQUIRED"
-  | "ASSIGNEE_REQUIRED";
+  | "ASSIGNEE_REQUIRED"
+  // Faz E2 — "me" self-assign, linked PlatformUser'ı olmayan native StoreUser için geçersiz.
+  | "ASSIGNEE_NOT_ALLOWED";
 
 export interface RecoveryActionInput {
   storeId: string;
@@ -236,9 +238,20 @@ export async function applyRecoveryAction(input: RecoveryActionInput): Promise<R
     };
     if (nextStatus) data.status = nextStatus;
     if (input.action === "ASSIGN") {
-      // "me" sentinel'i (frontend "Kendime ata") → gerçek aktör id. Diğer id'ler olduğu gibi (kullanıcıya ata).
-      data.assigneePlatformUserId =
-        input.assigneePlatformUserId === "me" ? input.actorPlatformUserId : input.assigneePlatformUserId;
+      // Faz E2 — assignee MODELİ PlatformUser (dropdown = listAssignableUsers → linkedPlatformUserId).
+      // "me" self-assign, acting StoreUser'ın KENDİ linkedPlatformUserId'sine çözülür (HAM StoreUser id
+      // YAZILMAZ — aksi halde ad çözümü PlatformUser ile eşleşmez; TD-AUTH-002). Native/unlinked →
+      // self-assign edilemez (dropdown da onları göstermez, tutarlı).
+      if (input.assigneePlatformUserId === "me") {
+        const self = await tx.storeUser.findUnique({
+          where: { id: input.actorPlatformUserId },
+          select: { linkedPlatformUserId: true },
+        });
+        if (!self?.linkedPlatformUserId) return { ok: false as const, code: "ASSIGNEE_NOT_ALLOWED" };
+        data.assigneePlatformUserId = self.linkedPlatformUserId;
+      } else {
+        data.assigneePlatformUserId = input.assigneePlatformUserId;
+      }
     }
     if ((input.action === "CONTACT_CALL" || input.action === "CONTACT_EMAIL") && !kase.firstContactAt) {
       data.firstContactAt = now;
@@ -264,7 +277,9 @@ export async function applyRecoveryAction(input: RecoveryActionInput): Promise<R
         storeId: input.storeId,
         recoveryCaseId: kase.id,
         type: ACTION_TO_ACTIVITY[input.action],
-        actorType: "PLATFORM_USER" as CreditActorType,
+        // Faz E2 — aktör artık StoreUser (recovery route'ları StoreUser auth'a geçti). actorId
+        // legacy-adlı `actorPlatformUserId` param'ıyla gelir (opak StoreUser id); type = STORE_USER.
+        actorType: "STORE_USER" as CreditActorType,
         actorId: input.actorPlatformUserId,
         outcome: input.outcome ?? null,
         note: input.note?.trim() ? input.note.trim() : null,
@@ -284,7 +299,8 @@ export async function recordGoodwillCreditActivity(
       storeId: input.storeId,
       recoveryCaseId: input.caseId,
       type: "GOODWILL_CREDIT",
-      actorType: "PLATFORM_USER",
+      // Faz E2 — StoreUser aktör (recovery StoreUser auth). actorId opak StoreUser id.
+      actorType: "STORE_USER",
       actorId: input.actorPlatformUserId,
       creditLedgerEntryId: input.creditLedgerEntryId,
       note: input.amountLabel,

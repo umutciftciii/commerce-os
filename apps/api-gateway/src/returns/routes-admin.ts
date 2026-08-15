@@ -5,7 +5,9 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { prisma } from "@commerce-os/db";
-import type { AuditAction, OrderRefundStatus, RefundIntentStatus, PlatformUserRole } from "@prisma/client";
+import type { AuditAction, OrderRefundStatus, RefundIntentStatus, StoreUserRole } from "@prisma/client";
+import { hasStorePermission } from "@commerce-os/auth";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import { z } from "zod";
 import {
   adminReturnDetailResponseSchema,
@@ -71,7 +73,7 @@ export interface ReturnAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string; role: PlatformUserRole } | null>;
+  ) => Promise<{ actorUserId: string; role: StoreUserRole; audit: StoreAuditActor } | null>;
   // TODO-172 (ADR-273) — Fast Refund AYRI güçlü yetki: SUPER_ADMIN. Backend-enforced; UI gizlemesi
   // tek başına yeterli değil. requireStoreAdmin (herhangi platform admin) İLE PARALEL değil, refund
   // manual-complete deseninin BİREBİR mirror'ı (server.ts wiring); yeni yetki tablosu kurulmaz.
@@ -79,10 +81,9 @@ export interface ReturnAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; role: StoreUserRole; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: AuditAction;
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -337,7 +338,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
         },
       },
     );
-    return finishTransition(reply, result, deps, params.storeId, params.returnId, access.actorUserId, "transition");
+    return finishTransition(reply, result, deps, params.storeId, params.returnId, access.audit, "transition");
   });
 
   // Reddet (zorunlu neden)
@@ -363,12 +364,14 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
             returnRequestId: params.returnId,
             sourceStatus: current.status,
             decisionType: "REJECT",
+            // Domain review-event actor'ı SCALAR (ReviewStartedEvent.platformUserId, FK DEĞİL) —
+            // opak StoreUser id taşınır (audit değil; AuditLog store-actor'ı ayrı yazılır).
             platformUserId: access.actorUserId,
           });
         },
       },
     );
-    return finishTransition(reply, result, deps, params.storeId, params.returnId, access.actorUserId, "reject");
+    return finishTransition(reply, result, deps, params.storeId, params.returnId, access.audit, "reject");
   });
 
   // Onayla (tam veya kısmi). items verilmezse tüm kalemler istenen adetle onaylanır.
@@ -415,6 +418,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
             returnRequestId: params.returnId,
             sourceStatus: current.status,
             decisionType: "APPROVE",
+            // Domain review-event actor'ı SCALAR (FK DEĞİL) — opak StoreUser id.
             platformUserId: access.actorUserId,
           });
           for (const item of rr.items) {
@@ -451,7 +455,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
         },
       },
     );
-    return finishTransition(reply, result, deps, params.storeId, params.returnId, access.actorUserId, "approve");
+    return finishTransition(reply, result, deps, params.storeId, params.returnId, access.audit, "approve");
   });
 
   // İnceleme sonucu + stok kararı → INSPECTED. RESTOCK_AS_SELLABLE kalemler için idempotent restock.
@@ -488,7 +492,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
         },
       },
     );
-    return finishTransition(reply, result, deps, params.storeId, params.returnId, access.actorUserId, "inspect");
+    return finishTransition(reply, result, deps, params.storeId, params.returnId, access.audit, "inspect");
   });
 
   // TD-FR-7 Faz 1 / Task 4 — "İadeyi yap": TEK admin aksiyonunda inceleme kararı + (kabul varsa)
@@ -571,7 +575,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
         const mapped = REFUND_HTTP_BY_CODE[refundResult.code];
         await deps.recordAudit({
           action: "UPDATE",
-          platformUserId: access.actorUserId,
+          ...access.audit,
           storeId: params.storeId,
           entityType: "ReturnRequest",
           entityId: params.returnId,
@@ -596,7 +600,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
       deps,
       params.storeId,
       params.returnId,
-      access.actorUserId,
+      access.audit,
       "inspect-decision",
     );
   });
@@ -610,7 +614,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     if (!access) return;
     const settings = await loadFastRefundSettings(prisma, params.storeId);
     const context = await buildFastRefundContext(params.storeId, params.returnId, {
-      permitted: access.role === "SUPER_ADMIN",
+      permitted: hasStorePermission(access.role, "refunds:manage"),
       settings,
     });
     if (!context) return reply.code(404).send(errorBody("RETURN_NOT_FOUND", "İade bulunamadı."));
@@ -647,7 +651,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     // BAĞIMSIZ): hızlı iade başlatıldı — kim, hangi kaynak, hangi adımlar atlandı, tutar/limit, gerekçe.
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ReturnRequest",
       entityId: params.returnId,
@@ -677,7 +681,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
       const mapped = REFUND_HTTP_BY_CODE[refundResult.code];
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "ReturnRequest",
         entityId: params.returnId,
@@ -722,7 +726,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     if (!result.ok) return replyReverseError(reply, result.code);
     await deps.recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ReturnItemDisposition",
       entityId: result.dispositionId,
@@ -755,7 +759,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     if (!result.ok) return replyReverseError(reply, result.code);
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ReturnItemDisposition",
       entityId: params.dispositionId,
@@ -777,7 +781,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     if (!result.ok) return replyReverseError(reply, result.code);
     await deps.recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ReverseShipment",
       entityId: result.shipmentId,
@@ -809,7 +813,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     if (!result.ok) return replyReverseError(reply, result.code);
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ReverseShipment",
       entityId: params.shipmentId,
@@ -833,7 +837,7 @@ export function registerReturnAdminRoutes(app: FastifyInstance, deps: ReturnAdmi
     if (!result.ok) return replyReverseError(reply, result.code);
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ReverseShipment",
       entityId: params.shipmentId,
@@ -881,7 +885,7 @@ async function finishTransition(
   deps: ReturnAdminRoutesDeps,
   storeId: string,
   returnId: string,
-  actorUserId: string,
+  audit: StoreAuditActor,
   action: string,
 ) {
   if (!result.ok) {
@@ -911,7 +915,7 @@ async function finishTransition(
   }
   await deps.recordAudit({
     action: "UPDATE",
-    platformUserId: actorUserId,
+    ...audit,
     storeId,
     entityType: "ReturnRequest",
     entityId: returnId,

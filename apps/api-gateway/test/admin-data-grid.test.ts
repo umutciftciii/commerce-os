@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { type AppDataAccess, createServer } from "../src/server.js";
+import { createStoreAuthDataFake } from "./helpers/store-auth-fixture.js";
 
 /**
  * TODO-159A (ADR-089) — Admin Data Grid liste sözleşmesi ENTEGRASYON testleri.
@@ -124,7 +125,17 @@ function buildApp(totalProducts = 7) {
     listProductFilterOptions,
   } as unknown as AppDataAccess;
 
-  return { app: createServer(config, { dataAccess }), listProductsAdmin, listProductFilterOptions };
+  return {
+    app: createServer(config, {
+      dataAccess,
+      storeAuthData: createStoreAuthDataFake(
+        [{ token: "admin-token", storeId: store.id, role: "OWNER" }],
+        config.SESSION_SECRET,
+      ),
+    }),
+    listProductsAdmin,
+    listProductFilterOptions,
+  };
 }
 
 describe("GET /stores/:storeId/products — sayfalama sözleşmesi", () => {

@@ -79,12 +79,14 @@ function toRequestPrincipal(session: StoreSessionAuthRecord): StoreUserRequestPr
  * StoreUser principal → audit actor projeksiyonu (STORE_USER). PlatformUser id beklenen
  * yerlere sahte/linked id SOKMAZ; actorStoreUserId ayrı bir alandır.
  */
-export function toStoreAuditActor(principal: StoreUserRequestPrincipal): {
+export interface StoreAuditActor {
   actorKind: "STORE_USER";
   actorStoreUserId: string;
   actorName: string | null;
   actorEmail: string | null;
-} {
+}
+
+export function toStoreAuditActor(principal: StoreUserRequestPrincipal): StoreAuditActor {
   return {
     actorKind: "STORE_USER",
     actorStoreUserId: principal.storeUserId,

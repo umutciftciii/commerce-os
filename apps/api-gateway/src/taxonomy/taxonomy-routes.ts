@@ -64,6 +64,7 @@ import {
   resolveAdminListPage,
 } from "@commerce-os/contracts";
 import { z } from "zod";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import { TaxonomyError, taxonomyErrorStatus, type TaxonomyService } from "./taxonomy-service.js";
 import type { TaxonomyValueRecord } from "./taxonomy-data.js";
 
@@ -73,10 +74,9 @@ export interface TaxonomyRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -182,7 +182,7 @@ export function registerTaxonomyRoutes(app: FastifyInstance, deps: TaxonomyRoute
       const created = await service.create(params.storeId, body);
       await recordAudit({
         action: "CREATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "ProductTaxonomyValue",
         entityId: created.id,
@@ -229,7 +229,7 @@ export function registerTaxonomyRoutes(app: FastifyInstance, deps: TaxonomyRoute
       const reordered = await service.reorder(params.storeId, body.type, body.orderedIds);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "ProductTaxonomyValue",
         metadata: { op: "reorder", type: body.type, orderedIds: body.orderedIds },
@@ -287,7 +287,7 @@ export function registerTaxonomyRoutes(app: FastifyInstance, deps: TaxonomyRoute
 
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "ProductTaxonomyValue",
         entityId: params.valueId,
@@ -308,7 +308,7 @@ export function registerTaxonomyRoutes(app: FastifyInstance, deps: TaxonomyRoute
       const value = await service.archive(params.storeId, params.valueId);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "ProductTaxonomyValue",
         entityId: value.id,
@@ -330,7 +330,7 @@ export function registerTaxonomyRoutes(app: FastifyInstance, deps: TaxonomyRoute
       const value = await service.restore(params.storeId, params.valueId);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "ProductTaxonomyValue",
         entityId: value.id,
@@ -352,7 +352,7 @@ export function registerTaxonomyRoutes(app: FastifyInstance, deps: TaxonomyRoute
       await service.delete(params.storeId, params.valueId);
       await recordAudit({
         action: "DELETE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "ProductTaxonomyValue",
         entityId: params.valueId,

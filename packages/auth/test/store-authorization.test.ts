@@ -113,6 +113,17 @@ describe("role matrix through authorizeStoreRequest", () => {
     expect(check("MANAGER", "returns:manage")).toBe(true);
     expect(check("MANAGER", "refunds:manage")).toBe(false);
   });
+
+  // Faz E2 — finance (gelir-hassas): OWNER/ADMIN read+manage; MANAGER read-only; STAFF/VIEWER YOK.
+  it("finance: OWNER/ADMIN read+manage; MANAGER read-only; STAFF/VIEWER no access", () => {
+    expect(check("OWNER", "finance:read")).toBe(true);
+    expect(check("OWNER", "finance:manage")).toBe(true);
+    expect(check("ADMIN", "finance:manage")).toBe(true);
+    expect(check("MANAGER", "finance:read")).toBe(true);
+    expect(check("MANAGER", "finance:manage")).toBe(false);
+    expect(check("STAFF", "finance:read")).toBe(false);
+    expect(check("VIEWER", "finance:read")).toBe(false);
+  });
 });
 
 describe("resolveStorePermission (policy module + action → permission)", () => {
@@ -128,6 +139,11 @@ describe("resolveStorePermission (policy module + action → permission)", () =>
   });
   it("shopping-balance has a manage tier", () => {
     expect(resolveStorePermission("shopping-balance", "manage")).toBe("shopping-balance:manage");
+  });
+  it("finance: read + write/manage fold to finance:manage (no finance:write)", () => {
+    expect(resolveStorePermission("finance", "read")).toBe("finance:read");
+    expect(resolveStorePermission("finance", "write")).toBe("finance:manage");
+    expect(resolveStorePermission("finance", "manage")).toBe("finance:manage");
   });
   it("settings: write folds to manage (no settings:write)", () => {
     expect(resolveStorePermission("settings", "read")).toBe("settings:read");
