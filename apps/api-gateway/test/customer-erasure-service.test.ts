@@ -59,7 +59,7 @@ describe("erasure service: apply doğrulama", () => {
     const data = fakeData();
     const recordAudit = vi.fn(async () => {});
     const svc = createCustomerErasureService({ data, locker: passLocker, recordAudit, logger });
-    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "x", confirmationPhrase: "yanlış" });
+    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "x", confirmationPhrase: "yanlış", audit: { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" } });
     expect(r.kind).toBe("CONFIRMATION_REQUIRED");
     expect(data.applyErasure).not.toHaveBeenCalled();
     expect(recordAudit).not.toHaveBeenCalled();
@@ -68,7 +68,7 @@ describe("erasure service: apply doğrulama", () => {
   it("boş neden → REASON_REQUIRED", async () => {
     const data = fakeData();
     const svc = createCustomerErasureService({ data, locker: passLocker, recordAudit: vi.fn(), logger });
-    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "   ", confirmationPhrase: "KİŞİSEL VERİLERİ SİL" });
+    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "   ", confirmationPhrase: "KİŞİSEL VERİLERİ SİL", audit: { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" } });
     expect(r.kind).toBe("REASON_REQUIRED");
     expect(data.applyErasure).not.toHaveBeenCalled();
   });
@@ -76,7 +76,7 @@ describe("erasure service: apply doğrulama", () => {
   it("kilit alınamazsa → ERASURE_IN_PROGRESS (veri katmanı çağrılmaz)", async () => {
     const data = fakeData();
     const svc = createCustomerErasureService({ data, locker: busyLocker, recordAudit: vi.fn(), logger });
-    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "KVKK", confirmationPhrase: "KİŞİSEL VERİLERİ SİL" });
+    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "KVKK", confirmationPhrase: "KİŞİSEL VERİLERİ SİL", audit: { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" } });
     expect(r.kind).toBe("IN_PROGRESS");
   });
 });
@@ -90,13 +90,16 @@ describe("erasure service: apply sonuçları", () => {
       actorUserId: "a1",
       reason: "KVKK md.7 talebi",
       confirmationPhrase: "  KİŞİSEL VERİLERİ SİL  ",
+      audit: { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" },
     });
     expect(r.kind).toBe("ERASED");
     expect(recordAudit).toHaveBeenCalledTimes(1);
     const audit = recordAudit.mock.calls[0][0];
     expect(audit.action).toBe("DELETE");
     expect(audit.entityType).toBe("Customer");
-    expect(audit.platformUserId).toBe("a1");
+    expect(audit.actorKind).toBe("STORE_USER");
+    expect(audit.actorStoreUserId).toBe("a1");
+    expect(audit.platformUserId).toBeUndefined();
     // Audit metadata JSON'unda ham PII (e-posta/telefon/TCKN/IBAN deseni) BULUNMAMALI.
     const blob = JSON.stringify(audit.metadata);
     expect(blob).not.toMatch(/@/); // e-posta yok
@@ -114,7 +117,7 @@ describe("erasure service: apply sonuçları", () => {
     });
     const recordAudit = vi.fn(async () => {});
     const svc = createCustomerErasureService({ data, locker: passLocker, recordAudit, logger });
-    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "KVKK", confirmationPhrase: "KİŞİSEL VERİLERİ SİL" });
+    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "KVKK", confirmationPhrase: "KİŞİSEL VERİLERİ SİL", audit: { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" } });
     expect(r.kind).toBe("ALREADY_ERASED");
     expect(recordAudit).not.toHaveBeenCalled();
   });
@@ -124,7 +127,7 @@ describe("erasure service: apply sonuçları", () => {
       applyErasure: vi.fn(async (): Promise<ApplyErasureResult> => ({ kind: "NOT_FOUND" })),
     });
     const svc = createCustomerErasureService({ data, locker: passLocker, recordAudit: vi.fn(), logger });
-    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "KVKK", confirmationPhrase: "KİŞİSEL VERİLERİ SİL" });
+    const r = await svc.apply("s1", "c1", { actorUserId: "a1", reason: "KVKK", confirmationPhrase: "KİŞİSEL VERİLERİ SİL", audit: { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" } });
     expect(r.kind).toBe("NOT_FOUND");
   });
 });
@@ -134,7 +137,7 @@ describe("erasure service: preview + deactivate", () => {
     const data = fakeData();
     const recordAudit = vi.fn(async () => {});
     const svc = createCustomerErasureService({ data, locker: passLocker, recordAudit, logger });
-    const r = await svc.preview("s1", "c1", "a1");
+    const r = await svc.preview("s1", "c1", "a1", { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" });
     expect(r.kind).toBe("OK");
     if (r.kind === "OK") expect(r.report.confirmationPhrase).toBe("KİŞİSEL VERİLERİ SİL");
     expect(recordAudit.mock.calls[0][0].action).toBe("SYSTEM");
@@ -145,7 +148,7 @@ describe("erasure service: preview + deactivate", () => {
     const data = fakeData({ preview: vi.fn(async () => null) });
     const recordAudit = vi.fn(async () => {});
     const svc = createCustomerErasureService({ data, locker: passLocker, recordAudit, logger });
-    const r = await svc.preview("s1", "c1", "a1");
+    const r = await svc.preview("s1", "c1", "a1", { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" });
     expect(r.kind).toBe("NOT_FOUND");
     expect(recordAudit).not.toHaveBeenCalled();
   });
@@ -154,7 +157,7 @@ describe("erasure service: preview + deactivate", () => {
     const data = fakeData();
     const recordAudit = vi.fn(async () => {});
     const svc = createCustomerErasureService({ data, locker: passLocker, recordAudit, logger });
-    const r = await svc.deactivate("s1", "c1", "a1");
+    const r = await svc.deactivate("s1", "c1", "a1", { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" });
     expect(r).toEqual({ kind: "DEACTIVATED", revokedCount: 2 });
     expect(recordAudit.mock.calls[0][0].action).toBe("UPDATE");
     expect(recordAudit.mock.calls[0][0].metadata.operation).toBe("deactivate");
@@ -163,6 +166,6 @@ describe("erasure service: preview + deactivate", () => {
   it("deactivate ERASED müşteri → ALREADY_ERASED", async () => {
     const data = fakeData({ deactivate: vi.fn(async (): Promise<DeactivateResult> => ({ kind: "ALREADY_ERASED" })) });
     const svc = createCustomerErasureService({ data, locker: passLocker, recordAudit: vi.fn(), logger });
-    expect((await svc.deactivate("s1", "c1", "a1")).kind).toBe("ALREADY_ERASED");
+    expect((await svc.deactivate("s1", "c1", "a1", { actorKind: "STORE_USER" as const, actorStoreUserId: "a1", actorName: "Admin", actorEmail: "admin@store.test" })).kind).toBe("ALREADY_ERASED");
   });
 });

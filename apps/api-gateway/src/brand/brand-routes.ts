@@ -30,6 +30,7 @@ import {
   resolveAdminListPage,
 } from "@commerce-os/contracts";
 import { z } from "zod";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import { BrandError, brandErrorStatus, type BrandService } from "./brand-service.js";
 import type { BrandRecord } from "./brand-data.js";
 
@@ -39,10 +40,9 @@ export interface BrandRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -184,7 +184,7 @@ export function registerBrandRoutes(app: FastifyInstance, deps: BrandRoutesDeps)
       const brand = await service.create(params.storeId, body);
       await recordAudit({
         action: "CREATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Brand",
         entityId: brand.id,
@@ -212,7 +212,7 @@ export function registerBrandRoutes(app: FastifyInstance, deps: BrandRoutesDeps)
       const brand = await service.update(params.storeId, params.brandId, body, access.actorUserId);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Brand",
         entityId: brand.id,
@@ -233,7 +233,7 @@ export function registerBrandRoutes(app: FastifyInstance, deps: BrandRoutesDeps)
       const brand = await service.archive(params.storeId, params.brandId);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Brand",
         entityId: brand.id,
@@ -251,7 +251,7 @@ export function registerBrandRoutes(app: FastifyInstance, deps: BrandRoutesDeps)
       const brand = await service.restore(params.storeId, params.brandId);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Brand",
         entityId: brand.id,

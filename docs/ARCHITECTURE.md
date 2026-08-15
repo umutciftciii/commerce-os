@@ -113,7 +113,15 @@ gitmez. storefront-web hala placeholder seviyesindedir. Next.js build ciktilari 
 
 - `packages/db`: Prisma schema, Prisma client lifecycle, seed ve tenant query pattern'leri.
 - `packages/auth`: Platform/store context ve tenant foundation yardimcilari; scrypt tabanli parola
-  hash/dogrulama, platform admin guard ve store role guard foundation'i.
+  hash/dogrulama, platform admin guard ve store role guard foundation'i. **İki kimlik, iki oturum
+  tablosu, köprü YOK (ADR-291):** `PlatformUser`/`PlatformSession` = fleet operatörü (admin-web,
+  `/admin/*`); `StoreUser`/`StoreUserSession` = per-tenant mağaza personeli (store-admin-web, tüm
+  mağaza iş route'ları). Store Admin tenant'ı YALNIZ sunucu-config'ten (`STORE_ADMIN_STORE_SLUG`)
+  çözülür (istemci header/gövde tenant SEÇEMEZ); `session.storeId` otorite; 5-rol RBAC
+  (`OWNER/ADMIN/MANAGER/STAFF/VIEWER`, `hasStorePermission` fail-closed) capability gate ile birlikte
+  uygulanır; dual-auth/PlatformUser fallback YOK. Oturum modeli ADR-271 (idle+absolute+rotation);
+  `/auth/store/extend` token rotate eder (absolute sabit). Platform-owned istisnalar (theme-binding,
+  question-set, platform-request inbox) explicit korunur.
 - `packages/config`: Environment config parsing ve validation.
 - `packages/contracts`: Paylasimli API/domain kontratlari icin hedef paket. Faz 2A ile catalog ve
   inventory Zod schema'lari, request/response tipleri ve stabil hata zarfi tipleri burada tutulur.
@@ -545,9 +553,10 @@ asamasinda platform admin login'i vekaleten kullanir:
    `commerce_os_store_admin_session`) yazar; istemciye yalnizca kullanici doner. Cookie adi
    admin-web'den ayridir.
 2. Store context: catalog/inventory/dashboard handler'lari her istekte `requireStoreContext` ile
-   cookie token'i dogrular ve hedef mağazayi gateway `admin.stores.list`'ten server-side cozer
-   (`STORE_ADMIN_DEMO_STORE_SLUG`, varsayilan `demo-store`; yoksa ilk mağaza). `storeId` istemciden
-   gelmez; `GET /api/store/context` UI'a yalnizca mağaza meta'sini (id/ad/slug/durum) doner.
+   cookie token'i dogrular ve aktif mağazayi SADECE kimlik doğrulanan StoreUser oturumundan
+   (gateway `/auth/store/session`) turetir (Faz E1); BFF hiçbir slug env okumaz, `admin.stores.list`
+   ve "ilk mağaza" fallback'i kaldırıldı. `storeId` istemciden gelmez; `GET /api/store/context` UI'a
+   yalnizca mağaza meta'sini (id/ad/slug/durum) doner.
 3. Katalog islemleri: `/api/catalog/categories`, `/api/catalog/products` (+`/:id`),
    `.../variants` (+`/:id`), `/api/catalog/inventory` (+`/:variantId/adjust`) cozulen `storeId` ve
    cookie token ile gateway store-scoped endpointlerine proxy yapar. `/api/dashboard/summary` urun/

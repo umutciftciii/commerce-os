@@ -20,10 +20,10 @@ import {
   INVENTORY_RESERVATION_RECONCILE_JOB,
   type JobLogClient,
 } from "@commerce-os/inventory";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
-type AuditFn = (input: {
+type AuditFn = (input: StoreAuditActor & {
   action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "SYSTEM";
-  platformUserId?: string;
   storeId?: string;
   entityType: string;
   entityId?: string;
@@ -35,7 +35,7 @@ export interface ReservationRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
   prisma: PrismaClient;
   jobLog: JobLogClient;
   /** apps/worker kuyruğuna manuel bakım job'u enqueue eder; jobId döner. */
@@ -95,7 +95,7 @@ export function registerReservationRoutes(app: FastifyInstance, deps: Reservatio
     const jobId = await enqueueMaintenanceJob({ jobType: "expiry", trigger: "MANUAL", storeId, dryRun });
     await recordAudit({
       action: "SYSTEM",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId,
       entityType: "InventoryReservationExpiry",
       metadata: { mode: dryRun ? "dry-run" : "apply", jobId },
@@ -113,7 +113,7 @@ export function registerReservationRoutes(app: FastifyInstance, deps: Reservatio
     const jobId = await enqueueMaintenanceJob({ jobType: "reconcile", trigger: "MANUAL", storeId, dryRun });
     await recordAudit({
       action: "SYSTEM",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId,
       entityType: "InventoryReservationReconcile",
       metadata: { mode: dryRun ? "dry-run" : "apply", jobId },

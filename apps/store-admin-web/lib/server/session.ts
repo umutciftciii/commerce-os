@@ -4,11 +4,12 @@ import { optionalEnvString, resolveCookieSecure, resolveSameSite } from "@commer
 /**
  * Server-side oturum cookie yardimcilari (BFF/proxy katmani).
  *
- * Demo asamasinda store-admin-web, platform admin bearer token'i ile gateway'in
- * gecici platform-admin korumali katalog uclarini cagirir (store-user auth henuz
- * tam degil — bkz. docs/TECHNICAL_DEBT.md). Token httpOnly cookie'de SERVER
- * tarafinda saklanir; istemci JS'ine, UI'a veya log'a dusmez. Tarayici yalnizca
- * ayni-origin /api/* uclarini cagirir ve cookie otomatik gonderilir.
+ * Faz E1/E2/F cutover TAMAM: cookie GERÇEK bir StoreUser oturum token'ı taşır (ADR-271
+ * store-auth: `/auth/store/{login,session,logout,extend}`). Platform-admin bearer proxy /
+ * geçici demo-katalog yolu KALDIRILDI — PlatformUser fallback / identity-bridge YOK. Token
+ * httpOnly cookie'de SERVER tarafında saklanır; istemci JS'ine, UI'a veya log'a düşmez.
+ * Tarayıcı yalnızca aynı-origin /api/* uçlarını çağırır ve cookie otomatik gönderilir. Faz F
+ * extend rotation sonrası bu cookie YENİ token ile atomik yeniden yazılır (setSessionCookie).
  *
  * Cookie adi admin-web'den ayridir; iki panel ayni host'ta farkli portlarda
  * calissa bile oturumlar karismaz.

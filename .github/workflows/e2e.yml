@@ -86,6 +86,12 @@ jobs:
       - name: Run smoke
         run: pnpm e2e:smoke
 
+      # Phase G — Per-Tenant Store Admin Auth + RBAC. GERÇEK StoreUser login (OWNER + VIEWER) →
+      # kimlik/shell/context, canonical smoke + controlled mutation, tenant/RBAC güvenliği, oturum
+      # yaşam-döngüsü (extend/rotation/logout). Required gate; auth cutover regresyonunu bloke eder.
+      - name: Run store-admin auth smoke
+        run: pnpm e2e:store-admin-auth
+
       # Shopping Balance Admin — hızlı store-admin READ smoke (store-admin login setup + list/KPI).
       # Required gate'in parçası; mutation regresyonu (admin-regression) nightly/manuel kalır.
       - name: Run admin smoke

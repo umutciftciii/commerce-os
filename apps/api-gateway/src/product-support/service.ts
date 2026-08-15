@@ -922,14 +922,26 @@ export async function applyAdminAction(
     if (!ticket) return { ok: false, code: "TICKET_NOT_FOUND" } as const;
 
     if (input.kind === "ASSIGN") {
-      const assignee =
-        input.assigneePlatformUserId === "me" ? input.actorUserId : input.assigneePlatformUserId;
-      // Güvenlik: açıkça belirtilen assignee bu store'un StoreUser üyesi OLMALI (cross-store
-      // atama reddedilir). "me" = actor (guard'dan geçmiş store-admin) → üyelik doğrulaması yok.
-      if (input.assigneePlatformUserId !== "me") {
+      // Faz E2 — `assigneePlatformUserId` domain alanı PlatformUser kimliğidir (dropdown =
+      // listAssignableUsers → linked StoreUser'ların linkedPlatformUserId'si). Auth artık StoreUser
+      // olsa da atama MODELİ PlatformUser kalır: StoreUser'ın HAM id'si buraya YAZILMAZ (aksi halde
+      // ad çözümü `prisma.platformUser` ile eşleşmez + assignee filtresi kaçırır — TD-AUTH-002).
+      let assignee: string;
+      if (input.assigneePlatformUserId === "me") {
+        // Self-assign: acting StoreUser'ın KENDİ linkedPlatformUserId'sine çözülür. Native/unlinked
+        // StoreUser (link yok) kendini atayamaz — dropdown da onları göstermez (tutarlı).
+        const self = await tx.storeUser.findUnique({
+          where: { id: input.actorUserId },
+          select: { linkedPlatformUserId: true },
+        });
+        if (!self?.linkedPlatformUserId) return { ok: false, code: "ASSIGNEE_NOT_IN_STORE" } as const;
+        assignee = self.linkedPlatformUserId;
+      } else {
+        assignee = input.assigneePlatformUserId;
+        // Açıkça belirtilen assignee bu store'un (linked) üyesi OLMALI (cross-store atama reddi).
         const membership = await tx.storeUser.findUnique({
-          where: { userId_storeId: { userId: assignee, storeId: input.storeId } },
-          select: { userId: true },
+          where: { linkedPlatformUserId_storeId: { linkedPlatformUserId: assignee, storeId: input.storeId } },
+          select: { linkedPlatformUserId: true },
         });
         if (!membership) return { ok: false, code: "ASSIGNEE_NOT_IN_STORE" } as const;
       }

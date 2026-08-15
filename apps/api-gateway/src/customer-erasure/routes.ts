@@ -17,6 +17,7 @@ import {
 import { ANONYMIZED_CUSTOMER_FIELDS, totalDeleted } from "./core.js";
 import type { CustomerErasureData } from "./data.js";
 import type { CustomerErasureService } from "./service.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
 export interface CustomerErasureRoutesDeps {
   service: CustomerErasureService;
@@ -25,7 +26,7 @@ export interface CustomerErasureRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
 }
 
 interface Params {
@@ -68,7 +69,7 @@ export function registerCustomerErasureRoutes(app: FastifyInstance, deps: Custom
     const { storeId, customerId } = params(request);
     const access = await requireStoreAdmin(request, reply, storeId);
     if (!access) return;
-    const result = await service.preview(storeId, customerId, access.actorUserId);
+    const result = await service.preview(storeId, customerId, access.actorUserId, access.audit);
     if (result.kind === "NOT_FOUND") {
       return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
     }
@@ -103,6 +104,7 @@ export function registerCustomerErasureRoutes(app: FastifyInstance, deps: Custom
     const body = storeAdminCustomerErasureApplyRequestSchema.parse(request.body);
     const result = await service.apply(storeId, customerId, {
       actorUserId: access.actorUserId,
+      audit: access.audit,
       reason: body.reason,
       confirmationPhrase: body.confirmationPhrase,
     });
@@ -145,7 +147,7 @@ export function registerCustomerErasureRoutes(app: FastifyInstance, deps: Custom
     const { storeId, customerId } = params(request);
     const access = await requireStoreAdmin(request, reply, storeId);
     if (!access) return;
-    const result = await service.deactivate(storeId, customerId, access.actorUserId);
+    const result = await service.deactivate(storeId, customerId, access.actorUserId, access.audit);
     if (result.kind === "NOT_FOUND") {
       return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Müşteri bulunamadı."));
     }

@@ -20,6 +20,7 @@ import {
   resolveUniqueSku,
 } from "@commerce-os/utils";
 import type { SkuSource } from "@commerce-os/contracts";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import type {
   SkuAuditVariantRow,
   SkuDataAccess,
@@ -180,6 +181,7 @@ export interface SkuService {
     storeId: string;
     productId: string;
     actorUserId: string | null;
+    audit: StoreAuditActor;
     force?: boolean;
     onlyAutoSource?: boolean;
     variantIds?: string[];
@@ -269,7 +271,7 @@ export function createSkuService(dataAccess: SkuDataAccess): SkuService {
       return { ok: true, result };
     },
 
-    regenerate: async ({ storeId, productId, actorUserId, force, onlyAutoSource, variantIds }) => {
+    regenerate: async ({ storeId, productId, actorUserId, audit, force, onlyAutoSource, variantIds }) => {
       const product = await dataAccess.findProduct(storeId, productId);
       if (!product) return { ok: false, error: { code: "PRODUCT_NOT_FOUND", message: "Product not found." } };
       try {
@@ -289,6 +291,7 @@ export function createSkuService(dataAccess: SkuDataAccess): SkuService {
               newSku: row.suggestedSku,
               oldSku: row.currentSku,
               actorUserId,
+              audit,
               batchId,
             });
           }

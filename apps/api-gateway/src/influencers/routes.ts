@@ -15,6 +15,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AppConfig } from "@commerce-os/config";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   ADMIN_LIST_DEFAULT_PAGE_SIZE,
   buildAdminListPagination,
@@ -87,9 +88,8 @@ import {
   type RateLimiter,
 } from "./tracking-core.js";
 
-type AuditFn = (input: {
+type AuditFn = (input: StoreAuditActor & {
   action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "SYSTEM";
-  platformUserId?: string;
   storeId?: string;
   entityType: string;
   entityId?: string;
@@ -103,7 +103,7 @@ export interface InfluencerAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
   recordAudit: AuditFn;
   /** Kopyalanabilir tam tracking URL'sini üretir (STOREFRONT_PUBLIC_BASE_URL). */
   buildTrackingUrl: (token: string) => string;
@@ -252,7 +252,7 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
     if (result === "CODE_TAKEN") return reply.code(409).send(errorBody("CODE_TAKEN", "Code already in use."));
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId,
       entityType: "Influencer",
       entityId: result.id,
@@ -291,7 +291,7 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
     });
     if (result === null) return reply.code(404).send(errorBody("NOT_FOUND", "Influencer not found."));
     if (result === "CODE_TAKEN") return reply.code(409).send(errorBody("CODE_TAKEN", "Code already in use."));
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "Influencer", entityId: id });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "Influencer", entityId: id });
     return reply.send(
       influencerDetailResponseSchema.parse({ data: { ...toInfluencerSummary({ ...result, campaignCount: 0 }), notes: result.notes } }),
     );
@@ -335,7 +335,7 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
       endsAt: parseDate(b.endsAt ?? undefined) ?? null,
     });
     if (result === "INFLUENCER_NOT_FOUND") return reply.code(404).send(errorBody("INFLUENCER_NOT_FOUND", "Influencer not found."));
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "InfluencerCampaign", entityId: result.id });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "InfluencerCampaign", entityId: result.id });
     return reply.code(201).send(influencerCampaignDetailResponseSchema.parse({ data: toCampaignSummary(result) }));
   });
 
@@ -370,7 +370,7 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
       ...(b.endsAt !== undefined ? { endsAt: parseDate(b.endsAt ?? undefined) ?? null } : {}),
     });
     if (!result) return reply.code(404).send(errorBody("NOT_FOUND", "Campaign not found."));
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "InfluencerCampaign", entityId: id });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "InfluencerCampaign", entityId: id });
     return reply.send(influencerCampaignDetailResponseSchema.parse({ data: toCampaignSummary(result) }));
   });
 
@@ -448,7 +448,7 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
     }
     if (result === "CAMPAIGN_NOT_FOUND") return reply.code(404).send(errorBody("CAMPAIGN_NOT_FOUND", "Campaign not found."));
     if (result === "TOKEN_COLLISION") return reply.code(500).send(errorBody("TOKEN_COLLISION", "Could not allocate token."));
-    await recordAudit({ action: "CREATE", platformUserId: access.actorUserId, storeId, entityType: "InfluencerTrackingLink", entityId: result.id });
+    await recordAudit({ action: "CREATE", ...access.audit, storeId, entityType: "InfluencerTrackingLink", entityId: result.id });
     return reply.code(201).send(trackingLinkCreateResponseSchema.parse({ data: toLinkWithUrl(result, plainToken, buildTrackingUrl) }));
   });
 
@@ -466,7 +466,7 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
     }
     if (result === null) return reply.code(404).send(errorBody("NOT_FOUND", "Tracking link not found."));
     if (result === "TOKEN_COLLISION") return reply.code(500).send(errorBody("TOKEN_COLLISION", "Could not allocate token."));
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "InfluencerTrackingLink", entityId: id, metadata: { action: "regenerate" } });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "InfluencerTrackingLink", entityId: id, metadata: { action: "regenerate" } });
     return reply.send(trackingLinkCreateResponseSchema.parse({ data: toLinkWithUrl(result, plainToken, buildTrackingUrl) }));
   });
 
@@ -490,7 +490,7 @@ export function registerInfluencerAdminRoutes(app: FastifyInstance, deps: Influe
     if (result === null) return reply.code(404).send(errorBody("NOT_FOUND", "Tracking link not found."));
     if (result === "REVOKED_TERMINAL")
       return reply.code(409).send(errorBody("TRACKING_LINK_REVOKED", "Revoked link is terminal and cannot change status."));
-    await recordAudit({ action: "UPDATE", platformUserId: access.actorUserId, storeId, entityType: "InfluencerTrackingLink", entityId: id, metadata: { status: parsed.data.status } });
+    await recordAudit({ action: "UPDATE", ...access.audit, storeId, entityType: "InfluencerTrackingLink", entityId: id, metadata: { status: parsed.data.status } });
     return reply.send(trackingLinkDetailResponseSchema.parse({ data: toLinkSummary(result) }));
   });
 

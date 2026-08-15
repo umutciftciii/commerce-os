@@ -245,6 +245,14 @@ export const enStoreAdmin: StoreAdminDictionary = {
     SUSPENDED: "Suspended",
     CLOSED: "Closed",
   },
+  // Faz E1 — StoreUser role (human-readable; raw enum is never shown).
+  roleLabels: {
+    OWNER: "Owner",
+    ADMIN: "Admin",
+    MANAGER: "Manager",
+    STAFF: "Staff",
+    VIEWER: "Viewer",
+  },
   dashboard: {
     eyebrow: "Store",
     title: "Store Dashboard",

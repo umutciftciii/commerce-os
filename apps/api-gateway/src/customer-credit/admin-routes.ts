@@ -32,7 +32,6 @@ import type { CreditLedgerEntryView } from "./service.js";
 
 interface StoreAdminAccess {
   actorUserId: string;
-  isSuperAdmin: boolean;
 }
 
 export interface ShoppingBalanceAdminRoutesDeps {

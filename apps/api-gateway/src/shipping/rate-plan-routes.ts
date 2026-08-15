@@ -38,16 +38,16 @@ import {
   type MatrixExistingRule,
   type MatrixPlannedOp,
 } from "./matrix-service.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
 export interface ShippingRatePlanRoutesDeps {
   requireStoreAdmin: (
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -268,7 +268,7 @@ export function registerShippingRatePlanRoutes(
     });
     await deps.recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRatePlan",
       entityId: created.id,
@@ -336,7 +336,7 @@ export function registerShippingRatePlanRoutes(
     });
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRatePlan",
       entityId: updated.id,
@@ -354,7 +354,7 @@ export function registerShippingRatePlanRoutes(
     await prisma.shippingRatePlan.delete({ where: { id: plan.id } });
     await deps.recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRatePlan",
       entityId: plan.id,
@@ -385,7 +385,7 @@ export function registerShippingRatePlanRoutes(
     });
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRatePlan",
       entityId: updated.id,
@@ -434,7 +434,7 @@ export function registerShippingRatePlanRoutes(
     });
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRateRule",
       entityId: plan.id,
@@ -482,7 +482,7 @@ export function registerShippingRatePlanRoutes(
     });
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRateRule",
       entityId: rule.id,
@@ -503,7 +503,7 @@ export function registerShippingRatePlanRoutes(
     await prisma.shippingRateRule.delete({ where: { id: rule.id } });
     await deps.recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRateRule",
       entityId: rule.id,
@@ -538,7 +538,7 @@ export function registerShippingRatePlanRoutes(
     });
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRateTier",
       entityId: plan.id,
@@ -560,7 +560,7 @@ export function registerShippingRatePlanRoutes(
     await prisma.shippingRateTier.delete({ where: { id: tier.id } });
     await deps.recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRateTier",
       entityId: tier.id,
@@ -594,7 +594,7 @@ export function registerShippingRatePlanRoutes(
     });
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRateZone",
       entityId: plan.id,
@@ -615,7 +615,7 @@ export function registerShippingRatePlanRoutes(
     await prisma.shippingRateZone.delete({ where: { id: zone.id } });
     await deps.recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRateZone",
       entityId: zone.id,
@@ -652,7 +652,7 @@ export function registerShippingRatePlanRoutes(
     });
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingSurcharge",
       entityId: plan.id,
@@ -673,7 +673,7 @@ export function registerShippingRatePlanRoutes(
     await prisma.shippingSurcharge.delete({ where: { id: surcharge.id } });
     await deps.recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingSurcharge",
       entityId: surcharge.id,
@@ -730,7 +730,7 @@ export function registerShippingRatePlanRoutes(
     await applyPlannedOps(diff.plannedOps, plan.id, params.storeId);
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRateRule",
       entityId: plan.id,
@@ -787,7 +787,7 @@ export function registerShippingRatePlanRoutes(
     await applyPlannedOps(diff.plannedOps, plan.id, params.storeId);
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingRateRule",
       entityId: plan.id,

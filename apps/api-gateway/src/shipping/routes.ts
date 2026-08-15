@@ -102,6 +102,7 @@ import {
   type BarcodeRetryService,
   type BarcodeShipmentRecord,
 } from "./barcode-service.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
 export interface ShippingAdminRoutesDeps {
   config: AppConfig;
@@ -109,10 +110,9 @@ export interface ShippingAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -347,7 +347,7 @@ export function registerShippingAdminRoutes(
     });
     await deps.recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingProviderConfig",
       entityId: created.id,
@@ -390,7 +390,7 @@ export function registerShippingAdminRoutes(
     });
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingProviderConfig",
       entityId: updated.id,
@@ -470,7 +470,7 @@ export function registerShippingAdminRoutes(
     });
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingProviderCredential",
       entityId: cfg.id,
@@ -496,7 +496,7 @@ export function registerShippingAdminRoutes(
     });
     await deps.recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ShippingProviderCredential",
       entityId: cfg.id,
@@ -718,7 +718,7 @@ export function registerShippingAdminRoutes(
       const shipment = await persistOrderShipment(params.storeId, order.id, cfg, input.referenceId, result.externalOrderId, result.externalInvoiceId);
       await deps.recordAudit({
         action: "CREATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Shipment",
         entityId: shipment.id,
@@ -1174,7 +1174,7 @@ export function registerShippingAdminRoutes(
       });
       await deps.recordAudit({
         action: "CREATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Shipment",
         entityId: shipment.id,
@@ -1246,7 +1246,7 @@ export function registerShippingAdminRoutes(
       });
       await deps.recordAudit({
         action: "CREATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Shipment",
         entityId: shipment.id,
@@ -1284,7 +1284,7 @@ export function registerShippingAdminRoutes(
       }
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Shipment",
         entityId: r.shipment.id,
@@ -1334,7 +1334,7 @@ export function registerShippingAdminRoutes(
       const cancelled = await applyCancel(params.storeId, shipment, cfg, input.explicitConfirm);
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Shipment",
         entityId: cancelled.id,
@@ -1534,7 +1534,7 @@ export function registerShippingAdminRoutes(
       }
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Shipment",
         entityId: r.shipment.id,
@@ -1573,7 +1573,7 @@ export function registerShippingAdminRoutes(
       const cancelled = await applyCancel(params.storeId, loaded.shipment, loaded.cfg, input.explicitConfirm);
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Shipment",
         entityId: cancelled.id,
@@ -1600,7 +1600,7 @@ export function registerShippingAdminRoutes(
       const updated = await applyManualTracking(params.storeId, loaded.shipment, input.trackingNumber, input.trackingUrl);
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Shipment",
         entityId: updated.id,
@@ -1716,7 +1716,7 @@ export function registerShippingAdminRoutes(
 
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Shipment",
       entityId: updated.id,
@@ -1821,7 +1821,7 @@ export function registerShippingAdminRoutes(
       });
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Shipment",
         entityId: repaired.id,
@@ -2018,7 +2018,7 @@ export function registerShippingAdminRoutes(
 
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Order",
         entityId: order.id,
@@ -2079,7 +2079,7 @@ export function registerShippingAdminRoutes(
       });
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "ShippingProviderConfig",
         entityId: cfg.id,
@@ -2144,7 +2144,7 @@ export function registerShippingAdminRoutes(
 
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Shipment",
       metadata: {

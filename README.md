@@ -416,8 +416,8 @@ API_GATEWAY_URL=http://localhost:4000 pnpm dev:store-admin   # http://localhost:
 - Kategoriler, Ürünler (+ Varyantlar modal), Stok ekranlari canli list/create/update/adjust calisir;
   basarida liste yenilenir. Fiyat TL olarak girilir, minor unit'e cevrilir. Duplicate slug/SKU,
   validation ve negatif stok hatalari kullanici dostu Turkce gosterilir.
-- Hedef mağaza varsayilani `STORE_ADMIN_DEMO_STORE_SLUG` (default `demo-store`) ile degistirilebilir;
-  bulunamazsa listenin ilk mağazasi secilir.
+- Aktif mağaza, kimlik doğrulanan StoreUser oturumundan türetilir (gateway `/auth/store/session`);
+  BFF hiçbir slug env okumaz. Gateway ön-login tenant çözümü kanonik `STORE_ADMIN_STORE_SLUG` kullanır.
 
 Smoke ozeti (canli): `/api/health` 200; login → dashboard render + seçili mağaza görünür; categories/
 products/variants/inventory list canlı; create/update/adjust çalışır; duplicate slug/SKU ve negatif

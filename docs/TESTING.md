@@ -38,7 +38,7 @@ test dosyaları). Bu doküman yalnız E2E paketini anlatır.
 
 > **Store-admin E2E (ADR-288).** İlk store-admin Playwright kapsamı. `baseURL = STORE_ADMIN_URL`
 > (`E2E_STORE_ADMIN_URL`, CI'da `http://localhost:3110`). CI'da branch checkout'undan build eden
-> `store-admin-web-e2e` servisi (:3110, `STORE_ADMIN_DEMO_STORE_SLUG=e2e-store`, `ADMIN_COOKIE_SECURE=false`)
+> `store-admin-web-e2e` servisi (:3110, gateway tenant `STORE_ADMIN_STORE_SLUG=e2e-store`, `ADMIN_COOKIE_SECURE=false`)
 > ayağa kalkar; `admin-smoke` required `smoke` job'ının bir adımıdır. Lokal: `pnpm e2e:store-admin`
 > (host `next dev :3110`, branch kodunu servis eder — storefront `pnpm e2e:storefront` deseniyle aynı;
 > docker store-admin build context'i main olduğundan branch route/sayfaları docker'da yoktur).
@@ -60,7 +60,7 @@ pnpm e2e:responsive    # playwright test --project=responsive
 pnpm e2e:regression    # playwright test --project=regression (PR2 finansal/lifecycle senaryoları)
 pnpm e2e:admin-smoke      # playwright test --project=admin-smoke (Shopping Balance Admin READ smoke; store-admin-setup önce koşar)
 pnpm e2e:admin-regression # playwright test --project=admin-regression (grant + persistence + izolasyon)
-pnpm e2e:store-admin      # host next dev :3110 (branch store-admin; STORE_ADMIN_DEMO_STORE_SLUG=e2e-store)
+pnpm e2e:store-admin      # host next dev :3110 (branch store-admin; gateway tenant STORE_ADMIN_STORE_SLUG=e2e-store)
 pnpm e2e:prod-smoke    # playwright test --project=prod-smoke
 pnpm e2e:report        # playwright show-report (son HTML raporunu açar)
 pnpm e2e:storefront    # host `next dev --port 3100`, e2e-store env'iyle (yerel storefront servisi)
@@ -284,6 +284,29 @@ doğrulama. Kalıcı, tekrarlanabilir regresyon garantisi Playwright suite'inden
   (client-mount tek-atış fetch + ms-yarışı; flake gizleme değil). `@platform-smoke` CI required; regression
   nightly/manuel `pnpm e2e:platform-regression`. Seed: `e2e-seed.mjs` `e2e-agent@example.test` (SUPPORT_ADMIN,
   login yok — AssigneeSelector hedefi; kategoriler migration'dan). **repeat-each=3 → 17/17.**
+
+## 9d. Per-Tenant Store Admin Auth & RBAC (ADR-291) test kapsamı
+
+Kaynak-otorite merdiveni (aşağıdan yukarı):
+
+- **Gateway integration (auth/RBAC/tenant için OTORİTE):** `store-auth-authenticate/data/routes/guard.integration`
+  + `store-rbac.integration` (5-rol matrisi + tenant izolasyonu + STORE_USER audit aktörü) +
+  `/auth/store/extend` suite (rotation / replay-401 / absolute-unchanged / expired / revoked / DISABLED /
+  SUSPENDED+CLOSED / rememberMe / PlatformUser-401 / **concurrent tek-kazanan**). Run1+Run2.
+- **BFF unit:** store-admin `test/store-auth-cutover.test.ts` (login/session/logout + **extend rotation +
+  atomik cookie replace**; PlatformUser fallback regresyonu "not a function" ile patlar).
+- **Component:** store-admin `test/session-guard.test.tsx` (uyarı render / extend-success / extend-fail /
+  logout / server-authoritative expiry / reconcile-no-false-logout / multi-tab logout+extended).
+- **E2E (Playwright `@store-admin-auth`, CI required gate):** GERÇEK StoreUser login (OWNER + VIEWER
+  ayrı login setup; PlatformUser storageState/token DEĞİL). `01` identity/shell/context (OWNER rolü i18n
+  "Sahip" · session-derived store · ham iç kimlik DOM/`/me`'de yok) · `02` canonical smoke (home/products/
+  inventory/orders/returns/customers/platform-requests/settings authed shell + kontrollü mutation:
+  platform-request create) · `03` tenant/RBAC (platform-only user login RED · VIEWER read serbest,
+  `settings:manage` → 403 gerçek CSRF token'ıyla) · `04` session lifecycle (login→restore→extend rotation→
+  authed→logout→login). Yapısal cross-tenant izolasyonu gateway integration'da kanıtlanır (store-admin
+  route'ları `storeId`'yi OTURUMDAN türetir → istemci-seçilebilir `:storeId` saldırı yüzeyi yok).
+  Seed: `e2e-seed.mjs` deterministik `e2e-admin` (OWNER, linkli) + `e2e-viewer` (VIEWER). **Run1+Run2 +
+  repeat-each=3 → sıfır flake.** Yerelde worktree gateway + store-admin `next dev` ile doğrulandı.
 
 ## 10. İlgili dokümanlar
 

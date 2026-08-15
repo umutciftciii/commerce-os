@@ -35,7 +35,8 @@ services:
       start_period: 40s
 
   # Shopping Balance Admin E2E — branch checkout'undan build eden store-admin app (CI ONLY).
-  # Mağazayı STORE_ADMIN_DEMO_STORE_SLUG=e2e-store ile seçer; http localhost olduğundan cookie
+  # Faz E1: aktif mağaza StoreUser oturumundan gelir (BFF slug OKUMAZ); tenant çözümü gateway
+  # overlay'inde STORE_ADMIN_STORE_SLUG=e2e-store ile. http localhost olduğundan cookie
   # Secure=false (Playwright oturumu saklayabilsin). :3110 (base store-admin-web :3002 ile çakışmaz).
   store-admin-web-e2e:
     restart: unless-stopped
@@ -47,7 +48,6 @@ services:
       SERVICE_NAME: store-admin-web-e2e
       NODE_ENV: development
       API_GATEWAY_URL: http://api-gateway:4000
-      STORE_ADMIN_DEMO_STORE_SLUG: e2e-store
       ADMIN_COOKIE_SECURE: "false"
       ADMIN_COOKIE_SAME_SITE: lax
       PORT: 3110
@@ -91,3 +91,10 @@ services:
       timeout: 5s
       retries: 30
       start_period: 40s
+
+  # TODO-B (ADR-271) — Base api-gateway servisinin store-auth TENANT config'ini e2e mağazasına
+  # hizala (base = enterprise-demo). Overlay `environment` yalnız bu anahtarı override eder; diğer
+  # base env korunur. Store-auth login henüz e2e'de koşmuyor; bu, ileride tutarlı tek-mağaza içindir.
+  api-gateway:
+    environment:
+      STORE_ADMIN_STORE_SLUG: e2e-store

@@ -5,6 +5,7 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiClient = {
+  storeAuth: { login: vi.fn(), logout: vi.fn(), session: vi.fn() },
   admin: { stores: { list: vi.fn() } },
   platformRequests: {
     store: {
@@ -59,6 +60,20 @@ function jsonInit(method: string, cookie: string, body?: unknown, csrf = false) 
 }
 
 beforeEach(() => {
+  // Faz E1 — store context oturumdan gelir (storeAuth.session); admin.stores.list KULLANILMAZ.
+  apiClient.storeAuth.session.mockResolvedValue({
+    user: { id: "su-1", storeId: "store-1", email: "owner@demo.local", name: "Owner", role: "OWNER" },
+    store: { id: "store-1", slug: "demo-store", name: "Demo Store", status: "ACTIVE" },
+    session: {
+      timing: {
+        idleExpiresAt: new Date("2026-01-01T00:30:00.000Z").toISOString(),
+        absoluteExpiresAt: new Date("2026-01-01T08:00:00.000Z").toISOString(),
+        warningLeadSeconds: 300,
+        rememberMe: false,
+        lastActivityAt: new Date("2026-01-01T00:00:00.000Z").toISOString(),
+      },
+    },
+  });
   apiClient.admin.stores.list.mockResolvedValue({
     data: [DEMO_STORE],
     pagination: { limit: 50, offset: 0, total: 1 },
@@ -74,12 +89,14 @@ describe("platform-requests BFF — auth + store guards", () => {
     expect(apiClient.platformRequests.store.list).not.toHaveBeenCalled();
   });
 
-  it("returns NO_STORE (404) when no store is linked", async () => {
-    apiClient.admin.stores.list.mockResolvedValue({ data: [], pagination: { limit: 50, offset: 0, total: 0 } });
+  it("rejects (401) when the session token is invalid/expired — store is session-derived, never listed", async () => {
+    // Faz E1 — store context oturumdan gelir; geçersiz token'da gateway /auth/store/session
+    // 401 → BFF 401. NO_STORE/first-store fallback yolu YOK.
+    apiClient.storeAuth.session.mockRejectedValue(new MockApiError(401, "UNAUTHORIZED"));
     const { GET } = await import("../app/api/platform-requests/route.js");
     const response = await GET(request("/api/platform-requests", { headers: { cookie: SESSION } }));
-    expect(response.status).toBe(404);
-    expect(await response.json()).toEqual({ error: { code: "NO_STORE" } });
+    expect(response.status).toBe(401);
+    expect(apiClient.admin.stores.list).not.toHaveBeenCalled();
     expect(apiClient.platformRequests.store.list).not.toHaveBeenCalled();
   });
 });

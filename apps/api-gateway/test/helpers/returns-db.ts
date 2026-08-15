@@ -11,6 +11,8 @@
  */
 import { randomUUID } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
+import type { StoreUserRole } from "@prisma/client";
+import { hasStorePermission } from "@commerce-os/auth";
 import { prisma } from "@commerce-os/db";
 import { registerReturnAdminRoutes } from "../../src/returns/routes-admin.js";
 import { createReturnRequest } from "../../src/returns/service.js";
@@ -370,7 +372,9 @@ export async function loadOrderRefunds(storeId: string, returnRequestId: string)
 
 export function buildReturnAdminApp(
   actorUserId = "test-admin",
-  role: "SUPER_ADMIN" | "SUPPORT_ADMIN" = "SUPER_ADMIN",
+  // Faz E2 — StoreUserRole. Fast-refund CTA/execution artık `refunds:manage` türetilir
+  // (OWNER/ADMIN geçer; MANAGER/STAFF/VIEWER reddedilir). Legacy SUPER_ADMIN/SUPPORT_ADMIN YOK.
+  role: StoreUserRole = "OWNER",
 ): FastifyInstance {
   const app = Fastify({ logger: false });
   // Gerçek server'daki gibi ZodError → 400 VALIDATION_ERROR (bare test app'i aksi halde 500 döner);
@@ -383,16 +387,22 @@ export function buildReturnAdminApp(
     }
     await reply.code(500).send({ error: { code: "INTERNAL", message: "Internal error." } });
   });
+  const audit = {
+    actorKind: "STORE_USER" as const,
+    actorStoreUserId: actorUserId,
+    actorName: "Test Admin",
+    actorEmail: `${actorUserId}@store.test`,
+  };
   registerReturnAdminRoutes(app, {
-    requireStoreAdmin: async () => ({ actorUserId, role }),
-    // TODO-172 — Fast Refund güçlü yetki stub'ı: yalnız SUPER_ADMIN geçer (gerçek server wiring'i
-    // ile aynı 403 davranışı). SUPPORT_ADMIN app'iyle permission-denied testlenir.
+    requireStoreAdmin: async () => ({ actorUserId, role, audit }),
+    // Faz E2 — Fast Refund güçlü yetki stub'ı: `refunds:manage` sahibi geçer (OWNER/ADMIN);
+    // aksi 403 (gerçek storeAdminManage("refunds:manage") wiring'iyle aynı davranış).
     requireStoreSuperAdmin: async (_request, reply) => {
-      if (role !== "SUPER_ADMIN") {
+      if (!hasStorePermission(role, "refunds:manage")) {
         await reply.code(403).send({ error: { code: "FORBIDDEN", message: "Forbidden." } });
         return null;
       }
-      return { actorUserId };
+      return { actorUserId, role, audit };
     },
     // Audit çağrılarını app'e bağlı dizide YAKALA (gerçek prisma.auditLog.create platformUserId FK'sı
     // nedeniyle sahte "test-admin" ile patlar). Testler `capturedAudits(app)` ile doğrular.

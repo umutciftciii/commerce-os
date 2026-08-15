@@ -3,9 +3,10 @@ import { ids } from "../fixtures/ids";
 import { STORE_ADMIN_URL } from "../fixtures/env";
 
 /**
- * Shopping Balance Admin E2E — store-admin (platform) GERÇEK UI login'i. Cookie
- * `commerce_os_store_admin_session`; store-admin app mağazayı STORE_ADMIN_DEMO_STORE_SLUG=
- * e2e-store ile seçer. storageState admin projelerine (admin-smoke/admin-regression) taşınır.
+ * Shopping Balance Admin E2E — store-admin GERÇEK UI login'i. Cookie
+ * `commerce_os_store_admin_session`; store-admin app aktif mağazayı kimlik doğrulanan StoreUser
+ * oturumundan türetir (gateway ön-login tenant = STORE_ADMIN_STORE_SLUG=e2e-store). storageState
+ * admin projelerine (admin-smoke/admin-regression) taşınır.
  */
 const authFile = "tests/e2e/.auth/store-admin.json";
 

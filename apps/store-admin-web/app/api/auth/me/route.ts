@@ -5,14 +5,19 @@ import { errorResponse, unauthorizedResponse } from "../../../../lib/server/resp
 
 export const dynamic = "force-dynamic";
 
-/** Aktif oturumu dogrular. Cookie yoksa 401; gateway 401 donerse cookie temizlenir. */
+/**
+ * Aktif Store Admin oturumunu doğrular (Faz E1 cutover). Gateway'in GERÇEK StoreUser
+ * session ucunu (`/auth/store/session`) çağırır — PlatformUser `me` DEĞİL. Yanıt
+ * StoreUser principal + oturumun bağlı olduğu mağaza (store context, server-otoriter)
+ * + oturum zamanlamasını taşır. Cookie yoksa 401; gateway 401 dönerse cookie temizlenir.
+ */
 export async function GET(request: NextRequest) {
   const token = getSessionToken(request);
   if (!token) {
     return unauthorizedResponse();
   }
   try {
-    const me = await createApiClient().auth.platformMe(token);
+    const me = await createApiClient().storeAuth.session(token);
     return NextResponse.json(me);
   } catch (error) {
     const response = errorResponse(error);

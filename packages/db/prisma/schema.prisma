@@ -27,6 +27,17 @@ enum StoreStatus {
   CLOSED
 }
 
+enum StoreUserStatus {
+  INVITED
+  ACTIVE
+  DISABLED
+}
+
+enum AuditActorKind {
+  PLATFORM_USER
+  STORE_USER
+}
+
 enum DomainType {
   SYSTEM_SUBDOMAIN
   CUSTOM_DOMAIN
@@ -943,6 +954,7 @@ model Store {
   updatedAt     DateTime    @updatedAt
 
   users                            StoreUser[]
+  storeUserSessions                StoreUserSession[]
   domains                          StoreDomain[]
   subscriptions                    Subscription[]
   products                         Product[]
@@ -1101,20 +1113,54 @@ model Store {
 }
 
 model StoreUser {
-  id         String        @id @default(cuid())
-  storeId    String
-  userId     String
-  role       StoreUserRole @default(VIEWER)
-  invitedAt  DateTime?
-  acceptedAt DateTime?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  id                   String          @id @default(cuid())
+  storeId              String
+  linkedPlatformUserId String?         @map("userId")
+  email                String?
+  name                 String?
+  passwordHash         String?
+  status               StoreUserStatus @default(ACTIVE)
+  role                 StoreUserRole   @default(VIEWER)
+  lastLoginAt          DateTime?
+  invitedAt            DateTime?
+  acceptedAt           DateTime?
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
 
-  store Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  user  PlatformUser @relation(fields: [userId], references: [id], onDelete: Cascade)
+  store            Store              @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  linkedPlatform   PlatformUser?      @relation(fields: [linkedPlatformUserId], references: [id], onDelete: SetNull)
+  sessions         StoreUserSession[]
+  auditLogsAsActor AuditLog[]
 
-  @@unique([userId, storeId])
+  @@unique([linkedPlatformUserId, storeId])
+  @@unique([storeId, email])
   @@index([storeId])
+}
+
+model StoreUserSession {
+  id                           String    @id @default(cuid())
+  storeId                      String
+  storeUserId                  String
+  tokenHash                    String    @unique
+  expiresAt                    DateTime
+  lastActivityAt               DateTime  @default(now())
+  absoluteExpiresAt            DateTime?
+  rememberMe                   Boolean   @default(false)
+  rotatedFromSessionId         String?
+  policyVersion                Int       @default(1)
+  impersonatedByPlatformUserId String?
+  revokedAt                    DateTime?
+  userAgent                    String?
+  ipAddress                    String?
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
+
+  store     Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeUser StoreUser @relation(fields: [storeUserId], references: [id], onDelete: Cascade)
+
+  @@index([storeUserId])
+  @@index([storeId])
+  @@index([expiresAt])
 }
 
 model StoreDomain {
@@ -1186,21 +1232,27 @@ model StoreModule {
 }
 
 model AuditLog {
-  id             String      @id @default(cuid())
-  storeId        String?
-  platformUserId String?
-  action         AuditAction
-  entityType     String
-  entityId       String?
-  metadata       Json?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  id               String          @id @default(cuid())
+  storeId          String?
+  platformUserId   String?
+  action           AuditAction
+  entityType       String
+  entityId         String?
+  metadata         Json?
+  actorKind        AuditActorKind?
+  actorStoreUserId String?
+  actorName        String?
+  actorEmail       String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
-  store        Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
-  platformUser PlatformUser? @relation(fields: [platformUserId], references: [id], onDelete: SetNull)
+  store          Store?        @relation(fields: [storeId], references: [id], onDelete: SetNull)
+  platformUser   PlatformUser? @relation(fields: [platformUserId], references: [id], onDelete: SetNull)
+  actorStoreUser StoreUser?    @relation(fields: [actorStoreUserId], references: [id], onDelete: SetNull)
 
   @@index([storeId])
   @@index([platformUserId])
+  @@index([actorStoreUserId])
 }
 
 model EventLog {
@@ -3289,6 +3341,7 @@ enum CreditActorType {
   PLATFORM_USER
   CUSTOMER
   SYSTEM
+  STORE_USER
 }
 
 enum CreditSourceType {

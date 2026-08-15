@@ -35,11 +35,14 @@ export interface SkuAuditVariantRow extends SkuVariantRow {
   productSlug: string;
 }
 
+import type { StoreAuditActor } from "../store-auth/guard.js";
+
 export interface SkuWriteInput {
   variantId: string;
   newSku: string;
   oldSku: string;
   actorUserId: string | null;
+  audit: StoreAuditActor;
   batchId: string;
 }
 
@@ -170,7 +173,7 @@ async function writeSku(
     data: {
       action: "UPDATE",
       storeId,
-      platformUserId: input.actorUserId,
+      ...input.audit,
       entityType: "ProductVariant",
       entityId: input.variantId,
       metadata: {

@@ -1,45 +1,35 @@
 import type { NextRequest, NextResponse } from "next/server";
-import { createApiClient, type AdminStore } from "@commerce-os/api-client";
-import { optionalEnvString } from "@commerce-os/utils";
+import { createApiClient, type StoreAdminSessionResponse } from "@commerce-os/api-client";
 import { getSessionToken } from "./session";
 import { errorResponse, noStoreResponse, unauthorizedResponse } from "./respond";
 
 /**
- * store-admin-web'in uzerinde calistigi mağaza bağlami. Demo asamasinda store-user
- * auth henuz tam olmadigindan, BFF session token'i (platform admin) ile mağaza
- * listesi cekilir ve hedef mağaza server-side secilir. `storeId` istemciye
- * gonderilen bir sir degildir; ancak secim ve token tamamen server tarafinda
- * kalir (bkz. docs/DECISIONS.md — gecici BFF/store context karari).
+ * store-admin-web'in üzerinde çalıştığı mağaza bağlamı (Faz E1 cutover).
+ *
+ * SOURCE OF TRUTH: aktif mağaza, GERÇEK StoreUser oturumunun bağlı olduğu mağazadır
+ * (`/auth/store/session` → `store`). BFF artık mağaza LİSTELEMEZ ve demo/ilk mağazayı
+ * SEÇMEZ: her istek, oturum token'ıyla server-otoriter mağaza bağlamını çözer. Böylece
+ * `STORE_ADMIN_DEMO_STORE_SLUG`, `admin.stores.list` ve "ilk mağaza" fallback'i KALDIRILDI.
+ * Tenant istemci tarafından seçilemez; mağaza kimliği tamamen sunucuda kalır.
  */
 export interface StoreContext {
   id: string;
   name: string;
   slug: string;
-  status: AdminStore["status"];
+  status: StoreAdminSessionResponse["store"]["status"];
 }
 
-/**
- * Demo/hedef mağaza secimi: once slug eslesmesi, yoksa listenin ilk mağazasi.
- * TD-038: bos/whitespace `STORE_ADMIN_DEMO_STORE_SLUG` "yok" sayilir ve varsayilana duser.
- */
-const DEMO_STORE_SLUG = optionalEnvString(process.env.STORE_ADMIN_DEMO_STORE_SLUG) ?? "demo-store";
-
-function toContext(store: AdminStore): StoreContext {
+function toContext(store: StoreAdminSessionResponse["store"]): StoreContext {
   return { id: store.id, name: store.name, slug: store.slug, status: store.status };
 }
 
 /**
- * Verilen token ile gateway'den mağaza listesini cekip hedef mağazayi secer.
- * Mağaza yoksa null doner.
+ * Verilen StoreUser oturum token'ı ile oturumun bağlı olduğu mağazayı çözer.
+ * Token geçersiz/iptal/süresi-dolmuş ise gateway 401 fırlatır (çağıran yakalar).
  */
 export async function resolveStoreContext(token: string): Promise<StoreContext | null> {
-  const result = await createApiClient().admin.stores.list(token);
-  const stores = result.data;
-  if (stores.length === 0) {
-    return null;
-  }
-  const preferred = stores.find((store) => store.slug === DEMO_STORE_SLUG);
-  return toContext(preferred ?? stores[0]);
+  const result = await createApiClient().storeAuth.session(token);
+  return toContext(result.store);
 }
 
 export type RequireStoreResult =
@@ -47,8 +37,9 @@ export type RequireStoreResult =
   | { ok: false; response: NextResponse };
 
 /**
- * Catalog/inventory proxy route'lari icin tek giris: oturum token'i + secili
- * mağaza bağlamini cozer. Hata durumunda dogrudan dondurulecek NextResponse verir.
+ * Catalog/inventory vb. proxy route'ları için tek giriş: oturum token'ı + oturumun
+ * bağlı olduğu mağaza bağlamını çözer. Hata durumunda doğrudan döndürülecek
+ * NextResponse verir (401 → oturum yok/geçersiz; noStore → beklenmedik boş bağlam).
  */
 export async function requireStoreContext(request: NextRequest): Promise<RequireStoreResult> {
   const token = getSessionToken(request);

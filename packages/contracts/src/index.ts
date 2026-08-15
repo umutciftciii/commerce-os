@@ -321,6 +321,63 @@ export const platformSessionExtendResponseSchema = z.object({
   timing: sessionTimingSchema,
 });
 
+// Task B1 — store-admin auth contracts. Safe DTO for the authenticated store-admin
+// principal. NEVER contains passwordHash, tokenHash, linkedPlatformUserId, or
+// internal session id.
+export const storeAdminCurrentUserSchema = z.object({
+  id: z.string().min(1),
+  storeId: z.string().min(1),
+  email: z.string().email(),
+  name: z.string().nullable(),
+  role: z.enum(["OWNER", "ADMIN", "MANAGER", "STAFF", "VIEWER"]),
+});
+
+export const storeAdminLoginRequestSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+  // ADR-271 "Beni hatirla" — server-otoriter pencere. Varsayilan KAPALI.
+  rememberMe: z.boolean().optional().default(false),
+  // NOT: storeSlug/storeId burada YOK — tenant sunucu tarafinda cozulur (istemci govdesinden asla).
+});
+
+export const storeAdminLoginResponseSchema = z.object({
+  token: z.string().min(1),
+  expiresAt: z.string().datetime(),
+  user: storeAdminCurrentUserSchema,
+});
+
+// Store context, session'dan SERVER-otoriter türetilir: `store.id` (== user.storeId)
+// tek kaynak. store-admin-web BFF artık mağazayı listeleyip ilk/demo mağazayı SEÇMEZ;
+// aktif mağaza yalnızca oturumun bağlı olduğu mağazadır (Faz E1 cutover). `status`
+// oturum doğrulamada zaten ACTIVE olmalıdır (aksi halde /session 401 döner).
+export const storeAdminSessionResponseSchema = z.object({
+  user: storeAdminCurrentUserSchema,
+  store: z.object({
+    id: z.string().min(1),
+    slug: z.string().min(1),
+    name: z.string(),
+    status: z.enum(["DRAFT", "ACTIVE", "SUSPENDED", "CLOSED"]),
+  }),
+  session: z.object({
+    timing: sessionTimingSchema,
+  }),
+});
+
+export const storeAdminLogoutResponseSchema = z.object({
+  revoked: z.boolean(),
+});
+
+// Faz F (ADR-271) — Store Admin oturum uzatma (extend). `platformSessionExtendResponseSchema`
+// ile BİRE BİR parity: gateway StoreUser token'ını ROTATE eder (absoluteExpiresAt DEĞİŞMEZ,
+// idle capası yenilenir); yeni token + zamanlama döner (BFF cookie'yi yeni token ile atomik
+// yeniden yazar). SADECE transport'un ihtiyaç duyduğu `token` çıkar; tokenHash / session id /
+// policyVersion / lastActivityAt-dışı internal alanlar DTO'ya ASLA sızmaz.
+export const storeAdminSessionExtendResponseSchema = z.object({
+  token: z.string().min(1),
+  expiresAt: z.string().datetime(),
+  timing: sessionTimingSchema,
+});
+
 export const storeStatusSchema = z.enum(["DRAFT", "ACTIVE", "SUSPENDED", "CLOSED"]);
 
 export const adminStoreSchema = z.object({
@@ -6218,6 +6275,14 @@ export type PlatformMeResponse = z.infer<typeof platformMeResponseSchema>;
 export type PlatformLogoutResponse = z.infer<typeof platformLogoutResponseSchema>;
 export type PlatformSessionExtendResponse = z.infer<typeof platformSessionExtendResponseSchema>;
 export type SessionTiming = z.infer<typeof sessionTimingSchema>;
+export type StoreAdminCurrentUser = z.infer<typeof storeAdminCurrentUserSchema>;
+export type StoreAdminLoginRequest = z.infer<typeof storeAdminLoginRequestSchema>;
+export type StoreAdminLoginResponse = z.infer<typeof storeAdminLoginResponseSchema>;
+export type StoreAdminSessionResponse = z.infer<typeof storeAdminSessionResponseSchema>;
+export type StoreAdminLogoutResponse = z.infer<typeof storeAdminLogoutResponseSchema>;
+export type StoreAdminSessionExtendResponse = z.infer<
+  typeof storeAdminSessionExtendResponseSchema
+>;
 export type AdminStore = z.infer<typeof adminStoreSchema>;
 export type AdminStoreListResponse = z.infer<typeof adminStoreListResponseSchema>;
 export type AdminStoreCreateRequest = z.infer<typeof adminStoreCreateRequestSchema>;

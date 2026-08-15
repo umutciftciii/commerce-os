@@ -44,6 +44,25 @@ describe("loadConfig", () => {
     expect(loadConfig(validEnv).AUTH_LOGIN_RATE_LIMIT_MAX_ATTEMPTS).toBe(4);
   });
 
+  it("store-admin canonical slug: STORE_ADMIN_STORE_SLUG is the single source; legacy DEMO alias removed", () => {
+    // Faz E1 — kanonik tek env okunur.
+    expect(loadConfig({ ...validEnv, STORE_ADMIN_STORE_SLUG: "acme" }).STORE_ADMIN_STORE_SLUG).toBe(
+      "acme",
+    );
+    // Legacy alias + parity guard KALDIRILDI: STORE_ADMIN_DEMO_STORE_SLUG artık bir config alanı
+    // değildir → sağlansa bile boot patlatmaz (parity yok) ve sonuçta yer almaz (ikinci
+    // source-of-truth bırakılmadı).
+    const withStrayAlias = loadConfig({
+      ...validEnv,
+      STORE_ADMIN_STORE_SLUG: "acme",
+      STORE_ADMIN_DEMO_STORE_SLUG: "other",
+    } as Record<string, string>);
+    expect(withStrayAlias.STORE_ADMIN_STORE_SLUG).toBe("acme");
+    expect(
+      (withStrayAlias as Record<string, unknown>).STORE_ADMIN_DEMO_STORE_SLUG,
+    ).toBeUndefined();
+  });
+
   it("rejects short internal tokens", () => {
     expect(() => loadConfig({ ...validEnv, INTERNAL_API_TOKEN: "short" })).toThrow();
   });

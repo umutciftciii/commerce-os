@@ -81,20 +81,32 @@ export interface AssignableUser {
 
 /**
  * "Kullanıcıya ata" dropdown'u için store'un yetkili kullanıcıları (StoreUser ↔ PlatformUser).
- * storeId-scoped; başka store'un üyeleri sızmaz. name yoksa email görüntü-adı olur (ham id UI'a çıkmaz).
+ * storeId-scoped; başka store'un üyeleri sızmaz.
+ *
+ * TD-AUTH-001 (Faz D): assignee modeli hâlâ PlatformUser.id tabanlıdır. Yalnızca GERÇEK linked
+ * (linkedPlatformUserId != null) StoreUser'lar projeksiyona girer — native/unlinked Phase 1
+ * StoreUser'lar (linkedPlatformUserId=null) dropdown'a ÇIKMAZ ve ASLA `{ id: "" }` üretilmez.
+ * (Assignee'yi StoreUser.id'ye taşımak ayrı bir domain değişikliğidir; burada YAPILMAZ.)
  */
 export async function listAssignableUsers(storeId: string): Promise<AssignableUser[]> {
   const rows = await prisma.storeUser.findMany({
-    where: { storeId },
-    select: { userId: true, role: true, user: { select: { name: true, email: true } } },
+    where: { storeId, linkedPlatformUserId: { not: null } },
+    select: { linkedPlatformUserId: true, role: true, linkedPlatform: { select: { name: true, email: true } } },
     orderBy: { createdAt: "asc" },
   });
-  return rows.map((r) => ({
-    id: r.userId,
-    name: r.user.name ?? r.user.email,
-    email: r.user.email,
-    role: r.role,
-  }));
+  return rows.flatMap((r) => {
+    // Query zaten filtreliyor; ikinci kapı (fail-closed): id boş olacaksa satırı DÜŞÜR.
+    const id = r.linkedPlatformUserId;
+    if (!id) return [];
+    return [
+      {
+        id,
+        name: r.linkedPlatform?.name ?? r.linkedPlatform?.email ?? "",
+        email: r.linkedPlatform?.email ?? "",
+        role: r.role,
+      },
+    ];
+  });
 }
 
 export async function listExperienceReviews(

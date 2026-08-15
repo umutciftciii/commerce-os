@@ -165,8 +165,8 @@ describe.skipIf(!hasTestDb)("Fast Refund Controls (live DB, TODO-172 / ADR-273)"
   it("SUPPORT_ADMIN (normal admin) → 403 (backend-enforced, güçlü yetki)", async () => {
     seeded = await seedTwoLineDeliveredOrder();
     const s = seeded;
-    const superApp = buildReturnAdminApp("admin", "SUPER_ADMIN");
-    const normalApp = buildReturnAdminApp("normal", "SUPPORT_ADMIN");
+    const superApp = buildReturnAdminApp("admin", "OWNER");
+    const normalApp = buildReturnAdminApp("normal", "STAFF");
     const rrId = await createTwoLineRefundReturn(s);
     await approveToAwaiting(superApp, s, rrId);
     await enableFastRefund(s.storeId, { maxAmountMinor: 9_999_999 });
@@ -436,8 +436,8 @@ describe.skipIf(!hasTestDb)("Fast Refund Controls (live DB, TODO-172 / ADR-273)"
   it("fast-refund-context: normal admin permitted=false, reasonCode=NOT_PERMITTED (CTA gizli)", async () => {
     seeded = await seedTwoLineDeliveredOrder();
     const s = seeded;
-    const superApp = buildReturnAdminApp("admin", "SUPER_ADMIN");
-    const normalApp = buildReturnAdminApp("normal", "SUPPORT_ADMIN");
+    const superApp = buildReturnAdminApp("admin", "OWNER");
+    const normalApp = buildReturnAdminApp("normal", "STAFF");
     const rrId = await createTwoLineRefundReturn(s);
     await approveToAwaiting(superApp, s, rrId);
     await enableFastRefund(s.storeId, { maxAmountMinor: 9_999_999 });

@@ -42,10 +42,14 @@ const PLAN_CODE = "e2e-plan";
 const CUSTOMER_EMAIL = "e2e-customer@example.test";
 const CUSTOMER_PASSWORD = "E2eCustomer!pass1";
 const CUSTOMER_ID = "e2e-customer-1";
-// Store-admin login (Shopping Balance Admin E2E) — SUPER_ADMIN platform user; store-admin app
-// mağazayı STORE_ADMIN_DEMO_STORE_SLUG=e2e-store ile seçer (bkz. store-context.ts).
+// Store-admin login (Shopping Balance Admin E2E) — store-admin app aktif mağazayı kimlik
+// doğrulanan StoreUser oturumundan türetir (bkz. store-context.ts); gateway ön-login tenant =
+// STORE_ADMIN_STORE_SLUG=e2e-store.
 const ADMIN_EMAIL = "e2e-admin@example.test";
 const ADMIN_PASSWORD = "E2eAdmin!pass1";
+// Phase G (§5) — en kısıtlı rol (VIEWER) StoreUser: RBAC browser kanıtı için.
+const VIEWER_EMAIL = "e2e-viewer@example.test";
+const VIEWER_PASSWORD = "E2eViewer!pass1";
 // TODO-178 Faz F — ikinci platform kullanıcısı (assignable directory). AssigneeSelector
 // "başka kullanıcıya ata" + inbox assignee filter regression'ı bu kullanıcıyı arar. Login
 // GEREKMEZ (parola yok); yalnız listAssignablePlatformUsers sonucunda görünür. Arama "agent"
@@ -176,13 +180,57 @@ async function main() {
     create: { storeId: store.id, customerId: customer.id, passwordHash },
   });
 
-  // 3b) Store-admin platform kullanıcısı (SUPER_ADMIN) — Shopping Balance Admin E2E login'i.
-  //     store-admin app STORE_ADMIN_DEMO_STORE_SLUG=e2e-store ile mağazayı seçer.
+  // 3b) Store-admin platform kullanıcısı (SUPER_ADMIN). Faz E1/E2/F cutover'dan SONRA store-admin
+  //     UI login'i ARTIK bu PlatformUser'a gitmez (StoreUser auth — bkz. 3b2). Bu kayıt yalnız
+  //     recovery/support ASSIGN "me" hedefi (linkedPlatformUserId) ve assignable directory içindir.
   const adminPasswordHash = await hashPassword(ADMIN_PASSWORD, process.env.PASSWORD_HASH_PEPPER ?? "");
-  await prisma.platformUser.upsert({
+  const viewerPasswordHash = await hashPassword(VIEWER_PASSWORD, process.env.PASSWORD_HASH_PEPPER ?? "");
+  const adminPlatformUser = await prisma.platformUser.upsert({
     where: { email: ADMIN_EMAIL },
     update: { name: "E2E Admin", passwordHash: adminPasswordHash, role: "SUPER_ADMIN" },
     create: { email: ADMIN_EMAIL, name: "E2E Admin", passwordHash: adminPasswordHash, role: "SUPER_ADMIN" },
+    select: { id: true },
+  });
+
+  // 3b2) Faz F (§10 — Playwright prep) — DETERMİNİSTİK StoreUser OWNER. Store-admin gerçek-UI login'i
+  //      (store-admin-auth.setup.ts → /auth/store/login) ADR-271 store-auth ile ACTIVE StoreUser'a
+  //      karşı doğrular; ACTIVE e2e-store + OWNER + passwordHash (native login) + ACTIVE. e2e-admin
+  //      PlatformUser'a LİNKLİ: recovery/support "bana ata" (linkedPlatformUserId) çözülür, native→403
+  //      TUZAĞINA düşmez. PlatformUser fallback / identity-bridge YOK — gerçek StoreUser oturumu.
+  await prisma.storeUser.upsert({
+    where: { storeId_email: { storeId: store.id, email: ADMIN_EMAIL } },
+    update: {
+      name: "E2E Admin",
+      passwordHash: adminPasswordHash,
+      role: "OWNER",
+      status: "ACTIVE",
+      linkedPlatformUserId: adminPlatformUser.id,
+    },
+    create: {
+      storeId: store.id,
+      email: ADMIN_EMAIL,
+      name: "E2E Admin",
+      passwordHash: adminPasswordHash,
+      role: "OWNER",
+      status: "ACTIVE",
+      linkedPlatformUserId: adminPlatformUser.id,
+    },
+  });
+
+  // 3b3) Phase G (§5 — RBAC browser coverage) — DETERMİNİSTİK VIEWER StoreUser (native; link yok).
+  //      En kısıtlı rol: okuma serbest, hiçbir manage/mutation değil. RBAC'ın source-of-truth'u
+  //      gateway store-rbac integration'dır; bu yalnız tek bir restricted-role browser kanıtı için.
+  await prisma.storeUser.upsert({
+    where: { storeId_email: { storeId: store.id, email: VIEWER_EMAIL } },
+    update: { name: "E2E Viewer", passwordHash: viewerPasswordHash, role: "VIEWER", status: "ACTIVE" },
+    create: {
+      storeId: store.id,
+      email: VIEWER_EMAIL,
+      name: "E2E Viewer",
+      passwordHash: viewerPasswordHash,
+      role: "VIEWER",
+      status: "ACTIVE",
+    },
   });
 
   // 3c) TODO-178 Faz F — ikinci platform kullanıcısı (assignable directory; login yok).

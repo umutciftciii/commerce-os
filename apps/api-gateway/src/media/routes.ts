@@ -38,6 +38,7 @@ import { z } from "zod";
 import type { StorageDriver } from "./storage.js";
 import { buildStorageKey } from "./storage-key.js";
 import { resolveMediaUrl } from "./url.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 
 export interface MediaAdminRoutesDeps {
   config: AppConfig;
@@ -46,10 +47,9 @@ export interface MediaAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -288,7 +288,7 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
 
     await deps.recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "MediaAsset",
       entityId: created.id,
@@ -412,7 +412,7 @@ export function registerMediaAdminRoutes(app: FastifyInstance, deps: MediaAdminR
 
     await deps.recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "MediaAsset",
       entityId: media.id,

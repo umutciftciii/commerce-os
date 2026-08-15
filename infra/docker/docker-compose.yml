@@ -40,6 +40,10 @@ services:
       DATABASE_URL: postgresql://commerce_os:commerce_os_password@postgres:5432/commerce_os?schema=public
       REDIS_URL: redis://redis:6379
       API_GATEWAY_PORT: 4000
+      # TODO-B (ADR-271) — Store-admin TENANT TRUST BOUNDARY. Store-auth login tenant'i
+      # YALNIZCA bu sunucu-tarafi config'ten cozulur (istemci header/govde tenant SECEMEZ).
+      # KANONIK ve TEK env: STORE_ADMIN_STORE_SLUG (Faz E1'de legacy DEMO alias kaldirildi).
+      STORE_ADMIN_STORE_SLUG: enterprise-demo
       # F3C.1 — Kargo credential sifreleme anahtari. YALNIZCA local docker dev/smoke
       # icin sabit deger (gercek secret DEGIL). Fallback yoktur; bu anahtar olmadan
       # kargo credential save/test/decrypt CONFIG_MISSING doner. Uretimde override edin.
@@ -162,10 +166,9 @@ services:
       SERVICE_NAME: store-admin-web
       NODE_ENV: development
       API_GATEWAY_URL: http://api-gateway:4000
-      # TODO-157 — Store-admin aktif mağaza bağlamı Enterprise Demo dataset'ine (enterprise-demo /
-      # edm-store) sabitlenir. Tanımsızsa resolver `demo-store`'a düşer (store-context.ts). Üretim
-      # store-user auth gelince bu geçici BFF seçimi kalkacak.
-      STORE_ADMIN_DEMO_STORE_SLUG: enterprise-demo
+      # Faz E1 — Store-admin BFF artık hiçbir slug env'i OKUMAZ: aktif mağaza yalnızca
+      # StoreUser oturumundan (/auth/store/session) türetilir. Legacy STORE_ADMIN_DEMO_STORE_SLUG
+      # BFF seçimi KALDIRILDI (tenant çözümü tamamen gateway'de: STORE_ADMIN_STORE_SLUG).
       # TODO-164A (TD-160) — Custom Theme Builder "Gerçek vitrin" iframe önizlemesi
       # tarayıcıdan erişilen storefront kökünü okur (NEXT_PUBLIC → dev'de runtime).
       NEXT_PUBLIC_STOREFRONT_URL: http://localhost:3000

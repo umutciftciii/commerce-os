@@ -26,6 +26,7 @@ import type {
   SizeChartRecord,
   SizeChartRevisionRecord,
 } from "../src/fashion/size-chart-service.js";
+import { createStoreAuthDataFake } from "./helpers/store-auth-fixture.js";
 
 const config = {
   APP_ENV: "test" as const,
@@ -66,7 +67,13 @@ const STORES = new Map([
   [STORE_B, store(STORE_B)],
 ]);
 
+// Faz E2 — Store Admin route'ları StoreUser oturumu ile doğrulanır. Her mağazanın KENDİ token'ı
+// vardır (guard session.storeId == path storeId eşleşmesini zorlar): `AUTH` STORE_A'ya, `AUTH_B`
+// STORE_B'ye bağlıdır. Fixture-kurulumu başka mağazaya yazarken (`createChart(app, STORE_B, ...)`)
+// o mağazanın token'ı kullanılmalıdır — `authFor` bunu storeId'den türetir.
 const AUTH = { authorization: "Bearer admin-token" };
+const AUTH_B = { authorization: "Bearer admin-b-token" };
+const authFor = (storeId: string) => (storeId === STORE_B ? AUTH_B : AUTH);
 const NOW = new Date("2026-08-01T00:00:00.000Z");
 
 const COLS = [
@@ -344,7 +351,17 @@ function buildApp(opts: { fashionEnabled?: boolean } = { fashionEnabled: true })
     getActivePlanMetadata: () => moduleOverrides.getActivePlanMetadata(),
   } as unknown as AppDataAccess;
 
-  const app = createServer(config, { dataAccess, sizeChartDataAccess });
+  const app = createServer(config, {
+    dataAccess,
+    sizeChartDataAccess,
+    storeAuthData: createStoreAuthDataFake(
+      [
+        { token: "admin-token", storeId: STORE_A, role: "OWNER" },
+        { token: "admin-b-token", storeId: STORE_B, role: "OWNER" },
+      ],
+      config.SESSION_SECRET,
+    ),
+  });
   return { app, sizeChartDataAccess };
 }
 
@@ -352,7 +369,7 @@ async function createChart(app: ReturnType<typeof createServer>, storeId: string
   const res = await app.inject({
     method: "POST",
     url: `/stores/${storeId}/size-charts`,
-    headers: AUTH,
+    headers: authFor(storeId),
     payload: { name, sizeSystemKey: "INTERNATIONAL", columns: COLS, rows: ROWS },
   });
   expect(res.statusCode).toBe(201);
@@ -360,7 +377,7 @@ async function createChart(app: ReturnType<typeof createServer>, storeId: string
 }
 
 async function publishChart(app: ReturnType<typeof createServer>, storeId: string, id: string) {
-  const res = await app.inject({ method: "POST", url: `/stores/${storeId}/size-charts/${id}/publish`, headers: AUTH });
+  const res = await app.inject({ method: "POST", url: `/stores/${storeId}/size-charts/${id}/publish`, headers: authFor(storeId) });
   expect(res.statusCode).toBe(200);
   return res.json().data;
 }
@@ -659,7 +676,7 @@ describe("GET .../products/:productId/size-chart-assignment (Task 25/26)", () =>
     await app.inject({
       method: "POST",
       url: `/stores/${STORE_B}/size-charts/${chart.id}/assignments`,
-      headers: AUTH,
+      headers: AUTH_B,
       payload: { scope: "PRODUCT", productId: "prod-1" },
     });
 

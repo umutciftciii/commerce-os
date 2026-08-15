@@ -10,6 +10,7 @@
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   couponAssignmentRequestSchema,
   customerCouponAssignmentListResponseSchema,
@@ -23,10 +24,9 @@ export interface WalletAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -96,7 +96,7 @@ export function registerWalletAdminRoutes(app: FastifyInstance, deps: WalletAdmi
     }
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "CustomerCoupon",
       entityId: result.id,
@@ -131,7 +131,7 @@ export function registerWalletAdminRoutes(app: FastifyInstance, deps: WalletAdmi
     }
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "CustomerCoupon",
       entityId: result.id,

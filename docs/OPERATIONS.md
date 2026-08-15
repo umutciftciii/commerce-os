@@ -1495,7 +1495,7 @@ yönetir; yeni motor kurmaz.
 
 **Smoke (worktree stack, enterprise-demo, paylaşımlı docker postgres):**
 - Gateway :4100, store-admin :3100, storefront :3200 (host `next dev`, `API_GATEWAY_URL=http://localhost:4100`,
-  `STORE_ADMIN_DEMO_STORE_SLUG=enterprise-demo`). Login: seed'lenmiş platform-admin hesabı (bkz. `packages/db/scripts/seed.mjs`).
+  `STORE_ADMIN_STORE_SLUG=enterprise-demo`). Login: seed'lenmiş platform-admin hesabı (bkz. `packages/db/scripts/seed.mjs`).
 - Ürün/marka slug PATCH → eski URL storefront'ta 301 (cache TTL ≤60s sonra). Kategori → 200 (PLP listelemesi, TD-064).
 
 ## TODO-167 Persistent Cart (Faz A) — operasyon notları (2026-08-03)
@@ -1708,7 +1708,7 @@ pnpm --filter @commerce-os/api-gateway exec tsx src/main.ts    # curl :4100/heal
 API_GATEWAY_URL=http://localhost:4100 STOREFRONT_DEMO_STORE_SLUG=enterprise-demo \
   pnpm --filter @commerce-os/storefront-web exec next dev --port 3100
 # Store-admin :3202 → :4100
-API_GATEWAY_URL=http://localhost:4100 STORE_ADMIN_DEMO_STORE_SLUG=enterprise-demo SESSION_SECRET=<same> \
+API_GATEWAY_URL=http://localhost:4100 STORE_ADMIN_STORE_SLUG=enterprise-demo SESSION_SECRET=<same> \
   pnpm --filter @commerce-os/store-admin-web exec next dev --port 3202
 ```
 
@@ -1873,3 +1873,42 @@ yap" → COMPLETED · `REFUND_PENDING`'de "Kapat" butonu YOK (backend 409 doğru
 refund satırları · Financial Reporting net düşüş değişmedi (`refundAmountsSupported=true` zaten korunur).
 Detay + tam plan: `docs/analysis/RETURNS-FLOW-SIMPLIFICATION.md` §9 + `docs/analysis/RETURNS-FLOW-PHASE1-PLAN.md`
 Gate 5.
+
+## Per-Tenant Store Admin Auth & RBAC (ADR-291) — deploy & provisioning runbook (2026-08-15)
+
+**Migration:** Faz B identity foundation migration `20260811231121_store_user_identity_foundation` (StoreUser +
+StoreUserSession + AuditLog dual-actor). Faz F extend rotation **yeni migration GEREKTİRMEZ** (`rotatedFromSessionId`/
+`policyVersion` şemada zaten var). Deploy sırası: uygulama boot'undan ÖNCE `prisma migrate deploy`; ikinci
+çalıştırmada `No pending migrations` (idempotency doğrulanır). OWNER provisioning bir migration DEĞİLDİR.
+
+**Runtime deploy kapsamı:** yalnız **api-gateway** + **store-admin-web** (auth cutover bu ikisinde). admin-web
+YALNIZ gerçekten değiştiyse rebuild edilir; storefront değişmediyse rebuild EDİLMEZ; postgres/redis/worker'a
+gereksiz dokunulmaz.
+
+### OWNER provisioning — PRODUCTION HARD GATE
+Gerçek deployment'ta APPLY öncesi **explicit owner-mapping manifest ZORUNLUDUR**. local/demo mapping'i
+production owner olarak KABUL ETME. Deployment environment gerçek owner mapping'i hazır değilse **deploy/cutover
+DUR** (mağaza personeli StoreUser'ı olmadan konsola giremez; heuristic "bir kullanıcı seç" yolu YOKTUR).
+
+Akış (heuristic yok):
+```
+# 1) dry-run (varsayılan) — applicable=true beklenir
+DATABASE_URL=... pnpm --filter @commerce-os/api-gateway exec tsx scripts/provision-store-owners.ts \
+  --manifest ./store-owners.json                # --dry-run default
+# 2) apply — login-ready OWNER >= 1 üretmeli
+DATABASE_URL=... pnpm --filter @commerce-os/api-gateway exec tsx scripts/provision-store-owners.ts \
+  --manifest ./store-owners.json --apply
+# 3) idempotency — re-run NOOP (created=0, converged=0)
+```
+Manifest: `storeSlug|storeId → ownerEmail` (explicit). unmapped-ACTIVE / unknown / duplicate → `applicable=false`;
+mevcut PlatformUser hash REUSE → login-ready + link, yoksa `INVITED`; `DISABLED` → conflict.
+
+### Post-deploy smoke (gerçek StoreUser; kalıcı prod test verisi ÜRETME)
+Fonksiyonel: login · session · home · products · inventory · orders · returns · platform-requests · settings ·
+**extend** · logout. Güvenlik: PlatformUser Store Admin login/erişim RED · cross-store RED · inactive user/store
+RED semantiği (güvenli seviyede) · yeni mutation'da `AuditLog.actorKind=STORE_USER` (+ `platformUserId=NULL`).
+
+**Yerel doğrulama (worktree, deploy imajı değil):** worktree gateway `:4300` (`STORE_ADMIN_STORE_SLUG=e2e-store`,
+`.env.example` + sa_test DB) + store-admin `next dev :3110` → `E2E_STORE_ADMIN_URL=http://localhost:3110
+pnpm e2e:store-admin-auth`. Bkz. [[docker-smoke-vs-worktree]]: docker build context = main; worktree smoke için
+`next dev`.

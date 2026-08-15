@@ -21,6 +21,7 @@ import {
   sizeChartUpdateRequestSchema,
 } from "@commerce-os/contracts";
 import { z } from "zod";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   SizeChartError,
   sizeChartErrorStatus,
@@ -34,10 +35,9 @@ export interface SizeChartRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -194,7 +194,7 @@ export function registerSizeChartRoutes(app: FastifyInstance, deps: SizeChartRou
       const chart = await service.create(params.storeId, body);
       await recordAudit({
         action: "CREATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "SizeChart",
         entityId: chart.id,
@@ -212,7 +212,7 @@ export function registerSizeChartRoutes(app: FastifyInstance, deps: SizeChartRou
       const chart = await service.update(params.storeId, params.id, body);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "SizeChart",
         entityId: chart.id,
@@ -229,7 +229,7 @@ export function registerSizeChartRoutes(app: FastifyInstance, deps: SizeChartRou
       const chart = await service.publish(params.storeId, params.id);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "SizeChart",
         entityId: chart.id,
@@ -248,7 +248,7 @@ export function registerSizeChartRoutes(app: FastifyInstance, deps: SizeChartRou
       const chart = await service.rollback(params.storeId, params.id, body.revisionId);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "SizeChart",
         entityId: chart.id,
@@ -266,7 +266,7 @@ export function registerSizeChartRoutes(app: FastifyInstance, deps: SizeChartRou
       const chart = await service.archive(params.storeId, params.id);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "SizeChart",
         entityId: chart.id,
@@ -286,7 +286,7 @@ export function registerSizeChartRoutes(app: FastifyInstance, deps: SizeChartRou
       const chart = await service.get(params.storeId, params.id);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "SizeChart",
         entityId: params.id,

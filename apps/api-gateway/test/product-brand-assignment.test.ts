@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { type AppDataAccess, createServer } from "../src/server.js";
 import { createNoopSearchIndexEmitter } from "../src/search-index/emitter.js";
+import { createStoreAuthDataFake } from "./helpers/store-auth-fixture.js";
 import type { BrandDataAccess, BrandRecord, BrandStatus } from "../src/brand/brand-data.js";
 
 const config = {
@@ -223,6 +224,10 @@ function buildApp() {
     dataAccess,
     brandDataAccess,
     searchIndexEmitter: createNoopSearchIndexEmitter(),
+    storeAuthData: createStoreAuthDataFake(
+      [{ token: "admin-token", storeId: STORE_A, role: "OWNER" }],
+      config.SESSION_SECRET,
+    ),
   });
   return { app, brandDataAccess, products, auditLogs };
 }

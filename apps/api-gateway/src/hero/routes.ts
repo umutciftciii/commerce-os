@@ -10,6 +10,7 @@
  * (publish/unpublish) ayri checkpoint'lerdir; status daima DRAFT ile create edilir.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   heroSlideCreateRequestSchema,
   heroSlideListResponseSchema,
@@ -29,10 +30,9 @@ export interface HeroAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -103,7 +103,7 @@ export function registerHeroAdminRoutes(app: FastifyInstance, deps: HeroAdminRou
     });
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HeroSlide",
       entityId: slide.id,
@@ -143,7 +143,7 @@ export function registerHeroAdminRoutes(app: FastifyInstance, deps: HeroAdminRou
     if (!slide) return reply.code(404).send(errorBody("HERO_SLIDE_NOT_FOUND", "Hero slide not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HeroSlide",
       entityId: slide.id,
@@ -161,7 +161,7 @@ export function registerHeroAdminRoutes(app: FastifyInstance, deps: HeroAdminRou
     if (!deleted) return reply.code(404).send(errorBody("HERO_SLIDE_NOT_FOUND", "Hero slide not found."));
     await recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HeroSlide",
       entityId: params.id,
@@ -186,7 +186,7 @@ export function registerHeroAdminRoutes(app: FastifyInstance, deps: HeroAdminRou
     }
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HeroSlide",
       metadata: { reorder: body.orderedIds.length },
@@ -210,7 +210,7 @@ export function registerHeroAdminRoutes(app: FastifyInstance, deps: HeroAdminRou
       if (!slide) return reply.code(404).send(errorBody("HERO_SLIDE_NOT_FOUND", "Hero slide not found."));
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "HeroSlide",
         entityId: slide.id,

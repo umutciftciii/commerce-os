@@ -111,6 +111,9 @@ export function StoreAppShell({ children }: { children: ReactNode }) {
       .slice(0, 2)
       .toUpperCase() || "?";
   const statusLabels = store.storeStatusLabels as Record<StoreContext["status"], string>;
+  // Faz E1 — StoreUser rolü insan-okunur/i18n; ham enum (OWNER/ADMIN/…) gösterilmez.
+  const roleLabels = store.roleLabels as Record<StoreUser["role"], string>;
+  const roleLabel = roleLabels[state.user.role] ?? state.user.role;
   const activeStoreLabel = locale === "tr" ? ACTIVE_STORE_LABEL.tr : ACTIVE_STORE_LABEL.en;
   const menuLabel = locale === "tr" ? MENU_LABEL.tr : MENU_LABEL.en;
   const closeLabel = locale === "tr" ? CLOSE_LABEL.tr : CLOSE_LABEL.en;
@@ -161,8 +164,12 @@ export function StoreAppShell({ children }: { children: ReactNode }) {
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-300/70">
           {activeStoreLabel}
         </p>
-        <p className="truncate text-[13px] font-bold text-white/90">{state.store.name}</p>
-        <p className="mt-0.5 font-mono text-[10px] text-white/30">{state.store.slug}</p>
+        <p className="truncate text-[13px] font-bold text-white/90" data-testid="store-admin-store-name">
+          {state.store.name}
+        </p>
+        <p className="mt-0.5 font-mono text-[10px] text-white/30" data-testid="store-admin-store-slug">
+          {state.store.slug}
+        </p>
       </div>
 
       <div className="mx-4 h-px shrink-0 bg-white/[0.06]" />
@@ -183,9 +190,21 @@ export function StoreAppShell({ children }: { children: ReactNode }) {
             {initials}
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-xs font-semibold text-white/80">{displayName}</span>
+            <span className="flex items-center gap-1.5">
+              <span className="truncate text-xs font-semibold text-white/80" data-testid="store-admin-user-name">
+                {displayName}
+              </span>
+              <span
+                className="shrink-0 rounded bg-indigo-500/15 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-indigo-300/80"
+                data-testid="store-admin-role-badge"
+              >
+                {roleLabel}
+              </span>
+            </span>
             {state.user.email ? (
-              <span className="block truncate text-[10px] text-white/30">{state.user.email}</span>
+              <span className="block truncate text-[10px] text-white/30" data-testid="store-admin-user-email">
+                {state.user.email}
+              </span>
             ) : null}
           </span>
           <svg

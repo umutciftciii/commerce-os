@@ -88,6 +88,15 @@ import type {
   PlatformLogoutResponse,
   PlatformMeResponse,
   PlatformSessionExtendResponse,
+  // Store Admin Auth & RBAC (B1) — tenant-scoped store-admin login/session/logout.
+  // Ayrı bir `storeAuth` namespace'i besler; `auth.platform*` ile KARIŞTIRILMAZ.
+  // (StoreAdminCurrentUser burada iç kullanımda değil; yalnız aşağıdaki export bloğunda
+  // consumer'lara re-export edilir — bu yüzden import edilmez.)
+  StoreAdminLoginRequest,
+  StoreAdminLoginResponse,
+  StoreAdminSessionResponse,
+  StoreAdminLogoutResponse,
+  StoreAdminSessionExtendResponse,
   HeroSlide,
   HeroSlideCreateRequest,
   HeroSlideListResponse,
@@ -511,6 +520,13 @@ export type {
   PlatformLogoutResponse,
   PlatformMeResponse,
   PlatformSessionExtendResponse,
+  // Store Admin Auth (B1) — consumer'lara (store-admin-web BFF/UI) re-export.
+  StoreAdminCurrentUser,
+  StoreAdminLoginRequest,
+  StoreAdminLoginResponse,
+  StoreAdminSessionResponse,
+  StoreAdminLogoutResponse,
+  StoreAdminSessionExtendResponse,
   CustomerSessionExtendResponse,
   SessionTiming,
   HeroSlide,
@@ -1582,6 +1598,19 @@ export interface ApiClient {
     platformMe(token?: string): Promise<PlatformMeResponse>;
     // ADR-271 — oturum uzatma (token rotate; absolute degismez). Aktif token gerekir.
     platformExtend(token?: string): Promise<PlatformSessionExtendResponse>;
+  };
+  /**
+   * Store Admin Auth & RBAC — tenant-scoped store-admin oturumu. `auth.platform*`ten
+   * AYRI namespace. Tenant istemci tarafindan SECILEMEZ: gateway tenant context'i
+   * sunucu-tarafi deployment config'inden (STORE_ADMIN_STORE_SLUG) cozer. login()
+   * NE govdede NE header'da tenant TASIMAZ (guven-sinir invariant'i).
+   */
+  storeAuth: {
+    login(input: StoreAdminLoginRequest): Promise<StoreAdminLoginResponse>;
+    logout(token?: string): Promise<StoreAdminLogoutResponse>;
+    session(token?: string): Promise<StoreAdminSessionResponse>;
+    // ADR-271 (Faz F) — oturum uzatma (token ROTATE; absolute değişmez). Aktif token gerekir.
+    extend(token?: string): Promise<StoreAdminSessionExtendResponse>;
   };
   admin: {
     stores: {
@@ -3521,6 +3550,20 @@ export function createApiClient(options: ApiClientOptions = {}): ApiClient {
       platformMe: (token) => getJson<PlatformMeResponse>("/auth/platform/me", token),
       platformExtend: (token) =>
         sendJson<PlatformSessionExtendResponse>("/auth/platform/extend", "POST", undefined, token),
+    },
+    storeAuth: {
+      // Tenant istemciden GONDERILMEZ: gateway sunucu-tarafi config'ten cozer. Govde
+      // yalnizca credential tasir (storeSlug/storeId yok — bkz. storeAdminLoginRequestSchema).
+      login: (input) =>
+        requestJson<StoreAdminLoginResponse>("/auth/store/login", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      logout: (token) =>
+        sendJson<StoreAdminLogoutResponse>("/auth/store/logout", "POST", undefined, token),
+      session: (token) => getJson<StoreAdminSessionResponse>("/auth/store/session", token),
+      extend: (token) =>
+        sendJson<StoreAdminSessionExtendResponse>("/auth/store/extend", "POST", undefined, token),
     },
     admin: {
       stores: {

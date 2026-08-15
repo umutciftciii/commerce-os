@@ -17,6 +17,7 @@ import {
   storePlatformRequestAttachmentResponseSchema,
 } from "@commerce-os/contracts";
 import type { StorageDriver } from "../media/storage.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import type { PlatformRequestNotificationDispatcher } from "./notification.js";
 import {
   createRequest,
@@ -35,10 +36,9 @@ export interface PlatformRequestStoreRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE" | "SYSTEM";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -147,7 +147,7 @@ export function registerPlatformRequestStoreRoutes(
     if (!result.ok) return fail(reply, result.code);
     await deps.recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "PlatformRequest",
       entityId: result.requestId,
@@ -193,7 +193,7 @@ export function registerPlatformRequestStoreRoutes(
     if (!result.ok) return fail(reply, result.code);
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "PlatformRequest",
       entityId: params.id,
@@ -222,7 +222,7 @@ export function registerPlatformRequestStoreRoutes(
     if (!result.ok) return fail(reply, result.code);
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "PlatformRequest",
       entityId: params.id,
@@ -276,7 +276,7 @@ export function registerPlatformRequestStoreRoutes(
       if (!result.ok) return fail(reply, result.code);
       await deps.recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "PlatformRequest",
         entityId: params.id,

@@ -10,6 +10,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { prisma } from "@commerce-os/db";
 import type { AuditAction } from "@prisma/client";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import { parseMinorString, minorToCanonicalString } from "@commerce-os/utils";
 import {
   adminAdjustCreditRequestSchema,
@@ -29,7 +30,9 @@ const DEFAULT_CURRENCY = "TRY";
 
 interface StoreAdminAccess {
   actorUserId: string;
+  // Faz E2 — shopping-balance:manage sahibi (goodwill limit override + manuel bakiye düzeltme).
   isSuperAdmin: boolean;
+  audit: StoreAuditActor;
 }
 
 export interface CustomerCreditAdminRoutesDeps {
@@ -38,9 +41,8 @@ export interface CustomerCreditAdminRoutesDeps {
     reply: FastifyReply,
     storeId: string,
   ) => Promise<StoreAdminAccess | null>;
-  recordAudit: (input: {
+  recordAudit: (input: StoreAuditActor & {
     storeId: string;
-    platformUserId: string;
     action: AuditAction;
     entityType: string;
     entityId: string;
@@ -165,7 +167,7 @@ export function registerCustomerCreditAdminRoutes(app: FastifyInstance, deps: Cu
       sourceId,
       ledgerType,
       description: "credit.goodwill",
-      actor: { type: "PLATFORM_USER", id: access.actorUserId },
+      actor: { type: "STORE_USER", id: access.actorUserId },
       idempotencyKey,
       policyMaxMinor: policyMax,
       overridePolicy: access.isSuperAdmin,
@@ -192,7 +194,7 @@ export function registerCustomerCreditAdminRoutes(app: FastifyInstance, deps: Cu
     // AuditLog (internal — reason/note burada; müşteriye sızmaz). deduped ise de idempotent kayıt.
     await deps.recordAudit({
       storeId: params.storeId,
-      platformUserId: access.actorUserId,
+      ...access.audit,
       action: "CREATE",
       entityType: "CustomerCreditLedgerEntry",
       entityId: result.entryId,
@@ -247,7 +249,7 @@ export function registerCustomerCreditAdminRoutes(app: FastifyInstance, deps: Cu
       amountMinor: parseMinorString(input.amountMinor),
       reason: input.reason,
       note: input.internalNote ?? null,
-      actor: { type: "PLATFORM_USER", id: access.actorUserId },
+      actor: { type: "STORE_USER", id: access.actorUserId },
       idempotencyKey: `${params.storeId}:${input.idempotencyKey}`,
       expiryDays: input.expiryDays,
     });
@@ -258,7 +260,7 @@ export function registerCustomerCreditAdminRoutes(app: FastifyInstance, deps: Cu
     }
     await deps.recordAudit({
       storeId: params.storeId,
-      platformUserId: access.actorUserId,
+      ...access.audit,
       action: "UPDATE",
       entityType: "CustomerCreditLedgerEntry",
       entityId: result.entryIds[0] ?? params.customerId,

@@ -11,6 +11,7 @@
  * şema ile doğrular (parseConfigForType). Geçersiz config → 400 INVALID_SECTION_CONFIG.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   homeSectionCreateRequestSchema,
   homeSectionUpdateRequestSchema,
@@ -57,10 +58,9 @@ export interface HomeAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -182,7 +182,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     });
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeSection",
       entityId: section.id,
@@ -231,7 +231,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     if (!section) return reply.code(404).send(errorBody("HOME_SECTION_NOT_FOUND", "Home section not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeSection",
       entityId: section.id,
@@ -248,7 +248,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     if (!deleted) return reply.code(404).send(errorBody("HOME_SECTION_NOT_FOUND", "Home section not found."));
     await recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeSection",
       entityId: params.sectionId,
@@ -269,7 +269,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     }
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeSection",
       metadata: { reorder: body.orderedIds.length },
@@ -339,7 +339,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     });
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeHeroSlide",
       entityId: slide.id,
@@ -378,7 +378,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     if (!slide) return reply.code(404).send(errorBody("HOME_HERO_SLIDE_NOT_FOUND", "Hero slide not found."));
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeHeroSlide",
       entityId: slide.id,
@@ -394,7 +394,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     if (!deleted) return reply.code(404).send(errorBody("HOME_HERO_SLIDE_NOT_FOUND", "Hero slide not found."));
     await recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeHeroSlide",
       entityId: params.id,
@@ -416,7 +416,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     }
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeHeroSlide",
       metadata: { reorder: body.orderedIds.length },
@@ -465,7 +465,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     }
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeFeaturedCategory",
       entityId: created.id,
@@ -493,7 +493,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     }
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeFeaturedCategory",
       entityId: updated.id,
@@ -511,7 +511,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     }
     await recordAudit({
       action: "DELETE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeFeaturedCategory",
       entityId: params.id,
@@ -533,7 +533,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     }
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeFeaturedCategory",
       metadata: { reorder: body.orderedIds.length },
@@ -581,7 +581,7 @@ export function registerHomeAdminRoutes(app: FastifyInstance, deps: HomeAdminRou
     }
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "HomeShowcaseProduct",
       entityId: params.sectionId,

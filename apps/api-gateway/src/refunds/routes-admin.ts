@@ -15,6 +15,7 @@ import {
   adminRefundResponseSchema,
   adminRefundVersionActionRequestSchema,
 } from "@commerce-os/contracts";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import { resolveRefundCapability } from "./capability.js";
 import {
   computeRefundableRemainingMinor,
@@ -38,7 +39,11 @@ import { buildAdminRefundContext, serializeAdminRefund } from "./serialize.js";
 import { resolveRefundSummaryStatus } from "./summary-status.js";
 
 interface StoreAdminAccess {
+  // StoreUser id — domain event/scalar attribution için (OrderRefund.requestedByPlatformUserId,
+  // RefundEvent actor; bunlar FK DEĞİL scalar). AuditLog.platformUserId FK'sına ASLA yazılmaz.
   actorUserId: string;
+  // STORE_USER audit actor (createAuditLog için; platformUserId=undefined → FK crash yok).
+  audit: StoreAuditActor;
 }
 
 export interface RefundAdminRoutesDeps {
@@ -47,15 +52,15 @@ export interface RefundAdminRoutesDeps {
     reply: FastifyReply,
     storeId: string,
   ) => Promise<StoreAdminAccess | null>;
-  // Manuel iade için AYRI güçlü yetki (ör. SUPER_ADMIN). Yetersizse 403 gönderip null döner.
+  // Manuel iade tamamlama AYRI güçlü yetki: Faz E2'de store-local `refunds:manage` (OWNER/ADMIN).
+  // Yetersizse 403 gönderip null döner. SUPER_ADMIN → OWNER mekanik çevirisi YOK.
   requireStoreSuperAdmin: (
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
   ) => Promise<StoreAdminAccess | null>;
-  recordAudit: (input: {
+  recordAudit: (input: StoreAuditActor & {
     storeId: string;
-    platformUserId: string;
     action: AuditAction;
     entityType: string;
     entityId: string;
@@ -295,7 +300,7 @@ export function registerRefundAdminRoutes(app: FastifyInstance, deps: RefundAdmi
     if (!result.ok) return sendRefundError(reply, result.code);
     await deps.recordAudit({
       storeId: params.storeId,
-      platformUserId: access.actorUserId,
+      ...access.audit,
       action: "CREATE",
       entityType: "OrderRefund",
       entityId: result.refundId,
@@ -330,7 +335,7 @@ export function registerRefundAdminRoutes(app: FastifyInstance, deps: RefundAdmi
     if (!result.ok) return sendRefundError(reply, result.code);
     await deps.recordAudit({
       storeId: params.storeId,
-      platformUserId: access.actorUserId,
+      ...access.audit,
       action: "UPDATE",
       entityType: "OrderRefund",
       entityId: result.refundId,
@@ -356,7 +361,7 @@ export function registerRefundAdminRoutes(app: FastifyInstance, deps: RefundAdmi
     if (!result.ok) return sendRefundError(reply, result.code);
     await deps.recordAudit({
       storeId: params.storeId,
-      platformUserId: access.actorUserId,
+      ...access.audit,
       action: "UPDATE",
       entityType: "OrderRefund",
       entityId: result.refundId,
@@ -381,7 +386,7 @@ export function registerRefundAdminRoutes(app: FastifyInstance, deps: RefundAdmi
     if (!result.ok) return sendRefundError(reply, result.code);
     await deps.recordAudit({
       storeId: params.storeId,
-      platformUserId: access.actorUserId,
+      ...access.audit,
       action: "UPDATE",
       entityType: "OrderRefund",
       entityId: result.refundId,

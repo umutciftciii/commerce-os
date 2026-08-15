@@ -14,6 +14,7 @@ import {
   assignableUsersResponseSchema,
 } from "@commerce-os/contracts";
 import type { SupportNotificationDispatcher } from "./notification.js";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   listAdminTickets,
   getAdminTicketDetail,
@@ -29,10 +30,9 @@ export interface SupportAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE" | "SYSTEM";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -131,7 +131,7 @@ export function registerSupportAdminRoutes(app: FastifyInstance, deps: SupportAd
     if (!result.ok) return reply.code(actionStatus(result.code)).send(errorBody(result.code, adminMessage(result.code)));
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "SupportTicket",
       entityId: params.ticketId,
@@ -174,7 +174,7 @@ export function registerSupportAdminRoutes(app: FastifyInstance, deps: SupportAd
     if (!result.ok) return reply.code(actionStatus(result.code)).send(errorBody(result.code, adminMessage(result.code)));
     await deps.recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "SupportTicket",
       entityId: params.ticketId,

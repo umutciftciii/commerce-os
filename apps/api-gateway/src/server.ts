@@ -3,7 +3,14 @@ import { mkdirSync } from "node:fs";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
-import { verifyPassword } from "@commerce-os/auth";
+import {
+  verifyPassword,
+  resolveStorePermission,
+  hasStorePermission,
+  type StorePolicyModule,
+  type StoreAction,
+  type StorePermission,
+} from "@commerce-os/auth";
 import type { AppConfig } from "@commerce-os/config";
 // ADR-271 — Unified Session Policy (tek kaynak): iki-kapili omur + throttle + rotation.
 import {
@@ -231,6 +238,10 @@ import { registerPlatformRequestStoreRoutes } from "./platform-requests/routes-s
 import { registerPlatformRequestPlatformRoutes } from "./platform-requests/routes-platform.js";
 import { createLogPlatformRequestNotificationDispatcher } from "./platform-requests/notification.js";
 import { registerOrderExperienceRoutes } from "./order-experience/routes.js";
+// TODO-B3 (Faz B, ADR-271) — store-admin auth: login/logout/session route'ları + B2 veri katmanı.
+import { registerStoreAuthRoutes } from "./store-auth/routes.js";
+import { createStoreAuthData, type StoreAuthData } from "./store-auth/data.js";
+import { createStoreUserGuard, toStoreAuditActor, type StoreAuditActor } from "./store-auth/guard.js";
 import {
   createPrismaShippingWebhookPersistence,
   registerShippingWebhookRoutes,
@@ -507,6 +518,7 @@ import type {
   ShipmentStatus,
   Store,
   StoreStatus,
+  StoreUserRole,
   ThreeDsMode,
 } from "@prisma/client";
 import { Prisma } from "@prisma/client";
@@ -1671,11 +1683,20 @@ export interface AppDataAccess extends CampaignDataAccess {
     entityType: string;
     entityId?: string;
     metadata?: Record<string, unknown>;
+    // TODO-B3 (Faz B) — store-admin auth: STORE_USER actor alanları (Phase A migration'da eklendi).
+    actorKind?: "PLATFORM_USER" | "STORE_USER";
+    actorStoreUserId?: string;
+    actorName?: string | null;
+    actorEmail?: string | null;
   }): Promise<void>;
 }
 
 export interface ServerDependencies extends ServerHealthChecks {
   dataAccess?: AppDataAccess;
+  // Faz E2 — Store Admin business route guard'ının (createStoreUserGuard) StoreUser oturum
+  // veri erişimi. Varsayılan prisma-backed (createStoreAuthData); testlerde fake enjekte
+  // edilerek DB'siz StoreUser oturumu doğrulanabilir (mevcut dataAccess injection deseni gibi).
+  storeAuthData?: Pick<StoreAuthData, "findStoreSessionByTokenHash" | "touchStoreSessionActivity">;
   // F3B.3: Storefront musteri hesabi domaini icin ayri port (ADR-032). Varsayilan
   // prisma-backed; testlerde in-memory fake enjekte edilebilir.
   customerDataAccess?: CustomerDataAccess;
@@ -7381,20 +7402,128 @@ export function createServer(
   // ensureStoreTaxonomyDefaults'i cagirabilsin. TEK instance — Task 10'un registerTaxonomyRoutes'u
   // ASAGIDA AYNI instance'i yeniden kullanir (iki ayri servis instance'i ACILMAZ).
   const taxonomyService = createTaxonomyService(dependencies.taxonomyDataAccess ?? createPrismaTaxonomyDataAccess());
-  const requireStoreAdminForModule =
-    (moduleKey: StoreModuleKey) =>
-    async (request: FastifyRequest, reply: FastifyReply, storeId: string) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      if (!access) return null;
-      if (!(await requireCapability(reply, storeId, moduleKey))) return null;
-      return { actorUserId: access.session.platformUser.id };
-    };
   const resolvePublicStoreForModule =
     (moduleKey: StoreModuleKey) => async (slug: string) => {
       const store = await resolvePublicStore(slug);
       if (!store) return null;
       if (!(await capabilityCache.isEnabled(store.id, moduleKey))) return null; // fail-closed, leak-siz
       return store;
+    };
+
+  // ── Faz E2 (ADR-271 RBAC cutover) — Store Admin business route KANONİK StoreUser guard'ı ──
+  // requireStorePlatformAdmin (PlatformUser) YERİNE geçer. PlatformUser fallback /
+  // linkedPlatformUserId bridge YOK. Kanonik kompozisyon: StoreUser auth → session.storeId ==
+  // route :storeId → capability → RBAC permission (bkz. store-auth/guard.ts + store-authorization.ts).
+  // `storeAuthData` store-auth login/session ile AYNI select-allowlist; `isCapabilityEnabled`
+  // mevcut capability cache'ini paylaşır (çift kaynak yok).
+  const storeAuthData = createStoreAuthData(prisma);
+  const storeUserGuards = createStoreUserGuard(app, {
+    data: dependencies.storeAuthData ?? storeAuthData,
+    policy: sessionPolicy,
+    hashToken: (t) => hashSessionToken(t, config.SESSION_SECRET),
+    isCapabilityEnabled: (storeId, key) => capabilityCache.isEnabled(storeId, key),
+    onError: (e) =>
+      logger.warn("store guard session activity touch failed", {
+        message: e instanceof Error ? e.message : "unknown",
+      }),
+  });
+
+  // Store Admin mutation dönüşü: `actorUserId` = StoreUser id (domain event/scalar attribution
+  // için — AuditLog.platformUserId FK'sına ASLA yazılmaz); `audit` = STORE_USER audit actor
+  // (createAuditLog için; platformUserId=undefined → FK crash yok).
+  // `role` = StoreUser rolü — hassas op CTA görünürlüğü / türev permission kontrolü için
+  // (ör. returns fast-refund CTA = hasStorePermission(role, "refunds:manage")). Enforcement
+  // yine guard'da; bu yalnız sunucu-otoriter türetim kolaylığı.
+  type StoreAdminAccess = { actorUserId: string; audit: StoreAuditActor; role: StoreUserRole };
+
+  // Module-scoped Store Admin guard fabrikası (legacy requireStoreAdminForModule'un StoreUser
+  // muadili). HTTP method → RBAC action: GET/HEAD = read, aksi = write (mutation). capabilityKey
+  // null ise capability kapısı yok. Bilinmeyen policy/permission → fail-closed 403.
+  const storeAdmin =
+    (capabilityKey: StoreModuleKey | null, policyModule: StorePolicyModule) =>
+    async (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      storeId: string,
+    ): Promise<StoreAdminAccess | null> => {
+      const action: StoreAction =
+        request.method === "GET" || request.method === "HEAD" ? "read" : "write";
+      const permission = resolveStorePermission(policyModule, action);
+      if (!permission) {
+        await reply.code(403).send(errorBody("FORBIDDEN", "Insufficient permissions."));
+        return null;
+      }
+      const principal = await storeUserGuards.requireStorePermission(
+        permission,
+        capabilityKey ? { capabilityKey } : undefined,
+      )(request, reply, storeId);
+      if (!principal) return null;
+      return { actorUserId: principal.storeUserId, audit: toStoreAuditActor(principal), role: principal.role };
+    };
+
+  // Hassas/manage-tier (refund execution, shopping-balance adjustment, store settings) için AÇIK
+  // manage guard'ı — method heuristic'i BYPASS eder. SUPER_ADMIN → OWNER MEKANİK çevirisi YOK:
+  // yetki Faz A matrisinden gelir (refunds:manage OWNER/ADMIN; shopping-balance:manage OWNER/ADMIN;
+  // settings:manage yalnız OWNER). StoreUser'a platform override/fallback AÇMAZ.
+  const storeAdminManage =
+    (capabilityKey: StoreModuleKey | null, permission: StorePermission) =>
+    async (
+      request: FastifyRequest,
+      reply: FastifyReply,
+      storeId: string,
+    ): Promise<StoreAdminAccess | null> => {
+      const principal = await storeUserGuards.requireStoreManage(
+        permission,
+        capabilityKey ? { capabilityKey } : undefined,
+      )(request, reply, storeId);
+      if (!principal) return null;
+      return { actorUserId: principal.storeUserId, audit: toStoreAuditActor(principal), role: principal.role };
+    };
+
+  // Capability-key'li modülleri kanonik RBAC policy family'sine eşler (Faz E2). Non-core
+  // içerik/merchandising modülleri catalog; müşteri modülleri customers; finans/pazarlama
+  // (sponsorluk/sponsorlu/influencer/otomasyon) finance; ödeme kurtarma orders. Bilinmeyen → catalog
+  // (fail-safe read/write; capability zaten kapıyı ayrıca daraltır). Bu eşleme raporlanır.
+  const MODULE_POLICY_FAMILY: Partial<Record<StoreModuleKey, StorePolicyModule>> = {
+    CATALOG: "catalog",
+    FASHION_VERTICAL: "catalog",
+    CAMPAIGNS: "catalog",
+    HOME_EXPERIENCE: "catalog",
+    THEME_STUDIO: "catalog",
+    MULTI_WAREHOUSE: "catalog",
+    RECOMMENDATION_ANALYTICS: "catalog",
+    REVIEWS: "customers",
+    CUSTOMER_LISTS: "customers",
+    CUSTOMER_DATA_ERASURE: "customers",
+    PRODUCT_SUPPORT: "product-support",
+    PLATFORM_REQUESTS: "platform-requests",
+    PAYMENT_RECOVERY: "orders",
+    INFLUENCER_TRACKING: "finance",
+    SPONSORED_PRODUCTS: "finance",
+    SPONSORSHIP_FINANCE: "finance",
+    OPERATIONS_ADVANCED: "finance",
+  };
+
+  // Legacy `requireStoreAdminForModule`'un StoreUser muadili (aynı çağrı imzası — capability
+  // key'li modüller). Artık PlatformUser DEĞİL StoreUser auth + capability + RBAC.
+  const requireStoreAdminForModule = (moduleKey: StoreModuleKey) =>
+    storeAdmin(moduleKey, MODULE_POLICY_FAMILY[moduleKey] ?? "catalog");
+
+  // server.ts'te DOĞRUDAN tanımlı store-admin route'ları için (categories/products/variants/
+  // inventory/orders/settings/payment-providers). storeAdmin + mağaza kaydı (settings'in
+  // `access.store.name`'i gibi kullanımlar için — eski requireStorePlatformAdmin'in döndürdüğü
+  // store'un StoreUser muadili). session.storeId zaten authoritative; findStoreById yalnız display.
+  const storeAdminDirect =
+    (policyModule: StorePolicyModule) =>
+    async (request: FastifyRequest, reply: FastifyReply, storeId: string) => {
+      const access = await storeAdmin(null, policyModule)(request, reply, storeId);
+      if (!access) return null;
+      const store = await dataAccess.findStoreById(storeId);
+      if (!store) {
+        await reply.code(404).send(errorBody("STORE_ACCESS_DENIED", "Store access denied."));
+        return null;
+      }
+      return { ...access, store };
     };
 
   // TODO-159D (ADR-093) — Customer Lists & Wishlist (own account). Katalog/stok
@@ -7485,10 +7614,7 @@ export function createServer(
     // (bkz. capabilities/routes.ts). Migration (Task 14b) yalnız migration-anında enabled
     // olan mağazaları kapsar; bu hook yeni/sonradan-enable edilen mağazaları kapsar.
     ensureFashionTaxonomyDefaults: (storeId) => taxonomyService.ensureStoreTaxonomyDefaults(storeId),
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "settings"),
   });
 
   // TODO-155 (ADR-079) — Public arama/facet ucu. Arama/facet/pagination YALNIZ read-model'den
@@ -7555,10 +7681,27 @@ export function createServer(
     config,
     customers,
     logger,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    // Faz E2 — customers:read (GET) / customers:write (mutation). `access.actorUserId` =
+    // StoreUser id; yalnız credential-token issuer (createdByUserId scalar) için taşınır (FK yok).
+    requireStoreAdmin: storeAdmin(null, "customers"),
+  });
+
+  // TODO-B3 (Faz B, ADR-271) — Store-admin auth: login/logout/session/extend (STORE_USER ilk-sınıf
+  // vatandaş kimlik doğrulaması). TENANT TRUST BOUNDARY: tenant context YALNIZCA sunucu-tarafı
+  // deployment config'inden (STORE_ADMIN_STORE_SLUG) çözülür — hiçbir istemci header'ı/host/body
+  // alanı tenant seçemez; tanımsızsa login fail-closed. Business route guard cutover'ı Faz E2'de
+  // yapılır (yukarıdaki storeAdmin/storeAdminManage). Faz F: /auth/store/extend (token rotation).
+  registerStoreAuthRoutes(app, {
+    data: storeAuthData,
+    policy: sessionPolicy,
+    configuredStoreSlug: config.STORE_ADMIN_STORE_SLUG,
+    hashToken: (t) => hashSessionToken(t, config.SESSION_SECRET),
+    verifyPassword: (pw, hash) => verifyPassword(pw, hash, config.PASSWORD_HASH_PEPPER),
+    createAuditLog: dataAccess.createAuditLog,
+    loginRateLimiter,
+    // Faz F — extend rate limiter (Platform ile AYNI evaluator; anahtar ip:sessionId).
+    extendRateLimiter: { isLimited: isExtendLimited, record: recordExtend },
+    onError: (e) => logger.warn("store session activity touch failed", { message: e instanceof Error ? e.message : "unknown" }),
   });
 
   // ADR-268 — Financial Reporting Foundation (Finans > Raporlar). Sipariş snapshot'larından
@@ -7567,10 +7710,7 @@ export function createServer(
   // timezone'unda (StoreSettings.timezone; fallback config default).
   registerFinanceRoutes(app, {
     data: createFinanceData(prisma),
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "finance"),
     getStoreTimezone: async (storeId) => {
       const settings = await prisma.storeSettings.findUnique({
         where: { storeId },
@@ -7807,10 +7947,7 @@ export function createServer(
   // api-gateway süpürücüyü ÇALIŞTIRMAZ: manuel expiry/reconcile job'unu apps/worker kuyruğuna ENQUEUE
   // eder; görünürlük (status) + reconciliation-scan salt-okunur. Client rezervasyon status/expiry değiştiremez.
   registerReservationRoutes(app, {
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     prisma,
     jobLog: prisma,
     enqueueMaintenanceJob: (data) => enqueueInventoryMaintenanceJob(config.REDIS_URL, data),
@@ -7835,10 +7972,7 @@ export function createServer(
   // F3C.1 — Shipping provider foundation (store-admin gateway uclari).
   registerShippingAdminRoutes(app, {
     config,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "orders"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
@@ -7846,23 +7980,12 @@ export function createServer(
   // yetki + optimistic version). Private attachment stream + müşteri uçları mediaStorage'a bağımlı
   // olduğundan MEDIA bölümünden SONRA kaydedilir (aşağıda).
   registerReturnAdminRoutes(app, {
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access
-        ? { actorUserId: access.session.platformUser.id, role: access.session.platformUser.role }
-        : null;
-    },
-    // TODO-172 (ADR-273) — Fast Refund güçlü yetki: SUPER_ADMIN. Refund manual-complete deseninin
-    // BİREBİR mirror'ı; store scope + cross-store 404 requireStorePlatformAdmin'den, SUPER_ADMIN daraltması burada.
-    requireStoreSuperAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      if (!access) return null;
-      if (access.session.platformUser.role !== "SUPER_ADMIN") {
-        await reply.code(403).send(errorBody("FORBIDDEN", "Hızlı iade için yetki yetersiz."));
-        return null;
-      }
-      return { actorUserId: access.session.platformUser.id };
-    },
+    // Faz E2 — returns:read (GET) / returns:manage (mutation). `access.role` fast-refund CTA
+    // görünürlüğü için taşınır (modül hasStorePermission(role,"refunds:manage") türetir).
+    requireStoreAdmin: storeAdmin(null, "returns"),
+    // TODO-172 (ADR-273) — Fast Refund güçlü yetki: SUPER_ADMIN triage → store-local `refunds:manage`
+    // (OWNER/ADMIN). Refund manual-complete ile aynı sınıf; mekanik OWNER çevirisi YOK.
+    requireStoreSuperAdmin: storeAdminManage(null, "refunds:manage"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     // TODO-169 (blocker #3) — iade kalemi ürün kapak görseli URL'i türetimi (storefront ile aynı semantik).
     mediaBaseUrl: config.MEDIA_PUBLIC_BASE_URL,
@@ -7893,31 +8016,24 @@ export function createServer(
   // TODO-170 (ADR-272) — Refund Ledger & Payment Reversal: store-admin refund başlat/yenile/tekrar/iptal +
   // manuel tamamlama (AYRI güçlü yetki: SUPER_ADMIN). Store-scoped; cross-store 404.
   registerRefundAdminRoutes(app, {
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
-    requireStoreSuperAdmin: async (request, reply, storeId) => {
-      // Store scope + SUPER_ADMIN daraltması (manuel iade tamamlama güçlü yetki gerektirir).
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      if (!access) return null;
-      if (access.session.platformUser.role !== "SUPER_ADMIN") {
-        await reply.code(403).send(errorBody("FORBIDDEN", "Manuel iade tamamlama için yetki yetersiz."));
-        return null;
-      }
-      return { actorUserId: access.session.platformUser.id };
-    },
+    // Faz E2 — refunds:read (GET) / refunds:write (mutation). MANAGER refund başlatabilir
+    // (write) ama manual-complete YAPAMAZ (manage yok). Capability key yok (ödeme/iade çekirdek).
+    requireStoreAdmin: storeAdmin(null, "refunds"),
+    // SUPER_ADMIN triage → store-local `refunds:manage` (OWNER/ADMIN); mekanik OWNER çevirisi YOK.
+    requireStoreSuperAdmin: storeAdminManage(null, "refunds:manage"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
   // TODO-174B (ADR-281) — Customer Shopping Balance / Store Credit: store-admin bakiye görüntüle +
   // goodwill kredi tanımla (policy-gated; SUPER_ADMIN limiti aşabilir). Store-scoped; cross-store 404.
   registerCustomerCreditAdminRoutes(app, {
+    // Faz E2 — goodwill/bakiye = shopping-balance (read GET / write POST). `isSuperAdmin`
+    // (adjust gate + goodwill-limit override) SUPER_ADMIN triage → store-local `shopping-balance:manage`
+    // (OWNER/ADMIN). Mekanik OWNER çevirisi YOK; yetki Faz A matrisinden türetilir.
     requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access
-        ? { actorUserId: access.session.platformUser.id, isSuperAdmin: access.session.platformUser.role === "SUPER_ADMIN" }
-        : null;
+      const access = await storeAdmin(null, "shopping-balance")(request, reply, storeId);
+      if (!access) return null;
+      return { ...access, isSuperAdmin: hasStorePermission(access.role, "shopping-balance:manage") };
     },
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
@@ -7925,21 +8041,15 @@ export function createServer(
   // Shopping Balance Admin (Müşteri Bakiye Yönetimi) — Finans > Alışveriş Bakiyesi: merkezî
   // per-müşteri bakiye listesi + KPI özeti + müşteri detayı (lot/ledger). SALT-OKUNUR; store-scoped.
   registerShoppingBalanceAdminRoutes(app, {
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access
-        ? { actorUserId: access.session.platformUser.id, isSuperAdmin: access.session.platformUser.role === "SUPER_ADMIN" }
-        : null;
-    },
+    // Salt-okunur merkezî bakiye listesi/detay. shopping-balance:read (OWNER/ADMIN/MANAGER/STAFF/VIEWER).
+    requireStoreAdmin: storeAdmin(null, "shopping-balance"),
   });
 
   // TODO-174B (ADR-283) — Order Experience Recovery Operations: store-admin Sipariş Deneyimi listesi +
   // KPI + case detay + lifecycle aksiyonları + manuel case açma. Store-scoped; cross-store 404.
   registerRecoveryAdminRoutes(app, {
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    // Sipariş Deneyimi Kurtarma = müşteri operasyonları (case atama/lifecycle). customers family.
+    requireStoreAdmin: storeAdmin(null, "customers"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     getStoreTimezone: async (storeId) => {
       const settings = await prisma.storeSettings.findUnique({ where: { storeId }, select: { timezone: true } });
@@ -7949,10 +8059,8 @@ export function createServer(
 
   // TODO-170-recovery — Bekleyen İş Özeti (sidebar sayaçları + Dashboard kartı; bounded aggregate).
   registerPendingWorkRoutes(app, {
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    // Bekleyen İş Özeti = salt-okunur dashboard aggregate; tüm roller okuyabilmeli → catalog:read.
+    requireStoreAdmin: storeAdmin(null, "catalog"),
   });
 
   // TODO-159F (ADR-095..100) — Order Payment Recovery & Collection: store-admin
@@ -8127,10 +8235,7 @@ export function createServer(
   // F3C.2 — Shipping price engine: store kargo TARIFE plani uclari (CRUD + kurallar
   // + set-default). Kargo ucreti bu planlardan hesaplanir; provider canli quote DEGIL.
   registerShippingRatePlanRoutes(app, {
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
@@ -8210,10 +8315,7 @@ export function createServer(
   registerMediaAdminRoutes(app, {
     config,
     storage: mediaStorage,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
   });
 
@@ -8221,10 +8323,7 @@ export function createServer(
   // admin) + storefront müşteri iade uçları (upload PRIVATE context'e yazar). mediaStorage'a bağımlı.
   registerReturnAttachmentServeRoutes(app, {
     storage: mediaStorage,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "returns"),
     resolveCustomer: (request, storeId) =>
       resolveCustomerFromRequest(request, storeId, { customers, config }),
     resolvePublicStore,
@@ -8245,10 +8344,7 @@ export function createServer(
   });
   registerSupportAttachmentServeRoutes(app, {
     storage: mediaStorage,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "product-support"),
     resolveCustomer: (request, storeId) =>
       resolveCustomerFromRequest(request, storeId, { customers, config }),
     resolvePublicStore,
@@ -8779,6 +8875,8 @@ export function createServer(
   // (store scope) auth; THEME_STUDIO ile GATE'LENMEZ (yönetim eylemi her zaman mümkün).
   registerThemeBindingRoutes(app, {
     dataAccess: themeDataAccess,
+    // PLATFORM-owned (Faz E2 kapsamı DIŞI): theme-binding Platform Admin yönetimindedir;
+    // StoreUser'a AÇILMAZ — requireStorePlatformAdmin (PlatformUser) korunur.
     requirePlatformStoreAdmin: async (request, reply, storeId) => {
       const access = await requireStorePlatformAdmin(request, reply, storeId);
       return access ? { actorUserId: access.session.platformUser.id } : null;
@@ -8799,10 +8897,7 @@ export function createServer(
   const attributeDataAccess = dependencies.attributeDataAccess ?? createPrismaAttributeDataAccess();
   registerStoreAttributeRoutes(app, {
     dataAccess: attributeDataAccess,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     onStoreSchemaChanged: (storeId) => searchIndex.reindexStore(storeId),
   });
@@ -8823,10 +8918,7 @@ export function createServer(
   const attributeValueService = createAttributeValueService(attributeValueDataAccess);
   registerAttributeValueRoutes(app, {
     service: attributeValueService,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
@@ -8838,10 +8930,7 @@ export function createServer(
   const variantSelectionService = createVariantSelectionService(variantSelectionDataAccess);
   registerVariantSelectionRoutes(app, {
     service: variantSelectionService,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     recordAudit: (input) => dataAccess.createAuditLog(input),
     onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
@@ -8855,10 +8944,7 @@ export function createServer(
   );
   registerVariantCombinationRoutes(app, {
     service: variantCombinationPreviewService,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
   });
 
   // Faz 2C-3 (ADR-072) — ProductVariant URETIM (persistence): receteden kombinasyon uretir ve
@@ -8870,10 +8956,7 @@ export function createServer(
   });
   registerVariantGenerationRoutes(app, {
     service: variantGenerationService,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
@@ -8884,10 +8967,7 @@ export function createServer(
   const identityService = createIdentityService(identityDataAccess);
   registerIdentityRoutes(app, {
     service: identityService,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
@@ -8899,10 +8979,7 @@ export function createServer(
   const skuService = createSkuService(skuDataAccess);
   registerSkuRoutes(app, {
     service: skuService,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
@@ -8914,10 +8991,7 @@ export function createServer(
   const commercialService = createCommercialService(commercialDataAccess);
   registerCommercialRoutes(app, {
     service: commercialService,
-    requireStoreAdmin: async (request, reply, storeId) => {
-      const access = await requireStorePlatformAdmin(request, reply, storeId);
-      return access ? { actorUserId: access.session.platformUser.id } : null;
-    },
+    requireStoreAdmin: storeAdmin(null, "catalog"),
     onProductChanged: (storeId, productId) => searchIndex.reindexProduct(storeId, productId),
   });
 
@@ -9307,7 +9381,7 @@ export function createServer(
   // Query allowlist zod'dadır; eski limit/offset istemcileri de kabul edilir.
   app.get("/stores/:storeId/categories", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const query = adminCategoryListQuerySchema.parse(request.query);
     const { page, pageSize, limit, offset } = resolveAdminListPage(query);
@@ -9389,7 +9463,7 @@ export function createServer(
    */
   app.get("/stores/:storeId/categories/selector", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const query = adminCategorySelectorQuerySchema.parse(request.query);
 
@@ -9436,7 +9510,7 @@ export function createServer(
 
   app.post("/stores/:storeId/categories", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const input = productCategoryCreateRequestSchema.parse(request.body);
     if (input.parentId && !(await dataAccess.findCategoryById(params.storeId, input.parentId))) {
@@ -9461,7 +9535,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "CREATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ProductCategory",
       entityId: category.id,
@@ -9472,7 +9546,7 @@ export function createServer(
 
   app.get("/stores/:storeId/categories/:categoryId", async (request, reply) => {
     const params = categoryParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const category = await dataAccess.findCategoryById(params.storeId, params.categoryId);
     if (!category) return reply.code(404).send(errorBody("CATEGORY_NOT_FOUND", "Category not found."));
@@ -9481,7 +9555,7 @@ export function createServer(
 
   app.patch("/stores/:storeId/categories/:categoryId", async (request, reply) => {
     const params = categoryParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const input = productCategoryUpdateRequestSchema.parse(request.body);
     if (input.parentId && !(await dataAccess.findCategoryById(params.storeId, input.parentId))) {
@@ -9505,12 +9579,12 @@ export function createServer(
       params.storeId,
       params.categoryId,
       input,
-      access.session.platformUser.id,
+      access.actorUserId,
     );
     if (!category) return reply.code(404).send(errorBody("CATEGORY_NOT_FOUND", "Category not found."));
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ProductCategory",
       entityId: category.id,
@@ -9531,7 +9605,7 @@ export function createServer(
   // access.store.name'den gelir (StoreSettings satirindan bagimsiz).
   app.get("/stores/:storeId/settings", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     const row = await dataAccess.getStoreSettings(params.storeId);
     return serializeStoreSettings(params.storeId, access.store.name, row, config.MEDIA_PUBLIC_BASE_URL);
@@ -9539,7 +9613,7 @@ export function createServer(
 
   app.patch("/stores/:storeId/settings", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     const input = storeSettingsUpdateRequestSchema.parse(request.body);
     // TODO-172 (ADR-273) — Fast Refund konfigürasyonu güçlü yetki: yalnız SUPER_ADMIN düzenler
@@ -9548,7 +9622,7 @@ export function createServer(
       input.fastRefundEnabled !== undefined ||
       input.fastRefundMaxAmountMinor !== undefined ||
       input.fastRefundCurrency !== undefined;
-    if (touchesFastRefund && access.session.platformUser.role !== "SUPER_ADMIN") {
+    if (touchesFastRefund && !hasStorePermission(access.role, "settings:manage")) {
       await reply.code(403).send(errorBody("FORBIDDEN", "Hızlı iade ayarları için yetki yetersiz."));
       return;
     }
@@ -9556,7 +9630,7 @@ export function createServer(
     // compensation limitini yalnız SUPER_ADMIN belirler (client'a kör güven yok; backend-enforced).
     const touchesGoodwill =
       input.maxGoodwillCreditPerActionMinor !== undefined || input.goodwillCreditCurrency !== undefined;
-    if (touchesGoodwill && access.session.platformUser.role !== "SUPER_ADMIN") {
+    if (touchesGoodwill && !hasStorePermission(access.role, "settings:manage")) {
       await reply.code(403).send(errorBody("FORBIDDEN", "Alışveriş bakiyesi politikası için yetki yetersiz."));
       return;
     }
@@ -9577,7 +9651,7 @@ export function createServer(
     const row = await dataAccess.upsertStoreSettings(params.storeId, input);
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "StoreSettings",
       entityId: params.storeId,
@@ -9752,7 +9826,7 @@ export function createServer(
    */
   app.get("/stores/:storeId/products", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const query = adminProductListQuerySchema.parse(request.query);
     const { page, pageSize, limit, offset } = resolveAdminListPage(query);
@@ -9783,7 +9857,7 @@ export function createServer(
   /** TODO-159A — Ürün filtre açılırlarının DISTINCT marka/tedarikçi kaynağı. */
   app.get("/stores/:storeId/products/filter-options", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const options = await dataAccess.listProductFilterOptions(params.storeId);
     return adminProductFilterOptionsResponseSchema.parse(options);
@@ -9803,7 +9877,7 @@ export function createServer(
    */
   app.get("/stores/:storeId/products/selector", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const query = adminProductSelectorQuerySchema.parse(request.query);
 
@@ -9863,7 +9937,7 @@ export function createServer(
 
   app.post("/stores/:storeId/products", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const input = productCreateRequestSchema.parse(request.body);
     // Faz 2A (ADR-068) — attributeValues Product kolonu DEGIL: ayiklanir, createProduct'a
@@ -9983,7 +10057,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "CREATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Product",
       entityId: product.id,
@@ -9996,7 +10070,7 @@ export function createServer(
 
   app.get("/stores/:storeId/products/:productId", async (request, reply) => {
     const params = productParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const product = await dataAccess.findProductById(params.storeId, params.productId);
     if (!product) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
@@ -10005,7 +10079,7 @@ export function createServer(
 
   app.patch("/stores/:storeId/products/:productId", async (request, reply) => {
     const params = productParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const input = productUpdateRequestSchema.parse(request.body);
     const current = await dataAccess.findProductById(params.storeId, params.productId);
@@ -10195,7 +10269,7 @@ export function createServer(
         // adiyla dual-write ile EZILIR; brandId absent/null ise `productInput.brand`
         // (istemcinin ayrica gonderdigi bare legacy metin, verilmediyse dokunulmaz) korunur.
         ...(brandMirrorName === undefined ? {} : { brand: brandMirrorName }),
-      }, access.session.platformUser.id);
+      }, access.actorUserId);
       if (!updated) return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
       product = updated;
     }
@@ -10218,7 +10292,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Product",
       entityId: product.id,
@@ -10232,7 +10306,7 @@ export function createServer(
 
   app.get("/stores/:storeId/products/:productId/variants", async (request, reply) => {
     const params = productParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     if (!(await dataAccess.findProductById(params.storeId, params.productId))) {
       return reply.code(404).send(errorBody("PRODUCT_NOT_FOUND", "Product not found."));
@@ -10247,7 +10321,7 @@ export function createServer(
 
   app.post("/stores/:storeId/products/:productId/variants", async (request, reply) => {
     const params = productParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const parentProduct = await dataAccess.findProductById(params.storeId, params.productId);
     if (!parentProduct) {
@@ -10330,7 +10404,7 @@ export function createServer(
         vatRateBps: createVatRateBps,
         vatAmountMinor: createPricing.vatMinor,
         // F4B — Baslangic fiyat audit'i icin aktor.
-        changedByPlatformUserId: access.session.platformUser.id,
+        changedByPlatformUserId: access.actorUserId,
         priceChangeSource: "ADMIN_EDIT",
       });
     } catch (error) {
@@ -10345,7 +10419,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "CREATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ProductVariant",
       entityId: variant.id,
@@ -10359,7 +10433,7 @@ export function createServer(
 
   app.patch("/stores/:storeId/products/:productId/variants/:variantId", async (request, reply) => {
     const params = variantParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const current = await dataAccess.findVariantById(params.storeId, params.productId, params.variantId);
     if (!current) return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
@@ -10451,7 +10525,7 @@ export function createServer(
       // istemcinin ham netPriceMinor/vatRateBps'i oldugu gibi GECMEZ.
       ...pricingPatch,
       // F4B — Fiyat/liste/maliyet degisiklik audit'i icin aktor.
-      changedByPlatformUserId: access.session.platformUser.id,
+      changedByPlatformUserId: access.actorUserId,
       priceChangeSource: "ADMIN_EDIT",
     });
     if (!variant) return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
@@ -10461,7 +10535,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "ProductVariant",
       entityId: variant.id,
@@ -10486,7 +10560,7 @@ export function createServer(
     "/stores/:storeId/products/:productId/variants/:variantId/price-changes",
     async (request, reply) => {
       const params = variantParamSchema.parse(request.params);
-      const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+      const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
       if (!access) return;
       if (!(await dataAccess.findVariantById(params.storeId, params.productId, params.variantId))) {
         return reply.code(404).send(errorBody("VARIANT_NOT_FOUND", "Variant not found."));
@@ -10502,7 +10576,7 @@ export function createServer(
 
   app.get("/stores/:storeId/inventory", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const pagination = paginationQuerySchema.parse(request.query);
     const inventory = await dataAccess.listInventory(params.storeId, pagination);
@@ -10514,7 +10588,7 @@ export function createServer(
 
   app.get("/stores/:storeId/inventory/:variantId", async (request, reply) => {
     const params = inventoryParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const item = await dataAccess.findInventoryByVariantId(params.storeId, params.variantId);
     if (!item) return reply.code(404).send(errorBody("INVENTORY_ITEM_NOT_FOUND", "Inventory item not found."));
@@ -10523,12 +10597,12 @@ export function createServer(
 
   app.post("/stores/:storeId/inventory/:variantId/adjust", async (request, reply) => {
     const params = inventoryParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("catalog")(request, reply, params.storeId);
     if (!access) return;
     const input = inventoryAdjustRequestSchema.parse(request.body);
     const result = await dataAccess.adjustInventory(params.storeId, params.variantId, {
       ...input,
-      actorUserId: access.session.platformUser.id,
+      actorUserId: access.actorUserId,
     });
     if (!result) return reply.code(404).send(errorBody("INVENTORY_ITEM_NOT_FOUND", "Inventory item not found."));
     if (result === "NEGATIVE_STOCK") {
@@ -10538,7 +10612,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "InventoryItem",
       entityId: result.item.id,
@@ -10557,7 +10631,7 @@ export function createServer(
 
   app.get("/stores/:storeId/orders", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("orders")(request, reply, params.storeId);
     if (!access) return;
     // TODO-073 — Operasyonel filtreler. Store-scope yukarıda zorlanır; filtreler
     // yalnız o mağaza içinde daraltır, başka mağaza siparişine erişim açmaz.
@@ -10576,7 +10650,7 @@ export function createServer(
   // dönmez. Response yalnız güvenli/maskeli alanlar taşır (hash/token/OTP/tam PII yok).
   app.get("/stores/:storeId/customers", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("customers")(request, reply, params.storeId);
     if (!access) return;
     // TODO-159A (ADR-089) — Admin Data Grid müşteri dizini (arama + durum + sıralama).
     const query = adminCustomerListQuerySchema.parse(request.query);
@@ -10599,12 +10673,12 @@ export function createServer(
 
   app.post("/stores/:storeId/orders", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("orders")(request, reply, params.storeId);
     if (!access) return;
     const input = orderCreateRequestSchema.parse(request.body);
     const order = await dataAccess.createOrder(params.storeId, {
       ...input,
-      actorUserId: access.session.platformUser.id,
+      actorUserId: access.actorUserId,
     });
     if (order === "CUSTOMER_NOT_FOUND") {
       return reply.code(404).send(errorBody("CUSTOMER_NOT_FOUND", "Customer not found."));
@@ -10628,7 +10702,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "CREATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Order",
       entityId: order.id,
@@ -10639,7 +10713,7 @@ export function createServer(
 
   app.get("/stores/:storeId/orders/:orderId", async (request, reply) => {
     const params = orderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("orders")(request, reply, params.storeId);
     if (!access) return;
     const order = await dataAccess.findOrderById(params.storeId, params.orderId);
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
@@ -10648,12 +10722,12 @@ export function createServer(
 
   app.patch("/stores/:storeId/orders/:orderId", async (request, reply) => {
     const params = orderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("orders")(request, reply, params.storeId);
     if (!access) return;
     const input = orderUpdateRequestSchema.parse(request.body);
     const order = await dataAccess.updateOrder(params.storeId, params.orderId, {
       ...input,
-      actorUserId: access.session.platformUser.id,
+      actorUserId: access.actorUserId,
     });
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
     if (order === "CUSTOMER_NOT_FOUND") {
@@ -10664,7 +10738,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Order",
       entityId: order.id,
@@ -10675,12 +10749,12 @@ export function createServer(
 
   app.post("/stores/:storeId/orders/:orderId/lines", async (request, reply) => {
     const params = orderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("orders")(request, reply, params.storeId);
     if (!access) return;
     const input = orderLineInputSchema.parse(request.body);
     const order = await dataAccess.addOrderLine(params.storeId, params.orderId, {
       ...input,
-      actorUserId: access.session.platformUser.id,
+      actorUserId: access.actorUserId,
     });
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
     if (order === "VARIANT_NOT_FOUND") {
@@ -10700,7 +10774,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "OrderLine",
       entityId: order.lines.at(-1)?.id,
@@ -10711,12 +10785,12 @@ export function createServer(
 
   app.patch("/stores/:storeId/orders/:orderId/lines/:lineId", async (request, reply) => {
     const params = orderLineParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("orders")(request, reply, params.storeId);
     if (!access) return;
     const input = orderLineUpdateRequestSchema.parse(request.body);
     const order = await dataAccess.updateOrderLine(params.storeId, params.orderId, params.lineId, {
       ...input,
-      actorUserId: access.session.platformUser.id,
+      actorUserId: access.actorUserId,
     });
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
     if (order === "ORDER_LINE_NOT_FOUND") {
@@ -10733,7 +10807,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "OrderLine",
       entityId: params.lineId,
@@ -10744,10 +10818,10 @@ export function createServer(
 
   app.post("/stores/:storeId/orders/:orderId/place", async (request, reply) => {
     const params = orderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("orders")(request, reply, params.storeId);
     if (!access) return;
     const order = await dataAccess.placeOrder(params.storeId, params.orderId, {
-      actorUserId: access.session.platformUser.id,
+      actorUserId: access.actorUserId,
     });
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
     if (order === "INVALID_STATUS") {
@@ -10770,7 +10844,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Order",
       entityId: order.id,
@@ -10781,12 +10855,12 @@ export function createServer(
 
   app.post("/stores/:storeId/orders/:orderId/cancel", async (request, reply) => {
     const params = orderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("orders")(request, reply, params.storeId);
     if (!access) return;
     const input = orderCancelRequestSchema.parse(request.body ?? {});
     const order = await dataAccess.cancelOrder(params.storeId, params.orderId, {
       ...input,
-      actorUserId: access.session.platformUser.id,
+      actorUserId: access.actorUserId,
     });
     if (!order) return reply.code(404).send(errorBody("ORDER_NOT_FOUND", "Order not found."));
     if (order === "INVALID_STATUS") {
@@ -10797,7 +10871,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Order",
       entityId: order.id,
@@ -10996,7 +11070,7 @@ export function createServer(
   // --- Admin: provider config yonetimi (store-scoped, maskeli yanit) --------
   app.get("/stores/:storeId/payment-providers", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     // TODO-163 — PAYMENTS çekirdek modül (daima açık); guard tutarlılık için korunur.
     if (!(await requireCapability(reply, params.storeId, "PAYMENTS"))) return;
@@ -11006,7 +11080,7 @@ export function createServer(
 
   app.post("/stores/:storeId/payment-providers", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     // TODO-163 — PAYMENTS çekirdek modül (daima açık); guard tutarlılık için korunur.
     if (!(await requireCapability(reply, params.storeId, "PAYMENTS"))) return;
@@ -11038,7 +11112,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "CREATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "PaymentProviderConfig",
       entityId: created.id,
@@ -11050,7 +11124,7 @@ export function createServer(
 
   app.get("/stores/:storeId/payment-providers/:configId", async (request, reply) => {
     const params = paymentProviderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     const config = await dataAccess.findPaymentProviderConfigById(params.storeId, params.configId);
     if (!config) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
@@ -11059,7 +11133,7 @@ export function createServer(
 
   app.patch("/stores/:storeId/payment-providers/:configId", async (request, reply) => {
     const params = paymentProviderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     const input = paymentProviderConfigUpdateRequestSchema.parse(request.body);
     const existing = await dataAccess.findPaymentProviderConfigById(params.storeId, params.configId);
@@ -11082,7 +11156,7 @@ export function createServer(
     if (!updated) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "PaymentProviderConfig",
       entityId: updated.id,
@@ -11093,7 +11167,7 @@ export function createServer(
 
   app.post("/stores/:storeId/payment-providers/:configId/status", async (request, reply) => {
     const params = paymentProviderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     const input = paymentProviderStatusUpdateRequestSchema.parse(request.body);
     const updated = await dataAccess.setPaymentProviderStatus(params.storeId, params.configId, input.status);
@@ -11106,7 +11180,7 @@ export function createServer(
     });
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "PaymentProviderConfig",
       entityId: updated.id,
@@ -11117,7 +11191,7 @@ export function createServer(
 
   app.post("/stores/:storeId/payment-providers/reorder", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     const input = paymentProviderReorderRequestSchema.parse(request.body);
     const result = await dataAccess.reorderPaymentProviderPriorities(params.storeId, input.items);
@@ -11126,7 +11200,7 @@ export function createServer(
     }
     await dataAccess.createAuditLog({
       action: "UPDATE",
-      platformUserId: access.session.platformUser.id,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "PaymentProviderConfig",
       metadata: { reordered: input.items.length },
@@ -11136,7 +11210,7 @@ export function createServer(
 
   app.post("/stores/:storeId/payment-providers/:configId/test-connection", async (request, reply) => {
     const params = paymentProviderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     const config = await dataAccess.findPaymentProviderConfigById(params.storeId, params.configId);
     if (!config) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
@@ -11174,7 +11248,7 @@ export function createServer(
 
   app.get("/stores/:storeId/payment-providers/:configId/events", async (request, reply) => {
     const params = paymentProviderParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     const config = await dataAccess.findPaymentProviderConfigById(params.storeId, params.configId);
     if (!config) return reply.code(404).send(errorBody("PAYMENT_PROVIDER_NOT_FOUND", "Provider config not found."));
@@ -11188,7 +11262,7 @@ export function createServer(
 
   app.get("/stores/:storeId/payment-events", async (request, reply) => {
     const params = storeParamSchema.parse(request.params);
-    const access = await requireStorePlatformAdmin(request, reply, params.storeId);
+    const access = await storeAdminDirect("settings")(request, reply, params.storeId);
     if (!access) return;
     const pagination = paginationQuerySchema.parse(request.query);
     const events = await dataAccess.listPaymentProviderEvents(params.storeId, pagination);

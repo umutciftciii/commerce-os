@@ -12,6 +12,7 @@
  *  - Allowlist: yalnız bu iki job tipi tetiklenebilir (rastgele job adı yok).
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   commercialAutomationRunRequestSchema,
   commercialAutomationStatusResponseSchema,
@@ -28,9 +29,8 @@ import {
   type JobRunRow,
 } from "./job-log.js";
 
-type AuditFn = (input: {
+type AuditFn = (input: StoreAuditActor & {
   action: "CREATE" | "UPDATE" | "DELETE" | "LOGIN" | "LOGOUT" | "SYSTEM";
-  platformUserId?: string;
   storeId?: string;
   entityType: string;
   entityId?: string;
@@ -42,7 +42,7 @@ export interface CommercialAutomationRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
   settlementScheduler: SettlementSchedulerService;
   retention: RetentionService;
   jobLog: JobLogClient;
@@ -114,7 +114,7 @@ export function registerCommercialAutomationRoutes(
     }
     await recordAudit({
       action: apply ? "CREATE" : "SYSTEM",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId,
       entityType: "CommercialAutomation",
       metadata: {
@@ -156,7 +156,7 @@ export function registerCommercialAutomationRoutes(
     }
     await recordAudit({
       action: apply ? "DELETE" : "SYSTEM",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId,
       entityType: "CommercialAutomation",
       metadata: {

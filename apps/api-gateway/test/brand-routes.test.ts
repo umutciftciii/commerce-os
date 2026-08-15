@@ -11,6 +11,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { type AppDataAccess, createServer } from "../src/server.js";
+import { createStoreAuthDataFake } from "./helpers/store-auth-fixture.js";
 import type {
   BrandCreateData,
   BrandDataAccess,
@@ -62,6 +63,11 @@ const STORES = new Map([
 ]);
 
 const AUTH = { authorization: "Bearer admin-token" };
+// Faz E2 — StoreUser oturumu tek-mağazalıdır. store_b'ye yapılan HTTP istekleri (kurulum
+// create'leri + store_b'den store_a markasının GÖRÜNMEZLİĞİ) için store_b'nin KENDİ OWNER
+// token'ı; böylece guard mağaza kapısını geçer ve izolasyon handler katmanında (BRAND_NOT_FOUND)
+// kanıtlanır (eski PlatformUser SUPER_ADMIN'in tüm-mağaza erişimini birebir modeller).
+const AUTH_B = { authorization: "Bearer admin-token-b" };
 
 let seq = 0;
 function nextId(prefix: string): string {
@@ -259,7 +265,17 @@ function buildApp() {
     },
   } as unknown as AppDataAccess;
 
-  const app = createServer(config, { dataAccess, brandDataAccess });
+  const app = createServer(config, {
+    dataAccess,
+    brandDataAccess,
+    storeAuthData: createStoreAuthDataFake(
+      [
+        { token: "admin-token", storeId: STORE_A, role: "OWNER" },
+        { token: "admin-token-b", storeId: STORE_B, role: "OWNER" },
+      ],
+      config.SESSION_SECRET,
+    ),
+  });
   return { app, brandDataAccess, auditLogs };
 }
 
@@ -392,7 +408,7 @@ describe("Brand routes — tenant izolasyonu", () => {
     const getRes = await app.inject({
       method: "GET",
       url: `/stores/${STORE_B}/brands/${brandId}`,
-      headers: AUTH,
+      headers: AUTH_B,
     });
     expect(getRes.statusCode).toBe(404);
     expect(getRes.json().error.code).toBe("BRAND_NOT_FOUND");
@@ -400,7 +416,7 @@ describe("Brand routes — tenant izolasyonu", () => {
     const patchRes = await app.inject({
       method: "PATCH",
       url: `/stores/${STORE_B}/brands/${brandId}`,
-      headers: AUTH,
+      headers: AUTH_B,
       payload: { name: "Hijack" },
     });
     expect(patchRes.statusCode).toBe(404);
@@ -408,7 +424,7 @@ describe("Brand routes — tenant izolasyonu", () => {
     const archiveRes = await app.inject({
       method: "POST",
       url: `/stores/${STORE_B}/brands/${brandId}/archive`,
-      headers: AUTH,
+      headers: AUTH_B,
     });
     expect(archiveRes.statusCode).toBe(404);
 
@@ -443,7 +459,7 @@ describe("GET /stores/:storeId/brands/selector — ids cozum modu", () => {
       await app.inject({
         method: "POST",
         url: `/stores/${STORE_B}/brands`,
-        headers: AUTH,
+        headers: AUTH_B,
         payload: brandBody({ name: "Puma" }),
       })
     ).json().data;

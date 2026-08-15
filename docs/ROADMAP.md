@@ -1698,3 +1698,28 @@ required (`lint · test · build` + `smoke`) GREEN; docker enterprise rebuild + 
 post-deploy runtime smoke GREEN. 2 additive migration. **admin-web İLK KEZ E2E'ye girdi** (dedicated
 `admin-web-e2e` servisi + platform-admin login setup). TD-178-4/5/6 RESOLVED; TD-178-1/2/3/7 FUTURE.
 Docs: ADR-290 / TECHNICAL_DEBT / TESTING.
+
+## Per-Tenant Store Admin Authentication & RBAC — 2026-08-15 (ADR-291)
+
+Store Admin konsolu artık **PlatformUser DEĞİL, ilk-sınıf per-tenant `StoreUser`** kimliğiyle çalışır.
+Güvenlik kök-nedeni: (a) mağaza personeli platform kullanıcısı olarak giriyordu, (b) tenant istemci
+header'ından seçilebiliyordu (spoof), (c) "ilk/demo mağaza" sessiz fallback'i. Çözüm: `StoreUser` +
+`StoreUserSession` (ADR-271 modeli), tenant YALNIZ sunucu-config'ten (`STORE_ADMIN_STORE_SLUG`),
+`session.storeId` otorite, explicit OWNER provisioning (heuristic yok), dual-auth/fallback YOK, 5-rol RBAC
++ capability, inactive store/user fail-closed, STORE_USER audit aktörleri, ADR-271-parity oturum rotation
+(`/auth/store/extend`). Platform-owned yüzeyler (theme-binding, /admin/*, question-set, platform-request
+inbox) explicit korunur.
+
+Faz zinciri: B (login/logout/session + tenant trust) → C (RBAC guard foundation) → D (OWNER provisioning +
+Store.status policy) → E1 (BFF cutover) / E2 (gateway route+RBAC cutover + audit-actor) → F (oturum UX +
+extend rotation + cleanup) → G (Playwright gerçek-login E2E + docs/ADR + gate + ship).
+
+**IMPLEMENTED — LOCAL GATE GREEN (ship pending, 2026-08-15):** gateway store-auth Run1+Run2 (authenticate/
+data/routes/guard/rbac + `/auth/store/extend` suite) + gateway full Run1+Run2 2981/2981 + BFF cutover +
+SessionGuard component + Playwright `@store-admin-auth` (OWNER+VIEWER gerçek login; identity/canonical/tenant/
+RBAC-403/session-lifecycle; Run1+Run2 + repeat-each=3 sıfır flake) + admin-smoke regresyon GREEN. Additive
+migration YOK (Faz B identity migration zaten canlı; `rotatedFromSessionId`/`policyVersion` şemada mevcut).
+CI + merge + runtime deploy + post-deploy smoke bekliyor → tamamlanınca **CLOSED & DEPLOYED** + ADR-291
+`IMPLEMENTED & GATE GREEN`. FUTURE: TD-AUTH-002 (legacy actor-field rename), Phase 1.5 impersonation,
+multi-store host/subdomain resolver, Structural Tenant Isolation/RLS. Docs: ADR-291 / TECHNICAL_DEBT /
+TESTING / OPERATIONS.

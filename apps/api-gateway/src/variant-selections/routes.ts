@@ -16,6 +16,7 @@ import {
   productVariantSelectionListResponseSchema,
   productVariantSelectionsReplaceRequestSchema,
 } from "@commerce-os/contracts";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   serializeProductVariantSelection,
   variantSelectionErrorStatus,
@@ -23,7 +24,7 @@ import {
   type VariantSelectionService,
 } from "./service.js";
 
-type Actor = { actorUserId: string };
+type Actor = { actorUserId: string; audit: StoreAuditActor };
 
 export interface VariantSelectionRoutesDeps {
   service: VariantSelectionService;
@@ -32,9 +33,8 @@ export interface VariantSelectionRoutesDeps {
     reply: FastifyReply,
     storeId: string,
   ) => Promise<Actor | null>;
-  recordAudit: (input: {
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -83,7 +83,7 @@ export function registerVariantSelectionRoutes(app: FastifyInstance, deps: Varia
     if (!result.ok) return sendServiceError(reply, result.error);
     await recordAudit({
       action: "UPDATE",
-      platformUserId: actor.actorUserId,
+      ...actor.audit,
       storeId: params.storeId,
       entityType: "ProductVariantAttribute",
       entityId: params.productId,

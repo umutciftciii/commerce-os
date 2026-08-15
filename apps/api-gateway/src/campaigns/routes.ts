@@ -9,6 +9,7 @@
  *  - ARCHIVED kampanya duzenlenemez (yalniz goruntulenir); ARCHIVED terminaldir.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
+import type { StoreAuditActor } from "../store-auth/guard.js";
 import {
   campaignCreateRequestSchema,
   campaignDetailResponseSchema,
@@ -31,10 +32,9 @@ export interface CampaignAdminRoutesDeps {
     request: FastifyRequest,
     reply: FastifyReply,
     storeId: string,
-  ) => Promise<{ actorUserId: string } | null>;
-  recordAudit: (input: {
+  ) => Promise<{ actorUserId: string; audit: StoreAuditActor } | null>;
+  recordAudit: (input: StoreAuditActor & {
     action: "CREATE" | "UPDATE" | "DELETE";
-    platformUserId?: string;
     storeId?: string;
     entityType: string;
     entityId?: string;
@@ -126,7 +126,7 @@ export function registerCampaignAdminRoutes(app: FastifyInstance, deps: Campaign
     if (isMutationError(result)) return sendMutationError(reply, result);
     await recordAudit({
       action: "CREATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Campaign",
       entityId: result.id,
@@ -155,7 +155,7 @@ export function registerCampaignAdminRoutes(app: FastifyInstance, deps: Campaign
     if (isMutationError(result)) return sendMutationError(reply, result);
     await recordAudit({
       action: "UPDATE",
-      platformUserId: access.actorUserId,
+      ...access.audit,
       storeId: params.storeId,
       entityType: "Campaign",
       entityId: result.id,
@@ -179,7 +179,7 @@ export function registerCampaignAdminRoutes(app: FastifyInstance, deps: Campaign
       if (isMutationError(result)) return sendMutationError(reply, result);
       await recordAudit({
         action: "UPDATE",
-        platformUserId: access.actorUserId,
+        ...access.audit,
         storeId: params.storeId,
         entityType: "Campaign",
         entityId: result.id,

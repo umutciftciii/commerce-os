@@ -1,0 +1,776 @@
+/**
+ * Store-auth routes (Faz B, TODO-B3) — GERÇEK-DB entegrasyon testleri.
+ *
+ * CALISTIRMA: DATABASE_URL verilmezse SKIP (CI-safe). Fastify inject.
+ *
+ * TENANT TRUST BOUNDARY: tenant context YALNIZCA sunucu-tarafı deployment config'inden
+ * (`buildApp(configuredStoreSlug)` ← STORE_ADMIN_STORE_SLUG) çözülür. İstemci tenant SEÇEMEZ:
+ * spoof edilmiş `x-store-admin-tenant` header'ı, host, body/query storeSlug/storeId YOKSAYILIR.
+ * Config tanımsız/bilinmeyen ise login fail-closed 401. Güvenlik değişmezleri: TÜM login
+ * başarısızlıkları aynı jenerik 401 INVALID_CREDENTIALS (enumeration yok); PlatformUser fallback
+ * yok; başarısız denemeler audit YAZMAZ; response body'lerde passwordHash/tokenHash/
+ * linkedPlatformUserId/sessionId ASLA yok.
+ */
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { afterEach, describe, expect, it } from "vitest";
+import Fastify, { type FastifyInstance } from "fastify";
+import { prisma } from "@commerce-os/db";
+import { hashPassword, verifyPassword } from "@commerce-os/auth";
+import { resolveSessionPolicy } from "@commerce-os/config";
+import type { StoreUserRole, StoreUserStatus } from "@prisma/client";
+import { createStoreAuthData } from "../src/store-auth/data.js";
+import { registerStoreAuthRoutes, type StoreAuthRouteDeps } from "../src/store-auth/routes.js";
+
+const hasTestDb = Boolean(process.env.DATABASE_URL);
+const created: string[] = [];
+
+const TEST_SECRET = "test-secret";
+const hashToken = (t: string) => createHash("sha256").update(`${t}.${TEST_SECRET}`).digest("hex");
+
+async function makeStore(
+  status: "DRAFT" | "ACTIVE" | "SUSPENDED" | "CLOSED" = "ACTIVE",
+): Promise<{ storeId: string; slug: string }> {
+  const sfx = randomUUID().slice(0, 12);
+  const storeId = `sar-store-${sfx}`;
+  const slug = `sar-${sfx}`;
+  await prisma.store.create({ data: { id: storeId, name: `SAR ${sfx}`, slug, status } });
+  created.push(storeId);
+  return { storeId, slug };
+}
+
+async function makeStoreUser(
+  storeId: string,
+  over: {
+    email: string;
+    password?: string | null; // null = legacy null-passwordHash; undefined = default password
+    status?: StoreUserStatus;
+    role?: StoreUserRole;
+    name?: string | null;
+  },
+): Promise<{ userId: string; password: string | null }> {
+  const password = over.password === null ? null : (over.password ?? "correct-horse-battery-staple");
+  const passwordHash = password ? await hashPassword(password) : null;
+  const user = await prisma.storeUser.create({
+    data: {
+      storeId,
+      email: over.email.toLowerCase(),
+      name: over.name ?? "Test User",
+      passwordHash,
+      status: over.status ?? "ACTIVE",
+      role: over.role ?? "ADMIN",
+    },
+    select: { id: true },
+  });
+  return { userId: user.id, password };
+}
+
+interface CapturedAudit {
+  action: string;
+  storeId?: string;
+  actorKind?: string;
+  actorStoreUserId?: string;
+  actorName?: string | null;
+  actorEmail?: string | null;
+  entityType: string;
+  entityId?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// Tenant, deployment config'inden (configuredStoreSlug) enjekte edilir — istemci header'ından
+// DEĞİL. Tek-mağaza deployment modeli: her app instance'ı tek bir mağazaya pinlenir.
+function buildApp(configuredStoreSlug?: string): { app: FastifyInstance; audits: CapturedAudit[] } {
+  const audits: CapturedAudit[] = [];
+  const app = Fastify();
+  const deps: StoreAuthRouteDeps = {
+    data: createStoreAuthData(prisma),
+    policy: resolveSessionPolicy({}),
+    configuredStoreSlug,
+    hashToken,
+    verifyPassword: (pw, hash) => verifyPassword(pw, hash, ""),
+    createAuditLog: async (input) => {
+      audits.push(input as CapturedAudit);
+    },
+    loginRateLimiter: {
+      isLimited: () => false,
+      recordFailure() {},
+      reset() {},
+    },
+  };
+  registerStoreAuthRoutes(app, deps);
+  return { app, audits };
+}
+
+// Recursively asserts none of the forbidden internal keys appear anywhere in a value tree.
+function assertNoForbiddenKeys(value: unknown, forbidden: string[], path = "$"): void {
+  if (value === null || typeof value !== "object") return;
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    expect(forbidden, `forbidden key "${key}" found at ${path}.${key}`).not.toContain(key);
+    assertNoForbiddenKeys(val, forbidden, `${path}.${key}`);
+  }
+}
+
+const FORBIDDEN_KEYS = ["passwordHash", "tokenHash", "linkedPlatformUserId", "sessionId"];
+
+describe.skipIf(!hasTestDb)("Store-auth routes (integration)", () => {
+  afterEach(async () => {
+    for (const storeId of created.splice(0)) {
+      await prisma.store.delete({ where: { id: storeId } }).catch(() => {});
+    }
+  });
+
+  it("configured deployment tenant → successful ACTIVE login → 200; safe DTO only", async () => {
+    const store = await makeStore();
+    const { userId, password } = await makeStoreUser(store.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(store.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "owner@e.test", password },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.token).toBeTypeOf("string");
+    expect(body.user.id).toBe(userId);
+    expect(body.user.storeId).toBe(store.storeId);
+    expect(body.user.role).toBe("ADMIN");
+    assertNoForbiddenKeys(body, FORBIDDEN_KEYS);
+  });
+
+  it("wrong password → 401 INVALID_CREDENTIALS", async () => {
+    const store = await makeStore();
+    await makeStoreUser(store.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(store.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "owner@e.test", password: "totally-wrong" },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("unknown email → 401 INVALID_CREDENTIALS", async () => {
+    const store = await makeStore();
+    const { app } = buildApp(store.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "nobody@e.test", password: "whatever12" },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  // --- STORE STATUS POLICY (Faz D) -----------------------------------------------------------
+
+  it.each(["SUSPENDED", "CLOSED", "DRAFT"] as const)(
+    "store %s → login 401 (yalnız ACTIVE eligible)",
+    async (status) => {
+      const store = await makeStore(status);
+      const { password } = await makeStoreUser(store.storeId, { email: "owner@e.test" });
+      const { app } = buildApp(store.slug);
+      const res = await app.inject({
+        method: "POST",
+        url: "/auth/store/login",
+        payload: { email: "owner@e.test", password },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+    },
+  );
+
+  // --- TENANT TRUST BOUNDARY (ADR-271 takip) -------------------------------------------------
+
+  it("missing configured tenant → fail-closed 401 (no store leak)", async () => {
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(undefined); // deployment config yok → resolver null → fail-closed
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "owner@e.test", password },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("unknown configured tenant → fail-closed 401", async () => {
+    // Config gerçek bir mağazaya işaret etmiyor: findStoreBySlug null → generic 401.
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(`does-not-exist-${randomUUID().slice(0, 8)}`);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "owner@e.test", password },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("spoofed x-store-admin-tenant header CANNOT change tenant (ignored; config still authenticates)", async () => {
+    // App storeA'ya pinli; kullanıcı yalnız storeA'da. Saldırgan spoof header + host yollar.
+    const storeA = await makeStore();
+    const { userId, password } = await makeStoreUser(storeA.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(storeA.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      headers: {
+        "x-store-admin-tenant": "attacker-controlled-slug",
+        host: "attacker.example.com",
+      },
+      payload: { email: "owner@e.test", password },
+    });
+
+    // Header/host YOKSAYILIR: config'teki storeA'ya karşı doğrulanır → 200, storeA döner.
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.id).toBe(userId);
+    expect(res.json().user.storeId).toBe(storeA.storeId);
+  });
+
+  it("spoofed tenant header pointing at a REAL other store cannot cross-authenticate", async () => {
+    // App storeA'ya pinli. Kurban storeB'de geçerli creds'e sahip. Saldırgan storeB.slug'ı
+    // header/body ile enjekte etse bile tenant storeA kalır → storeB kullanıcısı storeA'da yok → 401.
+    const storeA = await makeStore();
+    const storeB = await makeStore();
+    await makeStoreUser(storeB.storeId, { email: "victim@e.test", password: "victim-pass-1" });
+    const { app } = buildApp(storeA.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      headers: { "x-store-admin-tenant": storeB.slug },
+      payload: {
+        email: "victim@e.test",
+        password: "victim-pass-1",
+        // İstemci gövde alanları da tenant SEÇEMEZ (schema strip'ler; route yoksayar):
+        storeSlug: storeB.slug,
+        storeId: storeB.storeId,
+      },
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("client body storeSlug/storeId is ignored (config tenant wins)", async () => {
+    // App storeA'ya pinli, kullanıcı storeA'da. Gövdeye başka mağazayı hedefleyen alanlar konur.
+    const storeA = await makeStore();
+    const storeB = await makeStore();
+    const { userId, password } = await makeStoreUser(storeA.storeId, { email: "owner@e.test" });
+    const { app } = buildApp(storeA.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: {
+        email: "owner@e.test",
+        password,
+        storeSlug: storeB.slug,
+        storeId: storeB.storeId,
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().user.storeId).toBe(storeA.storeId);
+    expect(res.json().user.id).toBe(userId);
+  });
+
+  it("INVITED user → 401", async () => {
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "invited@e.test", status: "INVITED" });
+    const { app } = buildApp(store.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "invited@e.test", password },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("DISABLED user → 401", async () => {
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "disabled@e.test", status: "DISABLED" });
+    const { app } = buildApp(store.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "disabled@e.test", password },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("legacy null-passwordHash ACTIVE user → 401 (no fallback)", async () => {
+    const store = await makeStore();
+    await makeStoreUser(store.storeId, { email: "legacy@e.test", password: null });
+    const { app } = buildApp(store.slug);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "legacy@e.test", password: "anything123" },
+    });
+    expect(res.statusCode).toBe(401);
+    expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("same-email different-store isolation (app pinned to storeA)", async () => {
+    const storeA = await makeStore();
+    const storeB = await makeStore();
+    await makeStoreUser(storeA.storeId, { email: "same@e.test", password: "password-A-1" });
+    await makeStoreUser(storeB.storeId, { email: "same@e.test", password: "password-B-1" });
+    const { app } = buildApp(storeA.slug);
+
+    // storeA creds → storeA'da başarılı.
+    const okA = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "same@e.test", password: "password-A-1" },
+    });
+    expect(okA.statusCode).toBe(200);
+    expect(okA.json().user.storeId).toBe(storeA.storeId);
+
+    // storeB'nin (doğru) şifresi storeA'ya karşı çalışmaz — tenant izolasyonu korunur.
+    const crossed = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "same@e.test", password: "password-B-1" },
+    });
+    expect(crossed.statusCode).toBe(401);
+    expect(crossed.json().error.code).toBe("INVALID_CREDENTIALS");
+  });
+
+  it("PlatformUser-only email → 401 (no PlatformUser fallback)", async () => {
+    const store = await makeStore();
+    const platformUserId = `sar-pu-${randomUUID().slice(0, 12)}`;
+    await prisma.platformUser.create({
+      data: {
+        id: platformUserId,
+        email: "pu@e.test",
+        name: "Platform Only",
+        passwordHash: await hashPassword("platform-pass-1"),
+        role: "SUPPORT_ADMIN",
+      },
+    });
+    const { app } = buildApp(store.slug);
+
+    try {
+      const res = await app.inject({
+        method: "POST",
+        url: "/auth/store/login",
+        payload: { email: "pu@e.test", password: "platform-pass-1" },
+      });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().error.code).toBe("INVALID_CREDENTIALS");
+    } finally {
+      await prisma.platformUser.delete({ where: { id: platformUserId } }).catch(() => {});
+    }
+  });
+
+  it("GET /auth/store/session — 200 with token; 401 without", async () => {
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "sess@e.test" });
+    const { app } = buildApp(store.slug);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "sess@e.test", password },
+    });
+    expect(login.statusCode).toBe(200);
+    const { token, user } = login.json();
+
+    const session = await app.inject({
+      method: "GET",
+      url: "/auth/store/session",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(session.statusCode).toBe(200);
+    const sessionBody = session.json();
+    expect(sessionBody.user).toEqual(user);
+    expect(sessionBody.session.timing.warningLeadSeconds).toBeTypeOf("number");
+    // Faz E1 — store context SERVER-otoriter: oturumun bağlı olduğu mağazadan gelir
+    // (BFF için tek kaynak; mağaza listeleme/demo-first YOK). store.id == user.storeId.
+    expect(sessionBody.store.id).toBe(user.storeId);
+    expect(sessionBody.store.slug).toBe(store.slug);
+    expect(sessionBody.store.name).toBeTypeOf("string");
+    expect(sessionBody.store.name.length).toBeGreaterThan(0);
+    expect(sessionBody.store.status).toBe("ACTIVE");
+    assertNoForbiddenKeys(sessionBody, FORBIDDEN_KEYS);
+
+    const noToken = await app.inject({ method: "GET", url: "/auth/store/session" });
+    expect(noToken.statusCode).toBe(401);
+  });
+
+  // E2 READINESS PROBE (Faz E1 çıktısı) — StoreUser oturum token'ı gerçek bir StoreUserSession
+  // satırıdır ama PlatformSession DEĞİLDİR. Gateway business route guard'ları (requireStoreAdmin
+  // → requireStorePlatformAdmin → requirePlatformAdmin → authenticatePlatform) yalnız
+  // PlatformSession'ı token-hash ile çözer; StoreUser token'ı orada BULUNMAZ → 401. Bu, Phase E1
+  // sonunda business route'lara StoreUser oturumuyla ERİŞİLEMEDİĞİNİ (Senaryo B) kanıtlar: gateway
+  // guard cutover'ı (E2) gereklidir. (Silent dual-auth YOK; identity-bridge YOK.)
+  it("E2 probe: StoreUser session token is a store session, NOT a platform session (business routes reject it)", async () => {
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "probe@e.test" });
+    const { app } = buildApp(store.slug);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "probe@e.test", password },
+    });
+    expect(login.statusCode).toBe(200);
+    const { token } = login.json();
+    const tokenHash = hashToken(token);
+
+    // Token GERÇEK bir StoreUserSession'a çözülür (store-auth doğrular).
+    const storeSession = await prisma.storeUserSession.findFirst({ where: { tokenHash } });
+    expect(storeSession).not.toBeNull();
+    // Aynı token bir PlatformSession DEĞİLDİR → authenticatePlatform (business guard) null döner → 401.
+    const platformSession = await prisma.platformSession.findUnique({ where: { tokenHash } });
+    expect(platformSession).toBeNull();
+  });
+
+  it("logout revokes the session; subsequent session check → 401", async () => {
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "logout@e.test" });
+    const { app } = buildApp(store.slug);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "logout@e.test", password },
+    });
+    const { token } = login.json();
+
+    const logout = await app.inject({
+      method: "POST",
+      url: "/auth/store/logout",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(logout.statusCode).toBe(200);
+    expect(logout.json()).toEqual({ revoked: true });
+
+    const session = await app.inject({
+      method: "GET",
+      url: "/auth/store/session",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(session.statusCode).toBe(401);
+  });
+
+  it("audit snapshot: LOGIN + LOGOUT capture STORE_USER actor; no password leak", async () => {
+    const store = await makeStore();
+    const { userId, password } = await makeStoreUser(store.storeId, {
+      email: "audit@e.test",
+      name: "Audit Person",
+    });
+    const { app, audits } = buildApp(store.slug);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "audit@e.test", password },
+    });
+    const { token } = login.json();
+
+    await app.inject({
+      method: "POST",
+      url: "/auth/store/logout",
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(audits).toHaveLength(2);
+    const loginAudit = audits.find((a) => a.action === "LOGIN")!;
+    expect(loginAudit.actorKind).toBe("STORE_USER");
+    expect(loginAudit.actorStoreUserId).toBe(userId);
+    expect(loginAudit.actorName).toBe("Audit Person");
+    expect(loginAudit.actorEmail).toBe("audit@e.test");
+
+    const logoutAudit = audits.find((a) => a.action === "LOGOUT")!;
+    expect(logoutAudit.actorKind).toBe("STORE_USER");
+    expect(logoutAudit.actorStoreUserId).toBe(userId);
+    expect(logoutAudit.actorName).toBe("Audit Person");
+    expect(logoutAudit.actorEmail).toBe("audit@e.test");
+
+    const auditStr = JSON.stringify(audits);
+    expect(auditStr).not.toMatch(/correct-horse-battery-staple/);
+    expect(auditStr.toLowerCase()).not.toContain("password");
+  });
+
+  it("failed login attempts write NO audit row", async () => {
+    const store = await makeStore();
+    await makeStoreUser(store.storeId, { email: "noaudit@e.test" });
+    const { app, audits } = buildApp(store.slug);
+
+    await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "noaudit@e.test", password: "wrong-one" },
+    });
+    expect(audits).toHaveLength(0);
+  });
+
+  it("rememberMe timing parity: propagates through login → session", async () => {
+    const store = await makeStore();
+    const { password } = await makeStoreUser(store.storeId, { email: "remember@e.test" });
+    const { app } = buildApp(store.slug);
+
+    const login = await app.inject({
+      method: "POST",
+      url: "/auth/store/login",
+      payload: { email: "remember@e.test", password, rememberMe: true },
+    });
+    expect(login.statusCode).toBe(200);
+    const { token } = login.json();
+
+    const session = await app.inject({
+      method: "GET",
+      url: "/auth/store/session",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(session.statusCode).toBe(200);
+    const timing = session.json().session.timing;
+    expect(timing.rememberMe).toBe(true);
+
+    const absoluteMs = new Date(timing.absoluteExpiresAt).getTime();
+    const lastActivityMs = new Date(timing.lastActivityAt).getTime();
+    const diffDays = (absoluteMs - lastActivityMs) / (24 * 60 * 60 * 1000);
+    expect(diffDays).toBeGreaterThan(29);
+    expect(diffDays).toBeLessThan(31);
+  });
+
+  // ── Faz F (ADR-271) — POST /auth/store/extend (token rotation) ────────────────────────────
+  // Extend başarılı bir rotation'dır: yeni token + yenilenmiş idle capası döner; absolute tavan
+  // DEĞİŞMEZ; eski token geçersizlenir. Tüm güvenlik invariant'ları (expired/revoked/DISABLED/
+  // SUSPENDED-CLOSED/PlatformUser/corrupt) jenerik 401 üretir. Eşzamanlılıkta TEK kanonik başarı.
+  describe("POST /auth/store/extend", () => {
+    // Ortak: ACTIVE store + ACTIVE user + login → { token, session row }.
+    async function loginAndSession(over?: { rememberMe?: boolean; role?: StoreUserRole }) {
+      const store = await makeStore();
+      const email = `ext-${randomUUID().slice(0, 8)}@e.test`;
+      const { userId, password } = await makeStoreUser(store.storeId, {
+        email,
+        role: over?.role ?? "OWNER",
+        name: "Extend User",
+      });
+      const { app, audits } = buildApp(store.slug);
+      const login = await app.inject({
+        method: "POST",
+        url: "/auth/store/login",
+        payload: { email, password, rememberMe: over?.rememberMe ?? false },
+      });
+      expect(login.statusCode).toBe(200);
+      const { token } = login.json();
+      const row = await prisma.storeUserSession.findUniqueOrThrow({
+        where: { tokenHash: hashToken(token) },
+      });
+      return { store, userId, app, audits, token, sessionId: row.id };
+    }
+
+    const extend = (app: FastifyInstance, token: string) =>
+      app.inject({ method: "POST", url: "/auth/store/extend", headers: { authorization: `Bearer ${token}` } });
+    const session = (app: FastifyInstance, token: string) =>
+      app.inject({ method: "GET", url: "/auth/store/session", headers: { authorization: `Bearer ${token}` } });
+
+    it("extend success → 200; rotates token (new ≠ old); safe DTO only (no tokenHash/session id/policy)", async () => {
+      const { app, token } = await loginAndSession();
+      const res = await extend(app, token);
+      expect(res.statusCode).toBe(200);
+      const body = res.json();
+      expect(typeof body.token).toBe("string");
+      expect(body.token).not.toBe(token); // rotation
+      expect(body.expiresAt).toBeTypeOf("string");
+      expect(body.timing.warningLeadSeconds).toBeTypeOf("number");
+      // Güvenli DTO: yalnız token/expiresAt/timing. Internal alanlar sızmaz.
+      expect(Object.keys(body).sort()).toEqual(["expiresAt", "timing", "token"]);
+      assertNoForbiddenKeys(body, [...FORBIDDEN_KEYS, "policyVersion", "revokedAt", "id"]);
+    });
+
+    it("new token authenticates the rotated session (/session → 200)", async () => {
+      const { app, token } = await loginAndSession();
+      const { token: newToken } = (await extend(app, token)).json();
+      const res = await session(app, newToken);
+      expect(res.statusCode).toBe(200);
+      expect(res.json().session.timing).toBeTruthy();
+    });
+
+    it("rotation invalidates old token: old on /session → 401; old on /extend (replay) → 401", async () => {
+      const { app, token } = await loginAndSession();
+      await extend(app, token); // rotate
+      expect((await session(app, token)).statusCode).toBe(401);
+      expect((await extend(app, token)).statusCode).toBe(401); // replay eski token reddedilir
+    });
+
+    it("absolute expiry is NEVER extended (rotated absolute == original absolute)", async () => {
+      const { app, token, sessionId } = await loginAndSession();
+      const original = await prisma.storeUserSession.findUniqueOrThrow({
+        where: { id: sessionId },
+        select: { absoluteExpiresAt: true, expiresAt: true },
+      });
+      const origAbs = (original.absoluteExpiresAt ?? original.expiresAt).getTime();
+      const body = (await extend(app, token)).json();
+      expect(new Date(body.expiresAt).getTime()).toBe(origAbs);
+      expect(new Date(body.timing.absoluteExpiresAt).getTime()).toBe(origAbs);
+    });
+
+    it("idle capacity IS renewed on rotation (new lastActivityAt ≈ now; idle deadline moves forward)", async () => {
+      const { app, token, sessionId } = await loginAndSession();
+      // lastActivityAt'i geçmişe al ki rotation'ın onu 'now'a taşıdığını görelim (ama hâlâ geçerli).
+      const past = new Date(Date.now() - 5 * 60 * 1000);
+      await prisma.storeUserSession.update({ where: { id: sessionId }, data: { lastActivityAt: past } });
+      const body = (await extend(app, token)).json();
+      const la = new Date(body.timing.lastActivityAt).getTime();
+      expect(la).toBeGreaterThan(past.getTime()); // yenilendi
+      expect(Math.abs(la - Date.now())).toBeLessThan(10_000);
+    });
+
+    it("expired session → extend 401 (no resurrection)", async () => {
+      const { app, token, sessionId } = await loginAndSession();
+      const pastDate = new Date(Date.now() - 60 * 60 * 1000);
+      await prisma.storeUserSession.update({
+        where: { id: sessionId },
+        data: { lastActivityAt: pastDate, absoluteExpiresAt: pastDate, expiresAt: pastDate },
+      });
+      expect((await extend(app, token)).statusCode).toBe(401);
+    });
+
+    it("revoked (logged-out) session → extend 401", async () => {
+      const { app, token } = await loginAndSession();
+      await app.inject({ method: "POST", url: "/auth/store/logout", headers: { authorization: `Bearer ${token}` } });
+      expect((await extend(app, token)).statusCode).toBe(401);
+    });
+
+    it("DISABLED store user → extend 401", async () => {
+      const { app, token, userId } = await loginAndSession();
+      await prisma.storeUser.update({ where: { id: userId }, data: { status: "DISABLED" } });
+      expect((await extend(app, token)).statusCode).toBe(401);
+    });
+
+    it("SUSPENDED and CLOSED store → extend 401", async () => {
+      const suspended = await loginAndSession();
+      await prisma.store.update({ where: { id: suspended.store.storeId }, data: { status: "SUSPENDED" } });
+      expect((await extend(suspended.app, suspended.token)).statusCode).toBe(401);
+
+      const closed = await loginAndSession();
+      await prisma.store.update({ where: { id: closed.store.storeId }, data: { status: "CLOSED" } });
+      expect((await extend(closed.app, closed.token)).statusCode).toBe(401);
+    });
+
+    it("rememberMe parity: rotation preserves rememberMe window (timing + persisted row)", async () => {
+      const { app, token, sessionId } = await loginAndSession({ rememberMe: true });
+      const body = (await extend(app, token)).json();
+      expect(body.timing.rememberMe).toBe(true);
+      // Yeni (rotate edilen) satır da rememberMe taşır; eskisi rotatedFromSessionId ile işaretli.
+      const rotated = await prisma.storeUserSession.findFirstOrThrow({
+        where: { rotatedFromSessionId: sessionId },
+        select: { rememberMe: true, revokedAt: true },
+      });
+      expect(rotated.rememberMe).toBe(true);
+      expect(rotated.revokedAt).toBeNull();
+      // ~30 gün mutlak pencere korunur (uzatılmaz).
+      const diffDays =
+        (new Date(body.timing.absoluteExpiresAt).getTime() - new Date(body.timing.lastActivityAt).getTime()) /
+        (24 * 60 * 60 * 1000);
+      expect(diffDays).toBeGreaterThan(29);
+    });
+
+    it("logout AFTER extend: new token logs out (200 revoked); then /session → 401", async () => {
+      const { app, token } = await loginAndSession();
+      const { token: newToken } = (await extend(app, token)).json();
+      const logout = await app.inject({
+        method: "POST",
+        url: "/auth/store/logout",
+        headers: { authorization: `Bearer ${newToken}` },
+      });
+      expect(logout.statusCode).toBe(200);
+      expect(logout.json().revoked).toBe(true);
+      expect((await session(app, newToken)).statusCode).toBe(401);
+    });
+
+    it("PlatformUser session token → extend 401 (StoreUser table only; no identity-bridge)", async () => {
+      const store = await makeStore();
+      const { app } = buildApp(store.slug);
+      // Gerçek bir PlatformSession satırı oluştur; token'ı StoreUserSession'da YOK → 401.
+      const platformUserId = `ext-pu-${randomUUID().slice(0, 8)}`;
+      const platformToken = randomBytes(32).toString("base64url");
+      await prisma.platformUser.create({
+        data: {
+          id: platformUserId,
+          email: `${platformUserId}@e.test`,
+          name: "Platform Ext",
+          passwordHash: await hashPassword("pw-ext-1"),
+          role: "SUPPORT_ADMIN",
+        },
+      });
+      try {
+        await prisma.platformSession.create({
+          data: {
+            platformUserId,
+            tokenHash: hashToken(platformToken),
+            expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+            lastActivityAt: new Date(),
+            absoluteExpiresAt: new Date(Date.now() + 60 * 60 * 1000),
+          },
+        });
+        expect((await extend(app, platformToken)).statusCode).toBe(401);
+      } finally {
+        await prisma.platformSession.deleteMany({ where: { platformUserId } }).catch(() => {});
+        await prisma.platformUser.delete({ where: { id: platformUserId } }).catch(() => {});
+      }
+    });
+
+    it("corrupt / unknown token → generic 401; missing token → 401", async () => {
+      const store = await makeStore();
+      const { app } = buildApp(store.slug);
+      expect((await extend(app, "not-a-real-token")).statusCode).toBe(401);
+      const noToken = await app.inject({ method: "POST", url: "/auth/store/extend" });
+      expect(noToken.statusCode).toBe(401);
+    });
+
+    it("audit: extend writes a single UPDATE / SESSION_EXTEND row with STORE_USER actor (no secret leak)", async () => {
+      const { app, audits, userId, token } = await loginAndSession();
+      const before = audits.length;
+      await extend(app, token);
+      const extendAudits = audits.slice(before);
+      expect(extendAudits).toHaveLength(1);
+      const a = extendAudits[0];
+      expect(a.action).toBe("UPDATE");
+      expect(a.actorKind).toBe("STORE_USER");
+      expect(a.actorStoreUserId).toBe(userId);
+      expect(a.entityType).toBe("StoreUserSession");
+      expect((a.metadata as { event?: string }).event).toBe("SESSION_EXTEND");
+      expect(JSON.stringify(audits)).not.toMatch(/correct-horse-battery-staple/);
+    });
+
+    // §6 — Rotation concurrency: aynı oturum için EŞZAMANLI iki extend → yalnız BİRİ kanonik
+    // başarılıdır (updateMany where revokedAt:null tek kazanan garantisi). Kaybeden 401 (retry
+    // ile MASKELENMEZ). Sonuçta tam olarak BİR aktif (revokedAt IS NULL) rotate-edilmiş satır olur.
+    it("concurrent extend on same session → exactly one 200 + one 401; single active successor", async () => {
+      const { app, token, sessionId } = await loginAndSession();
+      const [a, b] = await Promise.all([extend(app, token), extend(app, token)]);
+      const codes = [a.statusCode, b.statusCode].sort();
+      expect(codes).toEqual([200, 401]);
+      // Eski oturum revoke; yalnız BİR canlı halef (rotatedFromSessionId == eski).
+      const successors = await prisma.storeUserSession.findMany({
+        where: { rotatedFromSessionId: sessionId, revokedAt: null },
+      });
+      expect(successors).toHaveLength(1);
+      const old = await prisma.storeUserSession.findUniqueOrThrow({ where: { id: sessionId } });
+      expect(old.revokedAt).not.toBeNull();
+    });
+  });
+});
