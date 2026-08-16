@@ -53,3 +53,18 @@ Urun stratejisi Turkiye'deki pazaryeri ve ticaret operasyonlarina gore sekilleni
   ve WhatsApp redirect/store contact config.
 - Production-grade observability, alerting ve deployment otomasyonu.
 - Buyume asistaninin AI destekli son kullanici ozellikleri.
+
+## Project Pause — 2026-08-16
+
+Proje gecici olarak duraklatildi. Resume source-of-truth ve kaldigimiz teknik nokta:
+`docs/PROJECT_PAUSE_2026-08-16.md`.
+
+Kritik durum: Per-Tenant Store Admin Auth + RBAC tamamlandi ve deploy edildi. Structural Tenant
+Isolation / PostgreSQL RLS Phase A+B tamamlandi; Phase C local performance pre-gate basarisiz oldu ve
+gercek staging erisimi olmadigi icin **PAUSED — EXTERNAL STAGING DEPENDENCY** durumunda. Projeye
+donuldugunde RLS icin ilk adim yeni implementasyon degil, mevcut A/B/C instrumentation ile gercek
+staging gateway→PostgreSQL fixed-gate olcumudur.
+
+Yeni roadmap maddeleri de pause snapshot ve yasayan Google Sheets roadmap'ine kaydedildi:
+PDP bundle/frequently-bought-together, low-stock urgency messaging ve lazer/sicak baski product
+personalization.
